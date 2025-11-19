@@ -18,6 +18,13 @@ const (
 	TimeScalePaused
 )
 
+// String returns the string representation of TimeScale
+func (ts TimeScale) String() string {
+	return [...]string{
+		"RealTime", "Accelerated4X", "Accelerated24X", "Paused",
+	}[ts]
+}
+
 // BehaviorState represents the current behavioral state of the pet
 type BehaviorState int
 
