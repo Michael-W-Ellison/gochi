@@ -45,6 +45,7 @@ build/
 *.log
 data/saves/
 data/logs/
+internal/*/data/
 
 # Temporary files
 tmp/
