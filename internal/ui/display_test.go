@@ -4,11 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Michael-W-Ellison/gochi/internal/ai"
-	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
-	"github.com/Michael-W-Ellison/gochi/internal/social"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -155,20 +152,36 @@ func TestPrintSummary(t *testing.T) {
 	display.PrintSummary(nil, 3600.0)
 }
 
-// Helper function to create a test pet
-func createTestPet() *core.DigitalPet {
-	return &core.DigitalPet{
-		ID:              types.PetID("test-pet-1"),
-		Name:            "Gochi",
-		Biology:         biology.NewBiologicalSystems(),
-		Personality:     ai.NewPersonalityMatrix(),
-		Memory:          ai.NewMemorySystem(50),
-		Emotions:        ai.NewEmotionState(),
-		Relationships:   social.NewSocialRelationships(10),
-		CurrentBehavior: types.BehaviorIdle,
-		Location:        "Home",
-		CreatedAt:       time.Now(),
-		LastUpdateAt:    time.Now(),
-		Owner:           types.UserID("test-user"),
+func TestAnimateDots(t *testing.T) {
+	display := NewDisplay()
+
+	// Test animating dots with short duration
+	done := make(chan bool)
+	go func() {
+		display.AnimateDots(100*time.Millisecond, "Testing")
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Animation completed successfully
+	case <-time.After(500 * time.Millisecond):
+		t.Error("AnimateDots took too long to complete")
 	}
+}
+
+func TestPrintHeaderAndClear(t *testing.T) {
+	display := NewDisplay()
+
+	// Test Clear
+	display.Clear()
+
+	// Test PrintHeader
+	display.PrintHeader("Test Header")
+}
+
+func TestPrintSeparator(t *testing.T) {
+	display := NewDisplay()
+
+	display.printSeparator()
 }

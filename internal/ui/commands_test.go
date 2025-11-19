@@ -159,3 +159,107 @@ func TestProcessEmptyCommand(t *testing.T) {
 		t.Error("ProcessCommand with whitespace should return true")
 	}
 }
+
+func TestHandleSleep(t *testing.T) {
+	display := NewDisplay()
+	envConfig := environment.DefaultEnvironmentConfig()
+	env := environment.NewEnvironmentManager(envConfig)
+
+	gameLoopConfig := core.DefaultGameLoopConfig()
+	gameLoop, err := core.NewGameLoop(gameLoopConfig)
+	if err != nil {
+		t.Fatalf("Failed to create game loop: %v", err)
+	}
+
+	// Start game loop
+	err = gameLoop.Start()
+	if err != nil {
+		t.Fatalf("Failed to start game loop: %v", err)
+	}
+	defer gameLoop.Stop()
+
+	pet := createTestPet()
+	err = gameLoop.AddPet(pet)
+	if err != nil {
+		t.Fatalf("Failed to add pet: %v", err)
+	}
+
+	cmdProcessor := NewCommandProcessor(display, gameLoop, env)
+
+	// Test sleep command
+	result := cmdProcessor.ProcessCommand("sleep", pet)
+	if !result {
+		t.Error("ProcessCommand('sleep') should return true")
+	}
+}
+
+func TestHandleTravel(t *testing.T) {
+	display := NewDisplay()
+	envConfig := environment.DefaultEnvironmentConfig()
+	env := environment.NewEnvironmentManager(envConfig)
+
+	gameLoopConfig := core.DefaultGameLoopConfig()
+	gameLoop, err := core.NewGameLoop(gameLoopConfig)
+	if err != nil {
+		t.Fatalf("Failed to create game loop: %v", err)
+	}
+
+	// Start game loop
+	err = gameLoop.Start()
+	if err != nil {
+		t.Fatalf("Failed to start game loop: %v", err)
+	}
+	defer gameLoop.Stop()
+
+	pet := createTestPet()
+	err = gameLoop.AddPet(pet)
+	if err != nil {
+		t.Fatalf("Failed to add pet: %v", err)
+	}
+
+	cmdProcessor := NewCommandProcessor(display, gameLoop, env)
+
+	// Test travel command
+	result := cmdProcessor.ProcessCommand("travel", pet)
+	if !result {
+		t.Error("ProcessCommand('travel') should return true")
+	}
+}
+
+func TestHandleWait(t *testing.T) {
+	display := NewDisplay()
+	envConfig := environment.DefaultEnvironmentConfig()
+	env := environment.NewEnvironmentManager(envConfig)
+
+	gameLoopConfig := core.DefaultGameLoopConfig()
+	gameLoop, err := core.NewGameLoop(gameLoopConfig)
+	if err != nil {
+		t.Fatalf("Failed to create game loop: %v", err)
+	}
+
+	// Start game loop
+	err = gameLoop.Start()
+	if err != nil {
+		t.Fatalf("Failed to start game loop: %v", err)
+	}
+	defer gameLoop.Stop()
+
+	pet := createTestPet()
+	err = gameLoop.AddPet(pet)
+	if err != nil {
+		t.Fatalf("Failed to add pet: %v", err)
+	}
+
+	cmdProcessor := NewCommandProcessor(display, gameLoop, env)
+
+	// Test wait command
+	result := cmdProcessor.ProcessCommand("wait", pet)
+	if !result {
+		t.Error("ProcessCommand('wait') should return true")
+	}
+}
+
+func createTestPet() *core.DigitalPet {
+	pet := core.NewDigitalPet("TestPet", "user-123")
+	return pet
+}
