@@ -200,6 +200,11 @@ func (bm *BackupManager) ListBackups() ([]BackupInfo, error) {
 	bm.mu.RLock()
 	defer bm.mu.RUnlock()
 
+	return bm.listBackupsLocked()
+}
+
+// listBackupsLocked returns backup information without acquiring locks (internal use)
+func (bm *BackupManager) listBackupsLocked() ([]BackupInfo, error) {
 	entries, err := os.ReadDir(bm.backupPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -309,7 +314,7 @@ func (bm *BackupManager) addFileToZip(zipWriter *zip.Writer, filename string) er
 }
 
 func (bm *BackupManager) cleanupOldBackups() error {
-	backups, err := bm.ListBackups()
+	backups, err := bm.listBackupsLocked()
 	if err != nil {
 		return err
 	}

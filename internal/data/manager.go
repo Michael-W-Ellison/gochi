@@ -120,21 +120,12 @@ func (dm *DataManager) LoadPet(petID types.PetID, target interface{}) error {
 	dm.mu.RLock()
 	defer dm.mu.RUnlock()
 
-	// Try cache first
-	if cachedData, found := dm.cache.GetPet(petID); found {
-		// Copy cached data to target
-		// Note: In a real implementation, we'd need proper deep copying
-		*target.(*interface{}) = cachedData
-		return nil
-	}
-
 	// Load from local storage
+	// Note: Cache is currently not used for loads due to type assertion complexity
+	// In a production system, we would use proper serialization/deserialization
 	if err := dm.localStorage.Load(petID, target); err != nil {
 		return fmt.Errorf("failed to load from local storage: %w", err)
 	}
-
-	// Add to cache
-	dm.cache.CachePet(petID, target, 10240)
 
 	return nil
 }
