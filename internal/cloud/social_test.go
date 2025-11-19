@@ -2,6 +2,8 @@ package cloud
 
 import (
 	"testing"
+
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 func TestNewSocialService(t *testing.T) {
@@ -393,5 +395,37 @@ func TestSendDuplicateFriendRequest(t *testing.T) {
 	err := ss.SendFriendRequest("friend1", "Hello again")
 	if err == nil {
 		t.Error("Expected error when sending request to existing friend")
+	}
+}
+
+func TestSubmitScore(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+	ss := NewSocialService(am)
+
+	// Register and login
+	creds := &Credentials{
+		Username: "testuser",
+		Password: "password123",
+		Email:    "test@example.com",
+	}
+	am.Register(creds)
+
+	// Submit score
+	err := ss.SubmitScore("daily_care", 1000, types.PetID("pet1"))
+	if err != nil {
+		t.Fatalf("SubmitScore failed: %v", err)
+	}
+}
+
+func TestSubmitScoreNotLoggedIn(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+	ss := NewSocialService(am)
+
+	// Try to submit score without logging in
+	err := ss.SubmitScore("daily_care", 1000, types.PetID("pet1"))
+	if err == nil {
+		t.Error("Expected error when submitting score without logging in")
 	}
 }

@@ -353,3 +353,184 @@ func TestGenerateSessionToken(t *testing.T) {
 		t.Error("Expected token to have reasonable length")
 	}
 }
+
+func TestRefreshSessionNotLoggedIn(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+
+	// Try to refresh without logging in
+	err := am.RefreshSession()
+	if err == nil {
+		t.Error("Expected error when refreshing session without being logged in")
+	}
+}
+
+func TestUpdatePlayTimeNotLoggedIn(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+
+	// Try to update play time without logging in
+	err := am.UpdatePlayTime(1 * time.Hour)
+	if err == nil {
+		t.Error("Expected error when updating play time without being logged in")
+	}
+}
+
+func TestSetPremiumNotLoggedIn(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+
+	// Try to set premium without logging in
+	err := am.SetPremium(true)
+	if err == nil {
+		t.Error("Expected error when setting premium without being logged in")
+	}
+}
+
+func TestValidateSession(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+
+	// Register
+	creds := &Credentials{
+		Username: "testuser",
+		Password: "password123",
+		Email:    "test@example.com",
+	}
+	am.Register(creds)
+
+	// Get session
+	session, _ := am.GetSession()
+
+	// Validate session
+	validatedSession, err := provider.ValidateSession(session.Token)
+	if err != nil {
+		t.Fatalf("ValidateSession failed: %v", err)
+	}
+
+	if validatedSession == nil {
+		t.Error("Expected session to be valid")
+	}
+
+	// Validate invalid token
+	validatedSession, err = provider.ValidateSession("invalid-token")
+	if err == nil {
+		t.Error("Expected error when validating invalid token")
+	}
+	if validatedSession != nil {
+		t.Error("Expected nil session for invalid token")
+	}
+}
+
+func TestGetUser(t *testing.T) {
+	provider := NewMockAuthProvider()
+
+	// Register
+	creds := &Credentials{
+		Username: "testuser",
+		Password: "password123",
+		Email:    "test@example.com",
+	}
+	user, _ := provider.Register(creds)
+
+	// Get user
+	retrievedUser, err := provider.GetUser(user.ID)
+	if err != nil {
+		t.Fatalf("GetUser failed: %v", err)
+	}
+
+	if retrievedUser.Username != "testuser" {
+		t.Errorf("Expected username 'testuser', got %s", retrievedUser.Username)
+	}
+
+	// Get non-existent user
+	_, err = provider.GetUser("nonexistent")
+	if err == nil {
+		t.Error("Expected error when getting non-existent user")
+	}
+}
+
+func TestUpdateUser(t *testing.T) {
+	provider := NewMockAuthProvider()
+
+	// Register
+	creds := &Credentials{
+		Username: "testuser",
+		Password: "password123",
+		Email:    "test@example.com",
+	}
+	user, _ := provider.Register(creds)
+
+	// Update user
+	user.IsPremium = true
+	user.TotalPlayTime = 5 * time.Hour
+
+	err := provider.UpdateUser(user)
+	if err != nil {
+		t.Fatalf("UpdateUser failed: %v", err)
+	}
+
+	// Get updated user
+	updated, _ := provider.GetUser(user.ID)
+	if !updated.IsPremium {
+		t.Error("Expected user to be premium")
+	}
+	if updated.TotalPlayTime != 5*time.Hour {
+		t.Errorf("Expected play time %v, got %v", 5*time.Hour, updated.TotalPlayTime)
+	}
+
+	// Update non-existent user
+	nonExistentUser := &User{ID: "nonexistent"}
+	err = provider.UpdateUser(nonExistentUser)
+	if err == nil {
+		t.Error("Expected error when updating non-existent user")
+	}
+}
+
+func TestRevokeSession(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+
+	// Register and get session
+	creds := &Credentials{
+		Username: "testuser",
+		Password: "password123",
+		Email:    "test@example.com",
+	}
+	am.Register(creds)
+	session, _ := am.GetSession()
+
+	// Revoke session
+	err := provider.RevokeSession(session.Token)
+	if err != nil {
+		t.Fatalf("RevokeSession failed: %v", err)
+	}
+
+	// Validate revoked session
+	validatedSession, err := provider.ValidateSession(session.Token)
+	if err == nil {
+		t.Error("Expected error when validating revoked session")
+	}
+	if validatedSession != nil {
+		t.Error("Expected nil session for revoked session")
+	}
+}
+
+func TestRegisterInvalidCredentials(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+
+	// Try to register with invalid credentials
+	invalidCreds := []*Credentials{
+		{Username: "ab", Password: "password123", Email: "test@example.com"},
+		{Username: "testuser", Password: "pass", Email: "test@example.com"},
+		{Username: "testuser", Password: "password123", Email: "invalid"},
+	}
+
+	for _, creds := range invalidCreds {
+		err := am.Register(creds)
+		if err == nil {
+			t.Errorf("Expected error when registering with invalid credentials: %+v", creds)
+		}
+	}
+}

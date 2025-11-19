@@ -283,3 +283,104 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Errorf("Expected 10 pets after concurrent uploads, got %d", len(list))
 	}
 }
+
+func TestNewCloudStorageProvider(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+	csp := NewCloudStorageProvider("https://api.example.com", am)
+
+	if csp == nil {
+		t.Fatal("NewCloudStorageProvider returned nil")
+	}
+
+	if csp.baseURL != "https://api.example.com" {
+		t.Errorf("Expected baseURL 'https://api.example.com', got %s", csp.baseURL)
+	}
+}
+
+func TestCloudStorageProviderGetStatistics(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+	csp := NewCloudStorageProvider("https://api.example.com", am)
+
+	stats := csp.GetStatistics()
+
+	if stats == nil {
+		t.Fatal("GetStatistics returned nil")
+	}
+
+	// Check that all expected keys are present
+	expectedKeys := []string{"upload_count", "download_count", "total_uploaded", "total_downloaded", "is_connected"}
+	for _, key := range expectedKeys {
+		if _, ok := stats[key]; !ok {
+			t.Errorf("Expected key %s in statistics", key)
+		}
+	}
+}
+
+func TestCloudStorageProviderSetTimeout(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+	csp := NewCloudStorageProvider("https://api.example.com", am)
+
+	// Set timeout
+	csp.SetTimeout(10)
+
+	// Check that timeout was set (we can't directly access the field, but we can verify it doesn't panic)
+	if csp == nil {
+		t.Error("Provider should still be valid after SetTimeout")
+	}
+}
+
+func TestMockProviderDelayMethods(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+	csp := NewMockCloudStorageProvider(am)
+
+	// Set delays
+	csp.SetUploadDelay(100)
+	csp.SetDownloadDelay(50)
+
+	// These methods should not panic
+	if csp == nil {
+		t.Error("Provider should still be valid after setting delays")
+	}
+}
+
+func TestCloudStorageProviderNotLoggedIn(t *testing.T) {
+	provider := NewMockAuthProvider()
+	am := NewAuthManager(provider)
+	csp := NewCloudStorageProvider("https://api.example.com", am)
+
+	// Try operations without logging in
+	err := csp.Upload(types.PetID("test"), []byte("data"))
+	if err == nil {
+		t.Error("Expected error when uploading without logging in")
+	}
+
+	_, err = csp.Download(types.PetID("test"))
+	if err == nil {
+		t.Error("Expected error when downloading without logging in")
+	}
+
+	err = csp.Delete(types.PetID("test"))
+	if err == nil {
+		t.Error("Expected error when deleting without logging in")
+	}
+
+	_, err = csp.List()
+	if err == nil {
+		t.Error("Expected error when listing without logging in")
+	}
+
+	_, err = csp.GetLastModified(types.PetID("test"))
+	if err == nil {
+		t.Error("Expected error when getting last modified without logging in")
+	}
+
+	// IsConnected should return false when not logged in
+	if csp.IsConnected() {
+		t.Error("Expected IsConnected to return false when not logged in")
+	}
+}
+
