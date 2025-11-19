@@ -857,3 +857,397 @@ func TestSyncStatusString(t *testing.T) {
 		}
 	}
 }
+
+func TestCloudSyncManagerSyncAll(t *testing.T) {
+	tempDir := t.TempDir()
+
+	localStorage := NewLocalStorage(filepath.Join(tempDir, "pets"))
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	// Save some local pets
+	petID1 := types.PetID("local-pet-1")
+	petID2 := types.PetID("local-pet-2")
+	localStorage.Save(petID1, map[string]interface{}{"name": "LocalPet1"})
+	localStorage.Save(petID2, map[string]interface{}{"name": "LocalPet2"})
+
+	// Upload one pet to cloud
+	data, _ := os.ReadFile(localStorage.getFilename(petID1))
+	provider.Upload(petID1, data)
+
+	// Run sync
+	result := csm.SyncAll()
+
+	if result == nil {
+		t.Fatal("SyncAll result should not be nil")
+	}
+
+	if result.Status != SyncStatusSuccess {
+		t.Errorf("Expected SyncStatusSuccess, got %s. Errors: %v", result.Status.String(), result.Errors)
+	}
+
+	if len(result.SyncedPets) != 2 {
+		t.Errorf("Expected 2 synced pets, got %d", len(result.SyncedPets))
+	}
+}
+
+func TestCloudSyncManagerSyncAllNoConnection(t *testing.T) {
+	tempDir := t.TempDir()
+
+	localStorage := NewLocalStorage(filepath.Join(tempDir, "pets"))
+	provider := NewStubCloudProvider()
+	provider.SetConnected(false)
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	result := csm.SyncAll()
+
+	if result.Status != SyncStatusFailed {
+		t.Errorf("Expected SyncStatusFailed when disconnected, got %s", result.Status.String())
+	}
+
+	if len(result.Errors) == 0 {
+		t.Error("Expected errors when cloud provider not connected")
+	}
+}
+
+func TestCloudSyncManagerSyncPetByID(t *testing.T) {
+	tempDir := t.TempDir()
+
+	localStorage := NewLocalStorage(filepath.Join(tempDir, "pets"))
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	// Save a local pet
+	petID := types.PetID("sync-by-id-test")
+	localStorage.Save(petID, map[string]interface{}{"name": "TestPet"})
+
+	// Sync this specific pet
+	err := csm.SyncPetByID(petID)
+	if err != nil {
+		t.Fatalf("SyncPetByID failed: %v", err)
+	}
+
+	// Verify it was uploaded to cloud
+	cloudData, err := provider.Download(petID)
+	if err != nil {
+		t.Fatalf("Pet should be in cloud after sync: %v", err)
+	}
+
+	if len(cloudData) == 0 {
+		t.Error("Cloud data should not be empty")
+	}
+}
+
+func TestCloudSyncManagerUploadPet(t *testing.T) {
+	tempDir := t.TempDir()
+
+	localStorage := NewLocalStorage(filepath.Join(tempDir, "pets"))
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	// Save a local pet
+	petID := types.PetID("upload-test")
+	petData := map[string]interface{}{"name": "UploadTest", "age": 5}
+	localStorage.Save(petID, petData)
+
+	// Upload to cloud
+	err := csm.UploadPet(petID)
+	if err != nil {
+		t.Fatalf("UploadPet failed: %v", err)
+	}
+
+	// Verify it's in cloud
+	cloudData, err := provider.Download(petID)
+	if err != nil {
+		t.Fatalf("Pet should be in cloud after upload: %v", err)
+	}
+
+	if len(cloudData) == 0 {
+		t.Error("Cloud data should not be empty")
+	}
+}
+
+func TestCloudSyncManagerDownloadPet(t *testing.T) {
+	tempDir := t.TempDir()
+
+	petsPath := filepath.Join(tempDir, "pets")
+	os.MkdirAll(petsPath, 0755)
+
+	localStorage := NewLocalStorage(petsPath)
+	cloudPath := filepath.Join(tempDir, "cloud")
+	os.MkdirAll(cloudPath, 0755)
+	cloudStorage := NewLocalStorage(cloudPath)
+
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	// Create a proper pet file in cloud storage first
+	petID := types.PetID("download-test")
+	cloudStorage.Save(petID, map[string]interface{}{"name": "DownloadTest", "age": 3})
+
+	// Read the properly formatted file and upload to cloud provider
+	cloudData, _ := os.ReadFile(cloudStorage.getFilename(petID))
+	provider.Upload(petID, cloudData)
+
+	// Download from cloud
+	err := csm.DownloadPet(petID)
+	if err != nil {
+		t.Fatalf("DownloadPet failed: %v", err)
+	}
+
+	// Verify it exists locally
+	var loadedData map[string]interface{}
+	err = localStorage.Load(petID, &loadedData)
+	if err != nil {
+		t.Fatalf("Pet should exist locally after download: %v", err)
+	}
+
+	if loadedData["name"] != "DownloadTest" {
+		t.Errorf("Expected name 'DownloadTest', got %v", loadedData["name"])
+	}
+}
+
+func TestCloudSyncManagerGetLastSyncResult(t *testing.T) {
+	tempDir := t.TempDir()
+
+	localStorage := NewLocalStorage(filepath.Join(tempDir, "pets"))
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	// Initially should be nil
+	result := csm.GetLastSyncResult()
+	if result != nil {
+		t.Error("Initial sync result should be nil")
+	}
+
+	// Save a pet and sync
+	petID := types.PetID("sync-result-test")
+	localStorage.Save(petID, map[string]interface{}{"name": "Test"})
+	csm.SyncAll()
+
+	// Now should have a result
+	result = csm.GetLastSyncResult()
+	if result == nil {
+		t.Error("Sync result should not be nil after sync")
+	}
+
+	if result.Status != SyncStatusSuccess {
+		t.Errorf("Expected success status, got %s", result.Status.String())
+	}
+}
+
+func TestCloudSyncManagerGetLastSyncTime(t *testing.T) {
+	tempDir := t.TempDir()
+
+	localStorage := NewLocalStorage(filepath.Join(tempDir, "pets"))
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	// Initially should be zero
+	lastTime := csm.GetLastSyncTime()
+	if !lastTime.IsZero() {
+		t.Error("Initial sync time should be zero")
+	}
+
+	// Save a pet and sync
+	petID := types.PetID("sync-time-test")
+	localStorage.Save(petID, map[string]interface{}{"name": "Test"})
+
+	beforeSync := time.Now()
+	csm.SyncAll()
+	afterSync := time.Now()
+
+	// Now should have a time
+	lastTime = csm.GetLastSyncTime()
+	if lastTime.IsZero() {
+		t.Error("Sync time should not be zero after sync")
+	}
+
+	if lastTime.Before(beforeSync) || lastTime.After(afterSync) {
+		t.Errorf("Sync time %v should be between %v and %v", lastTime, beforeSync, afterSync)
+	}
+}
+
+func TestCloudSyncBidirectional(t *testing.T) {
+	tempDir := t.TempDir()
+
+	petsPath := filepath.Join(tempDir, "pets")
+	os.MkdirAll(petsPath, 0755)
+
+	localStorage := NewLocalStorage(petsPath)
+	cloudPath := filepath.Join(tempDir, "cloud")
+	os.MkdirAll(cloudPath, 0755)
+	cloudStorage := NewLocalStorage(cloudPath)
+
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	// Scenario: Local pet exists, cloud pet exists, sync should handle both
+	localPetID := types.PetID("local-only")
+	cloudPetID := types.PetID("cloud-only")
+
+	// Save local pet
+	localStorage.Save(localPetID, map[string]interface{}{"name": "LocalOnly"})
+
+	// Create and upload cloud pet with proper format
+	cloudStorage.Save(cloudPetID, map[string]interface{}{"name": "CloudOnly"})
+	cloudData, _ := os.ReadFile(cloudStorage.getFilename(cloudPetID))
+	provider.Upload(cloudPetID, cloudData)
+
+	// Sync all
+	result := csm.SyncAll()
+
+	if result.Status != SyncStatusSuccess {
+		t.Errorf("Bidirectional sync failed: %s. Errors: %v", result.Status.String(), result.Errors)
+	}
+
+	// Verify both pets exist locally
+	var localData, remoteData map[string]interface{}
+	if err := localStorage.Load(localPetID, &localData); err != nil {
+		t.Error("Local pet should still exist after sync")
+	}
+	if err := localStorage.Load(cloudPetID, &remoteData); err != nil {
+		t.Error("Cloud pet should be downloaded to local after sync")
+	}
+
+	// Verify both pets exist in cloud
+	if _, err := provider.Download(localPetID); err != nil {
+		t.Error("Local pet should be uploaded to cloud after sync")
+	}
+	if _, err := provider.Download(cloudPetID); err != nil {
+		t.Error("Cloud pet should still exist after sync")
+	}
+}
+
+func TestCloudSyncNewerVersionPriority(t *testing.T) {
+	tempDir := t.TempDir()
+
+	petsPath := filepath.Join(tempDir, "pets")
+	os.MkdirAll(petsPath, 0755)
+
+	localStorage := NewLocalStorage(petsPath)
+	cloudPath := filepath.Join(tempDir, "cloud")
+	os.MkdirAll(cloudPath, 0755)
+	cloudStorage := NewLocalStorage(cloudPath)
+
+	provider := NewStubCloudProvider()
+	csm := NewCloudSyncManager(provider, localStorage)
+
+	petID := types.PetID("version-test")
+
+	// Save local version first (older)
+	localStorage.Save(petID, map[string]interface{}{"name": "OldVersion", "version": 1})
+	time.Sleep(100 * time.Millisecond)
+
+	// Create and upload newer version to cloud
+	cloudStorage.Save(petID, map[string]interface{}{"name": "NewVersion", "version": 2})
+	newerData, _ := os.ReadFile(cloudStorage.getFilename(petID))
+	provider.Upload(petID, newerData)
+
+	// Sync should download the newer cloud version
+	err := csm.SyncPetByID(petID)
+	if err != nil {
+		t.Fatalf("Sync failed: %v", err)
+	}
+
+	// Verify local has newer version
+	var loadedData map[string]interface{}
+	localStorage.Load(petID, &loadedData)
+
+	// The cloud version should overwrite local
+	version, ok := loadedData["version"].(float64)
+	if ok && version == 2 {
+		// Cloud version was downloaded
+	} else {
+		t.Error("Cloud's newer version should have been downloaded")
+	}
+}
+
+func TestDeleteBackup(t *testing.T) {
+	tempDir := t.TempDir()
+
+	config := &Config{
+		BasePath:    filepath.Join(tempDir, "pets"),
+		BackupPath:  filepath.Join(tempDir, "backups"),
+		CacheSizeMB: 10,
+		MaxBackups:  5,
+	}
+
+	dm, err := NewDataManager(config)
+	if err != nil {
+		t.Fatalf("NewDataManager failed: %v", err)
+	}
+
+	// Save a pet
+	petID := types.PetID("delete-backup-test")
+	dm.SavePet(petID, map[string]interface{}{"name": "Test"})
+
+	// Create a backup
+	backupFile, err := dm.CreateBackup()
+	if err != nil {
+		t.Fatalf("CreateBackup failed: %v", err)
+	}
+
+	// Verify backup exists
+	if _, err := os.Stat(backupFile); os.IsNotExist(err) {
+		t.Fatal("Backup file should exist")
+	}
+
+	// Delete the backup
+	err = dm.backupManager.DeleteBackup(backupFile)
+	if err != nil {
+		t.Fatalf("DeleteBackup failed: %v", err)
+	}
+
+	// Verify backup no longer exists
+	if _, err := os.Stat(backupFile); !os.IsNotExist(err) {
+		t.Error("Backup file should not exist after deletion")
+	}
+}
+
+func TestGetLatestBackup(t *testing.T) {
+	tempDir := t.TempDir()
+
+	config := &Config{
+		BasePath:    filepath.Join(tempDir, "pets"),
+		BackupPath:  filepath.Join(tempDir, "backups"),
+		CacheSizeMB: 10,
+		MaxBackups:  5,
+	}
+
+	dm, err := NewDataManager(config)
+	if err != nil {
+		t.Fatalf("NewDataManager failed: %v", err)
+	}
+
+	// Initially no backups
+	latest, err := dm.backupManager.GetLatestBackup()
+	if err == nil {
+		t.Error("GetLatestBackup should return error when no backups exist")
+	}
+
+	// Save a pet
+	petID := types.PetID("latest-backup-test")
+	dm.SavePet(petID, map[string]interface{}{"name": "Test"})
+
+	// Create multiple backups
+	var lastBackup string
+	for i := 0; i < 3; i++ {
+		backup, err := dm.CreateBackup()
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+		lastBackup = backup
+		time.Sleep(1 * time.Second) // Ensure different timestamps
+	}
+
+	// Get latest backup
+	latest, err = dm.backupManager.GetLatestBackup()
+	if err != nil {
+		t.Fatalf("GetLatestBackup failed: %v", err)
+	}
+
+	if latest.Filename != lastBackup {
+		t.Errorf("Expected latest backup %s, got %s", lastBackup, latest.Filename)
+	}
+}
