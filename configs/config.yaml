@@ -1,0 +1,53 @@
+# Gochi Configuration File
+app:
+  name: "Gochi"
+  version: "0.1.0-alpha"
+  debug: true
+
+simulation:
+  # Time scale: REAL_TIME, ACCELERATED_4X, ACCELERATED_24X
+  time_scale: "ACCELERATED_4X"
+  tick_rate: 60  # Updates per second (target 60 FPS)
+  auto_save_interval: 300  # Auto-save every 5 minutes (seconds)
+
+performance:
+  target_fps: 60
+  max_memory_mb: 500
+  enable_profiling: false
+
+biology:
+  # Vital stats decay rates (per game-day)
+  hunger_decay_rate: 0.3
+  thirst_decay_rate: 0.5
+  energy_decay_rate: 0.2
+  happiness_decay_rate: 0.1
+
+  # Critical thresholds (0.0 to 1.0)
+  critical_threshold: 0.2
+  warning_threshold: 0.4
+
+personality:
+  # How quickly personality traits evolve
+  trait_evolution_rate: 0.01
+  # Mutation rate for genetic breeding
+  mutation_rate: 0.05
+
+ai:
+  # Learning system parameters
+  learning_rate: 0.1
+  memory_capacity: 1000  # Number of experiences to retain
+
+social:
+  enable_multiplayer: false
+  max_relationships: 20
+  enable_cloud_sync: false
+
+data:
+  save_path: "./data/saves"
+  cloud_sync_enabled: false
+  encryption_enabled: true
+
+logging:
+  level: "info"  # debug, info, warn, error
+  file: "./data/logs/gochi.log"
+  console: true
