@@ -282,6 +282,11 @@ func (em *EnvironmentManager) GetResourceAvailability() float64 {
 	return (effects.FoodAvailability + effects.WaterAvailability) / 2.0
 }
 
+// GetSeasonProgress returns progress through current season (0-1)
+func (em *EnvironmentManager) GetSeasonProgress() float64 {
+	return em.seasons.GetSeasonProgress()
+}
+
 // DepleteLocationResources reduces resources at current location
 func (em *EnvironmentManager) DepleteLocationResources(amount float64) {
 	currentLocation := em.biomes.GetCurrentLocation()
