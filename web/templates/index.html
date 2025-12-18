@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Gochi - Your Advanced Digital Pet Companion">
+    <meta name="theme-color" content="#6c5ce7">
+    <title>Gochi - Digital Pet</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="icon" type="image/png" href="/static/img/favicon.png">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <h1 class="logo">Gochi</h1>
+            </div>
+            <div class="header-center">
+                <nav class="main-nav">
+                    <button class="nav-btn active" data-view="pet">Pet</button>
+                    <button class="nav-btn" data-view="social">Social</button>
+                    <button class="nav-btn" data-view="achievements">Achievements</button>
+                </nav>
+            </div>
+            <div class="header-right">
+                <button class="icon-btn" id="notifications-btn" title="Notifications">
+                    <span class="icon">&#128276;</span>
+                    <span class="badge hidden" id="notification-badge">0</span>
+                </button>
+                <button class="icon-btn" id="settings-btn" title="Settings">
+                    <span class="icon">&#9881;</span>
+                </button>
+                <div class="user-menu" id="user-menu">
+                    <button class="user-btn" id="user-btn">
+                        <span class="avatar" id="user-avatar">?</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <!-- Pet View -->
+            <section class="view active" id="pet-view">
+                <div class="pet-container">
+                    <!-- Pet Display Area -->
+                    <div class="pet-display">
+                        <div class="environment-bg" id="environment-bg">
+                            <div class="weather-overlay" id="weather-overlay"></div>
+                        </div>
+                        <div class="pet-stage" id="pet-stage">
+                            <div class="pet-sprite" id="pet-sprite">
+                                <div class="pet-body"></div>
+                                <div class="pet-face">
+                                    <div class="pet-eyes">
+                                        <div class="eye left"></div>
+                                        <div class="eye right"></div>
+                                    </div>
+                                    <div class="pet-mouth"></div>
+                                </div>
+                                <div class="pet-accessories"></div>
+                            </div>
+                            <div class="pet-shadow"></div>
+                            <div class="pet-effects" id="pet-effects"></div>
+                        </div>
+                        <div class="pet-mood-bubble" id="mood-bubble">
+                            <span class="mood-text" id="mood-text"></span>
+                        </div>
+                    </div>
+
+                    <!-- Pet Info Panel -->
+                    <div class="pet-info-panel">
+                        <div class="pet-header">
+                            <h2 class="pet-name" id="pet-name">Loading...</h2>
+                            <span class="pet-age" id="pet-age"></span>
+                        </div>
+                        <div class="pet-status" id="pet-status">
+                            <span class="behavior-indicator" id="behavior-indicator"></span>
+                        </div>
+
+                        <!-- Vitals -->
+                        <div class="vitals-section">
+                            <h3>Vitals</h3>
+                            <div class="vital-bars">
+                                <div class="vital-bar" data-vital="health">
+                                    <label>Health</label>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="health-bar"></div>
+                                    </div>
+                                    <span class="bar-value" id="health-value">0%</span>
+                                </div>
+                                <div class="vital-bar" data-vital="energy">
+                                    <label>Energy</label>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="energy-bar"></div>
+                                    </div>
+                                    <span class="bar-value" id="energy-value">0%</span>
+                                </div>
+                                <div class="vital-bar" data-vital="happiness">
+                                    <label>Happiness</label>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="happiness-bar"></div>
+                                    </div>
+                                    <span class="bar-value" id="happiness-value">0%</span>
+                                </div>
+                                <div class="vital-bar" data-vital="nutrition">
+                                    <label>Nutrition</label>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="nutrition-bar"></div>
+                                    </div>
+                                    <span class="bar-value" id="nutrition-value">0%</span>
+                                </div>
+                                <div class="vital-bar" data-vital="cleanliness">
+                                    <label>Cleanliness</label>
+                                    <div class="bar-container">
+                                        <div class="bar-fill" id="cleanliness-bar"></div>
+                                    </div>
+                                    <span class="bar-value" id="cleanliness-value">0%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Emotions -->
+                        <div class="emotions-section">
+                            <h3>Mood</h3>
+                            <div class="mood-display">
+                                <div class="mood-icon" id="mood-icon"></div>
+                                <div class="mood-info">
+                                    <span class="mood-label" id="mood-label">Content</span>
+                                    <span class="mood-trend" id="mood-trend"></span>
+                                </div>
+                            </div>
+                            <div class="emotion-chips" id="emotion-chips"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Interaction Panel -->
+                <div class="interaction-panel">
+                    <h3>Interact</h3>
+                    <div class="interaction-buttons">
+                        <button class="interact-btn" data-action="feed" title="Feed your pet">
+                            <span class="btn-icon">&#127829;</span>
+                            <span class="btn-label">Feed</span>
+                        </button>
+                        <button class="interact-btn" data-action="pet" title="Pet and show affection">
+                            <span class="btn-icon">&#128400;</span>
+                            <span class="btn-label">Pet</span>
+                        </button>
+                        <button class="interact-btn" data-action="play" title="Play together">
+                            <span class="btn-icon">&#127934;</span>
+                            <span class="btn-label">Play</span>
+                        </button>
+                        <button class="interact-btn" data-action="groom" title="Groom and clean">
+                            <span class="btn-icon">&#128703;</span>
+                            <span class="btn-label">Groom</span>
+                        </button>
+                        <button class="interact-btn" data-action="train" title="Train new skills">
+                            <span class="btn-icon">&#127942;</span>
+                            <span class="btn-label">Train</span>
+                        </button>
+                        <button class="interact-btn" data-action="medical" title="Medical care">
+                            <span class="btn-icon">&#128138;</span>
+                            <span class="btn-label">Medical</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Stats -->
+                <div class="quick-stats">
+                    <div class="stat-item">
+                        <span class="stat-icon">&#128197;</span>
+                        <span class="stat-value" id="stat-age">0 days</span>
+                        <span class="stat-label">Age</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-icon">&#128149;</span>
+                        <span class="stat-value" id="stat-interactions">0</span>
+                        <span class="stat-label">Interactions</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-icon">&#128101;</span>
+                        <span class="stat-value" id="stat-friends">0</span>
+                        <span class="stat-label">Friends</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-icon">&#127775;</span>
+                        <span class="stat-value" id="stat-wellbeing">0%</span>
+                        <span class="stat-label">Wellbeing</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Social View -->
+            <section class="view" id="social-view">
+                <div class="social-container">
+                    <!-- Social Tabs -->
+                    <div class="social-tabs">
+                        <button class="tab-btn active" data-tab="friends">Friends</button>
+                        <button class="tab-btn" data-tab="nearby">Nearby</button>
+                        <button class="tab-btn" data-tab="feed">Feed</button>
+                        <button class="tab-btn" data-tab="events">Events</button>
+                    </div>
+
+                    <!-- Friends Tab -->
+                    <div class="tab-content active" id="friends-tab">
+                        <div class="friends-header">
+                            <h3>Friends</h3>
+                            <button class="btn-secondary" id="add-friend-btn">Add Friend</button>
+                        </div>
+                        <div class="friends-list" id="friends-list">
+                            <div class="empty-state">
+                                <span class="empty-icon">&#128101;</span>
+                                <p>No friends yet. Find nearby pets to make friends!</p>
+                            </div>
+                        </div>
+                        <div class="friend-requests" id="friend-requests">
+                            <h4>Friend Requests</h4>
+                            <div class="requests-list" id="requests-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- Nearby Tab -->
+                    <div class="tab-content" id="nearby-tab">
+                        <div class="nearby-header">
+                            <h3>Nearby Pets</h3>
+                            <button class="btn-secondary" id="refresh-nearby-btn">Refresh</button>
+                        </div>
+                        <div class="location-status" id="location-status">
+                            <span class="status-icon">&#128205;</span>
+                            <span class="status-text">Location not enabled</span>
+                        </div>
+                        <div class="nearby-list" id="nearby-list">
+                            <div class="empty-state">
+                                <span class="empty-icon">&#128269;</span>
+                                <p>Enable location to find nearby pets</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feed Tab -->
+                    <div class="tab-content" id="feed-tab">
+                        <div class="feed-header">
+                            <h3>Social Feed</h3>
+                            <button class="btn-primary" id="new-post-btn">New Post</button>
+                        </div>
+                        <div class="feed-list" id="feed-list">
+                            <div class="empty-state">
+                                <span class="empty-icon">&#128240;</span>
+                                <p>No posts yet. Share your pet's adventures!</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Events Tab -->
+                    <div class="tab-content" id="events-tab">
+                        <div class="events-header">
+                            <h3>Events</h3>
+                            <select id="events-filter">
+                                <option value="all">All Events</option>
+                                <option value="nearby">Nearby</option>
+                                <option value="joined">Joined</option>
+                            </select>
+                        </div>
+                        <div class="events-list" id="events-list">
+                            <div class="empty-state">
+                                <span class="empty-icon">&#127881;</span>
+                                <p>No active events right now</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Achievements View -->
+            <section class="view" id="achievements-view">
+                <div class="achievements-container">
+                    <div class="achievements-header">
+                        <h3>Achievements</h3>
+                        <div class="achievement-progress">
+                            <span id="achievements-unlocked">0</span> / <span id="achievements-total">0</span>
+                        </div>
+                    </div>
+                    <div class="achievement-categories" id="achievement-categories">
+                        <button class="category-btn active" data-category="all">All</button>
+                        <button class="category-btn" data-category="care">Care</button>
+                        <button class="category-btn" data-category="social">Social</button>
+                        <button class="category-btn" data-category="milestones">Milestones</button>
+                    </div>
+                    <div class="achievements-grid" id="achievements-grid">
+                        <div class="empty-state">
+                            <span class="empty-icon">&#127942;</span>
+                            <p>Loading achievements...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Modals -->
+        <div class="modal-overlay hidden" id="modal-overlay">
+            <div class="modal" id="modal">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="modal-title">Modal</h3>
+                    <button class="modal-close" id="modal-close">&times;</button>
+                </div>
+                <div class="modal-content" id="modal-content"></div>
+                <div class="modal-footer" id="modal-footer"></div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div class="toast-container" id="toast-container"></div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="loader">
+                <div class="loader-pet"></div>
+                <p>Loading...</p>
+            </div>
+        </div>
+
+        <!-- Onboarding / Create Pet -->
+        <div class="onboarding hidden" id="onboarding">
+            <div class="onboarding-content">
+                <h2>Welcome to Gochi!</h2>
+                <p>Create your digital pet companion</p>
+                <form id="create-pet-form">
+                    <div class="form-group">
+                        <label for="new-pet-name">Pet Name</label>
+                        <input type="text" id="new-pet-name" placeholder="Enter a name..." required maxlength="20">
+                    </div>
+                    <div class="form-group">
+                        <label>Personality</label>
+                        <div class="personality-options">
+                            <label class="radio-option">
+                                <input type="radio" name="personality" value="default" checked>
+                                <span>Balanced</span>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="personality" value="random">
+                                <span>Random</span>
+                            </label>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary btn-large">Create Pet</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/websocket.js"></script>
+    <script src="/static/js/pet.js"></script>
+    <script src="/static/js/social.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,668 @@
+/* ============================================================================
+   Gochi AR Styles
+   Augmented Reality interface styling
+   ============================================================================ */
+
+/* ============================================================================
+   AR Container
+   ============================================================================ */
+
+.ar-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    background: #000;
+}
+
+.ar-container.hidden {
+    display: none;
+}
+
+.ar-container.ar-fallback {
+    background: linear-gradient(180deg, #87CEEB 0%, #98FB98 70%, #8B4513 100%);
+}
+
+#ar-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* ============================================================================
+   AR Overlay
+   ============================================================================ */
+
+.ar-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+}
+
+.ar-overlay > * {
+    pointer-events: auto;
+}
+
+/* Flash effect for photo */
+.ar-overlay.flash::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: white;
+    animation: flash 0.2s ease-out;
+    pointer-events: none;
+}
+
+@keyframes flash {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+/* ============================================================================
+   AR Header
+   ============================================================================ */
+
+.ar-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md);
+    padding-top: max(var(--spacing-md), env(safe-area-inset-top));
+    background: linear-gradient(to bottom, rgba(0,0,0,0.5), transparent);
+}
+
+.ar-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.ar-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+}
+
+.ar-btn:active {
+    transform: scale(0.95);
+}
+
+.ar-close-btn {
+    font-size: 2rem;
+    font-weight: 300;
+}
+
+/* ============================================================================
+   AR Status
+   ============================================================================ */
+
+.ar-status {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(10px);
+    border-radius: var(--radius-full);
+    color: white;
+    font-size: var(--font-size-sm);
+}
+
+.ar-status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--gray-500);
+    animation: pulse 2s infinite;
+}
+
+.ar-status-indicator.tracking {
+    background: var(--success);
+}
+
+.ar-status-indicator.limited {
+    background: var(--warning);
+}
+
+.ar-status-indicator.error {
+    background: var(--danger);
+    animation: none;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ============================================================================
+   AR Pet Container
+   ============================================================================ */
+
+.ar-pet-container {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 200px;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: auto;
+}
+
+.ar-pet-container.visible {
+    opacity: 1;
+}
+
+#ar-pet {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease;
+}
+
+/* AR Pet Sprite (inherit from main styles) */
+#ar-pet .pet-sprite {
+    animation: petIdle 2s ease-in-out infinite;
+    filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3));
+}
+
+#ar-pet .pet-sprite.walking {
+    animation: petWalk 0.5s ease-in-out infinite;
+}
+
+@keyframes petWalk {
+    0%, 100% { transform: translateY(0) rotate(-3deg); }
+    50% { transform: translateY(-5px) rotate(3deg); }
+}
+
+#ar-pet .pet-sprite.happy {
+    animation: petHappy 0.3s ease-in-out infinite;
+}
+
+@keyframes petHappy {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* AR Effects */
+.ar-effect {
+    position: absolute;
+    font-size: 2rem;
+    animation: arEffectFloat 1s ease-out forwards;
+    pointer-events: none;
+}
+
+@keyframes arEffectFloat {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-80px) scale(1.5);
+    }
+}
+
+/* ============================================================================
+   AR Instructions
+   ============================================================================ */
+
+.ar-instructions {
+    position: absolute;
+    bottom: 200px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    color: white;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(10px);
+    padding: var(--spacing-md) var(--spacing-xl);
+    border-radius: var(--radius-lg);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.ar-instructions.visible {
+    opacity: 1;
+}
+
+.ar-instructions p {
+    margin: var(--spacing-xs) 0;
+    font-size: var(--font-size-sm);
+}
+
+.ar-instructions p:first-child {
+    font-weight: 600;
+    font-size: var(--font-size-md);
+}
+
+/* ============================================================================
+   AR Controls
+   ============================================================================ */
+
+.ar-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+    padding-bottom: max(var(--spacing-lg), env(safe-area-inset-bottom));
+    background: linear-gradient(to top, rgba(0,0,0,0.5), transparent);
+}
+
+.ar-action-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+    border: none;
+    font-size: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.ar-action-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.ar-action-btn:active {
+    transform: translateY(0);
+}
+
+.ar-action-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+/* ============================================================================
+   AR Exercise Panel
+   ============================================================================ */
+
+.ar-exercise-panel {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(10px);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-lg);
+    color: white;
+    text-align: center;
+    min-width: 300px;
+}
+
+.ar-exercise-panel.hidden {
+    display: none;
+}
+
+.exercise-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.exercise-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.exercise-stat .stat-value {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    color: var(--primary-light);
+}
+
+.exercise-stat .stat-label {
+    font-size: var(--font-size-xs);
+    color: var(--gray-400);
+    text-transform: uppercase;
+}
+
+#exercise-stop {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background: var(--danger);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+#exercise-stop:hover {
+    background: #c0392b;
+}
+
+/* ============================================================================
+   AR Plane Indicator
+   ============================================================================ */
+
+.ar-plane-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+.ar-plane-indicator.hidden {
+    display: none;
+}
+
+.plane-reticle {
+    width: 100px;
+    height: 100px;
+    border: 3px solid rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    animation: reticleScale 1.5s ease-in-out infinite;
+}
+
+.plane-reticle::before,
+.plane-reticle::after {
+    content: '';
+    position: absolute;
+    background: rgba(255, 255, 255, 0.8);
+}
+
+.plane-reticle::before {
+    width: 20px;
+    height: 3px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.plane-reticle::after {
+    width: 3px;
+    height: 20px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+@keyframes reticleScale {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.7; }
+}
+
+/* ============================================================================
+   AR Permissions/Onboarding
+   ============================================================================ */
+
+.ar-permissions {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    text-align: center;
+    padding: var(--spacing-xl);
+}
+
+.ar-permissions h2 {
+    font-size: var(--font-size-xl);
+    margin-bottom: var(--spacing-md);
+}
+
+.ar-permissions p {
+    color: var(--gray-400);
+    margin-bottom: var(--spacing-lg);
+    max-width: 300px;
+}
+
+.ar-permissions .ar-btn {
+    width: auto;
+    padding: var(--spacing-md) var(--spacing-xl);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-md);
+}
+
+/* ============================================================================
+   AR Not Supported
+   ============================================================================ */
+
+.ar-not-supported {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--gray-900);
+    color: white;
+    text-align: center;
+    padding: var(--spacing-xl);
+}
+
+.ar-not-supported .icon {
+    font-size: 4rem;
+    margin-bottom: var(--spacing-lg);
+    opacity: 0.5;
+}
+
+.ar-not-supported h2 {
+    margin-bottom: var(--spacing-md);
+}
+
+.ar-not-supported p {
+    color: var(--gray-400);
+    margin-bottom: var(--spacing-lg);
+}
+
+/* ============================================================================
+   AR Photo Preview
+   ============================================================================ */
+
+.ar-photo-preview {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-lg);
+}
+
+.ar-photo-preview.hidden {
+    display: none;
+}
+
+.ar-photo-preview img {
+    max-width: 100%;
+    max-height: 70vh;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+}
+
+.ar-photo-preview .actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+}
+
+/* ============================================================================
+   AR Multi-Pet (Playdates)
+   ============================================================================ */
+
+.ar-other-pet {
+    position: absolute;
+    width: 150px;
+    height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+}
+
+.ar-other-pet .pet-name-tag {
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+
+/* ============================================================================
+   AR Interaction Feedback
+   ============================================================================ */
+
+.ar-interaction-feedback {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    animation: interactionPop 0.5s ease-out forwards;
+    pointer-events: none;
+}
+
+@keyframes interactionPop {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(0);
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.2);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 480px) {
+    .ar-action-btn {
+        width: 50px;
+        height: 50px;
+        font-size: 1.5rem;
+    }
+
+    .ar-controls {
+        gap: var(--spacing-sm);
+    }
+
+    .exercise-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .ar-exercise-panel {
+        min-width: 250px;
+        padding: var(--spacing-md);
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (max-height: 500px) {
+    .ar-controls {
+        flex-direction: column;
+        position: absolute;
+        right: 0;
+        bottom: auto;
+        top: 50%;
+        transform: translateY(-50%);
+        left: auto;
+        padding: var(--spacing-md);
+    }
+
+    .ar-action-btn {
+        width: 45px;
+        height: 45px;
+        font-size: 1.25rem;
+    }
+
+    .ar-pet-container {
+        left: 40%;
+    }
+
+    .ar-exercise-panel {
+        top: 10px;
+        min-width: 200px;
+    }
+
+    .exercise-stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--spacing-sm);
+    }
+}
+
+/* ============================================================================
+   AR Dark Mode Support
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+    .ar-action-btn {
+        background: rgba(40, 40, 40, 0.9);
+        color: white;
+    }
+
+    .ar-action-btn:hover {
+        background: rgba(60, 60, 60, 0.9);
+    }
+}
+
+/* ============================================================================
+   AR Reduced Motion
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+    .ar-status-indicator,
+    .plane-reticle,
+    #ar-pet .pet-sprite {
+        animation: none;
+    }
+
+    .ar-effect {
+        animation-duration: 0.3s;
+    }
+}
