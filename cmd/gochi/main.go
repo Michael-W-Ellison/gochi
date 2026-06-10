@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,10 +11,20 @@ import (
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/internal/ui"
+	"github.com/Michael-W-Ellison/gochi/pkg/logger"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 func main() {
+	// Create shutdown context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Setup graceful shutdown handler
+	shutdownComplete := make(chan struct{})
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	// Initialize display
 	display := ui.NewDisplay()
 	display.PrintWelcome()
@@ -41,13 +52,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	// Signal handler goroutine
 	go func() {
-		<-sigChan
-		cleanup(gameLoop, display, env)
-		os.Exit(0)
+		sig := <-sigChan
+		logger.Info("received shutdown signal", "signal", sig.String())
+		cancel() // Cancel context to signal shutdown
 	}()
 
 	// Check for existing pet or create new one
@@ -77,38 +86,67 @@ func main() {
 	lastDisplayTime := time.Now()
 	displayInterval := 5 * time.Second
 
-	for cmdProcessor.IsRunning() {
-		// Periodically update environment
-		env.Update(1.0) // 1 second of game time
-
-		// Periodically redisplay status
-		if time.Since(lastDisplayTime) > displayInterval {
-			display.Clear()
-			display.PrintPetStatus(pet)
-			display.PrintEnvironment(env)
-			lastDisplayTime = time.Now()
-		}
-
-		// Show menu and wait for command
-		display.PrintMenu()
-
-		// Read and process command
-		command := cmdProcessor.ReadCommand()
-		if command == "" {
+	// Main game loop with context-aware shutdown
+	gameRunning := true
+	for gameRunning && cmdProcessor.IsRunning() {
+		select {
+		case <-ctx.Done():
+			// Shutdown signal received
+			logger.Info("shutdown initiated")
+			gameRunning = false
 			continue
-		}
 
-		continuing := cmdProcessor.ProcessCommand(command, pet)
-		if !continuing {
-			break
-		}
+		default:
+			// Periodically update environment
+			env.Update(1.0) // 1 second of game time
 
-		// Small delay to let game loop update
-		time.Sleep(100 * time.Millisecond)
+			// Periodically redisplay status
+			if time.Since(lastDisplayTime) > displayInterval {
+				display.Clear()
+				display.PrintPetStatus(pet)
+				display.PrintEnvironment(env)
+				lastDisplayTime = time.Now()
+			}
+
+			// Show menu and wait for command
+			display.PrintMenu()
+
+			// Read and process command
+			command := cmdProcessor.ReadCommand()
+			if command == "" {
+				continue
+			}
+
+			continuing := cmdProcessor.ProcessCommand(command, pet)
+			if !continuing {
+				gameRunning = false
+				break
+			}
+
+			// Small delay to let game loop update
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 
-	// Cleanup and exit
-	cleanup(gameLoop, display, env)
+	// Perform graceful shutdown with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	go func() {
+		if err := performShutdown(gameLoop, display, env); err != nil {
+			logger.Error("shutdown error", "error", err)
+		}
+		close(shutdownComplete)
+	}()
+
+	// Wait for shutdown to complete or timeout
+	select {
+	case <-shutdownComplete:
+		logger.Info("shutdown completed successfully")
+	case <-shutdownCtx.Done():
+		logger.Error("shutdown timed out after 10 seconds")
+	}
+
 	fmt.Println("\nGoodbye! 👋")
 }
 
@@ -163,22 +201,22 @@ func createNewPet(display *ui.Display) *core.DigitalPet {
 	return pet
 }
 
-// cleanup performs cleanup before exit
-func cleanup(gameLoop *core.GameLoop, display *ui.Display, env *environment.EnvironmentManager) {
+// performShutdown performs graceful shutdown of all components
+func performShutdown(gameLoop *core.GameLoop, display *ui.Display, env *environment.EnvironmentManager) error {
+	logger.Info("starting graceful shutdown")
 	display.PrintMessage("\nSaving game...")
 
 	// Save all pets
 	err := gameLoop.SaveAllPets()
 	if err != nil {
 		display.PrintError(fmt.Sprintf("Failed to save: %v", err))
+		logger.Error("failed to save pets during shutdown", "error", err)
 	} else {
 		display.PrintSuccess("Game saved!")
+		logger.Info("all pets saved successfully")
 	}
 
-	// Stop game loop
-	gameLoop.Stop()
-
-	// Print summary
+	// Print summary before shutdown
 	pets := gameLoop.GetAllPets()
 	if len(pets) > 0 {
 		for _, pet := range pets {
@@ -187,4 +225,19 @@ func cleanup(gameLoop *core.GameLoop, display *ui.Display, env *environment.Envi
 			break // Just show first pet
 		}
 	}
+
+	// Shutdown game loop (stops and closes resources)
+	if err := gameLoop.Shutdown(); err != nil {
+		logger.Error("failed to shutdown game loop", "error", err)
+		return fmt.Errorf("game loop shutdown failed: %w", err)
+	}
+
+	// Shutdown logger (flush and close log files)
+	if err := logger.Shutdown(); err != nil {
+		// Can't log this error since logger is shutting down
+		fmt.Fprintf(os.Stderr, "Failed to shutdown logger: %v\n", err)
+		return fmt.Errorf("logger shutdown failed: %w", err)
+	}
+
+	return nil
 }

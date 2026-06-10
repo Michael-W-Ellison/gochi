@@ -267,3 +267,144 @@ func TestGet(t *testing.T) {
 		t.Error("Get() did not return the set logger")
 	}
 }
+
+func TestShutdown(t *testing.T) {
+	t.Run("shutdown with no file", func(t *testing.T) {
+		// Initialize with no file
+		config := &Config{
+			Level:  slog.LevelInfo,
+			Format: "text",
+		}
+
+		err := Initialize(config)
+		if err != nil {
+			t.Fatalf("Failed to initialize logger: %v", err)
+		}
+
+		// Shutdown should succeed even with no file
+		err = Shutdown()
+		if err != nil {
+			t.Errorf("Shutdown failed with no file: %v", err)
+		}
+	})
+
+	t.Run("shutdown with file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		logPath := filepath.Join(tmpDir, "shutdown-test.log")
+
+		config := &Config{
+			Level:      slog.LevelInfo,
+			Format:     "text",
+			OutputPath: logPath,
+		}
+
+		err := Initialize(config)
+		if err != nil {
+			t.Fatalf("Failed to initialize logger: %v", err)
+		}
+
+		// Write a message
+		Info("test message before shutdown")
+
+		// Shutdown should close the file
+		err = Shutdown()
+		if err != nil {
+			t.Errorf("Shutdown failed: %v", err)
+		}
+
+		// Verify file exists and has content
+		content, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatalf("Failed to read log file after shutdown: %v", err)
+		}
+
+		if !strings.Contains(string(content), "test message before shutdown") {
+			t.Error("Log message not found in file after shutdown")
+		}
+	})
+
+	t.Run("multiple shutdowns", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		logPath := filepath.Join(tmpDir, "multi-shutdown.log")
+
+		config := &Config{
+			Level:      slog.LevelInfo,
+			Format:     "text",
+			OutputPath: logPath,
+		}
+
+		err := Initialize(config)
+		if err != nil {
+			t.Fatalf("Failed to initialize logger: %v", err)
+		}
+
+		// First shutdown
+		err = Shutdown()
+		if err != nil {
+			t.Errorf("First shutdown failed: %v", err)
+		}
+
+		// Second shutdown should not error
+		err = Shutdown()
+		if err != nil {
+			t.Errorf("Second shutdown failed: %v", err)
+		}
+	})
+
+	t.Run("reinitialize after shutdown", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		logPath1 := filepath.Join(tmpDir, "log1.log")
+		logPath2 := filepath.Join(tmpDir, "log2.log")
+
+		// First initialization
+		config1 := &Config{
+			Level:      slog.LevelInfo,
+			Format:     "text",
+			OutputPath: logPath1,
+		}
+
+		err := Initialize(config1)
+		if err != nil {
+			t.Fatalf("Failed first initialization: %v", err)
+		}
+
+		Info("message in log1")
+
+		// Shutdown
+		err = Shutdown()
+		if err != nil {
+			t.Errorf("Shutdown failed: %v", err)
+		}
+
+		// Second initialization with different file
+		config2 := &Config{
+			Level:      slog.LevelInfo,
+			Format:     "text",
+			OutputPath: logPath2,
+		}
+
+		err = Initialize(config2)
+		if err != nil {
+			t.Fatalf("Failed second initialization: %v", err)
+		}
+
+		Info("message in log2")
+
+		// Shutdown again
+		err = Shutdown()
+		if err != nil {
+			t.Errorf("Second shutdown failed: %v", err)
+		}
+
+		// Verify both files have their respective messages
+		content1, _ := os.ReadFile(logPath1)
+		if !strings.Contains(string(content1), "message in log1") {
+			t.Error("Log1 doesn't have expected message")
+		}
+
+		content2, _ := os.ReadFile(logPath2)
+		if !strings.Contains(string(content2), "message in log2") {
+			t.Error("Log2 doesn't have expected message")
+		}
+	})
+}

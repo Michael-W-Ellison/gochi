@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -591,4 +592,89 @@ func TestConcurrentPetAccess(t *testing.T) {
 	}
 
 	gl.Stop()
+}
+
+func TestShutdown(t *testing.T) {
+	config := DefaultGameLoopConfig()
+	gl, err := NewGameLoop(config)
+	if err != nil {
+		t.Fatalf("Failed to create game loop: %v", err)
+	}
+
+	// Create and add a pet
+	pet := NewDigitalPet("ShutdownTest", "user_123")
+	err = gl.AddPet(pet)
+	if err != nil {
+		t.Fatalf("Failed to add pet: %v", err)
+	}
+
+	// Start the game loop
+	err = gl.Start()
+	if err != nil {
+		t.Fatalf("Failed to start game loop: %v", err)
+	}
+
+	// Perform shutdown
+	err = gl.Shutdown()
+	if err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+
+	// Verify game loop is stopped
+	if gl.running {
+		t.Error("Game loop should not be running after shutdown")
+	}
+
+	if gl.state != GameStateStopped {
+		t.Errorf("Expected state Stopped, got %v", gl.state)
+	}
+}
+
+func TestShutdownWithoutStart(t *testing.T) {
+	config := DefaultGameLoopConfig()
+	gl, err := NewGameLoop(config)
+	if err != nil {
+		t.Fatalf("Failed to create game loop: %v", err)
+	}
+
+	// Shutdown without starting should not panic
+	err = gl.Shutdown()
+	// Error is expected since Stop will fail, but shouldn't panic
+	if err == nil {
+		t.Log("Shutdown without start completed without error")
+	}
+}
+
+func TestShutdownMultiplePets(t *testing.T) {
+	config := DefaultGameLoopConfig()
+	gl, err := NewGameLoop(config)
+	if err != nil {
+		t.Fatalf("Failed to create game loop: %v", err)
+	}
+
+	// Add multiple pets
+	for i := 0; i < 5; i++ {
+		pet := NewDigitalPet(fmt.Sprintf("Pet%d", i), types.UserID(fmt.Sprintf("user_%d", i)))
+		err = gl.AddPet(pet)
+		if err != nil {
+			t.Fatalf("Failed to add pet %d: %v", i, err)
+		}
+	}
+
+	// Start the game loop
+	err = gl.Start()
+	if err != nil {
+		t.Fatalf("Failed to start game loop: %v", err)
+	}
+
+	// Shutdown should save all pets
+	err = gl.Shutdown()
+	if err != nil {
+		t.Fatalf("Shutdown with multiple pets failed: %v", err)
+	}
+
+	// Verify all pets were handled
+	if gl.state != GameStateStopped {
+		t.Errorf("Expected state Stopped after shutdown")
+	}
 }

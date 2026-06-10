@@ -543,3 +543,17 @@ func (dm *DataManager) GetStorageStats() (map[string]interface{}, error) {
 
 	return stats, nil
 }
+
+// Close shuts down the data manager and releases resources
+func (dm *DataManager) Close() error {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	// Clean up expired cache entries
+	dm.cache.CleanupExpired()
+
+	// No additional resources to close in LocalStorage, BackupManager, or CloudSyncManager
+	// as they don't maintain persistent connections (file-based storage)
+
+	return nil
+}

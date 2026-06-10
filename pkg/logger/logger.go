@@ -11,7 +11,9 @@ import (
 var (
 	// defaultLogger is the global logger instance
 	defaultLogger *slog.Logger
-	mu            sync.RWMutex
+	// logFile is the underlying log file, if any
+	logFile *os.File
+	mu      sync.RWMutex
 )
 
 // Config holds logger configuration
@@ -55,11 +57,22 @@ func Initialize(config *Config) error {
 			return err
 		}
 
+		// Close existing log file if any
+		mu.Lock()
+		if logFile != nil {
+			logFile.Close()
+		}
+		mu.Unlock()
+
 		// Open log file (append mode)
 		file, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return err
 		}
+
+		mu.Lock()
+		logFile = file
+		mu.Unlock()
 
 		// Use multi-writer to write to both stdout and file
 		writer = io.MultiWriter(os.Stdout, file)
@@ -123,4 +136,23 @@ func With(args ...any) *slog.Logger {
 // WithGroup returns a logger with a group
 func WithGroup(name string) *slog.Logger {
 	return Get().WithGroup(name)
+}
+
+// Shutdown closes the log file if one is open
+func Shutdown() error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if logFile != nil {
+		// Sync to ensure all buffered writes are flushed
+		if err := logFile.Sync(); err != nil {
+			return err
+		}
+		if err := logFile.Close(); err != nil {
+			return err
+		}
+		logFile = nil
+	}
+
+	return nil
 }

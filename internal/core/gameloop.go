@@ -187,6 +187,22 @@ func (gl *GameLoop) Resume() {
 	gl.lastFrameTime = time.Now() // Reset to avoid large delta
 }
 
+// Shutdown performs graceful shutdown of the game loop
+func (gl *GameLoop) Shutdown() error {
+	// Stop the game loop first
+	if err := gl.Stop(); err != nil {
+		logger.Warn("error stopping game loop", "error", err)
+	}
+
+	// Close data manager resources
+	if err := gl.dataManager.Close(); err != nil {
+		return fmt.Errorf("failed to close data manager: %w", err)
+	}
+
+	logger.Info("game loop shutdown complete")
+	return nil
+}
+
 // Update performs one update cycle
 func (gl *GameLoop) Update() error {
 	gl.mu.Lock()
