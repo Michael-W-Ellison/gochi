@@ -1,0 +1,94 @@
+# Gochi Configuration File
+# This is the default configuration for the Gochi virtual pet game
+
+app:
+  name: Gochi
+  version: 0.1.0-alpha
+  debug: false
+  log_path: ./logs
+
+game:
+  # Target frames per second (1-300)
+  target_fps: 60
+
+  # Auto-save interval (examples: 5m, 1h, 30s)
+  auto_save_interval: 5m
+
+  # Auto-backup interval (examples: 24h, 12h, 1h)
+  auto_backup_interval: 24h
+
+  # Enable automatic saving
+  enable_auto_save: true
+
+  # Enable automatic backups
+  enable_auto_backup: true
+
+data:
+  # Base path for pet data storage
+  base_path: ./data/pets
+
+  # Path for backups
+  backup_path: ./data/backups
+
+  # Cache size in megabytes
+  cache_size_mb: 100
+
+  # Cache TTL in minutes
+  cache_ttl_minutes: 30
+
+  # Enable encryption for saved data
+  enable_encryption: false
+
+  # Encryption key (leave empty if encryption disabled)
+  # Can also be set via GOCHI_ENCRYPTION_KEY environment variable
+  encryption_key: ""
+
+  # Maximum number of backups to keep
+  max_backups: 10
+
+  # Enable automatic saving (data layer)
+  enable_auto_save: true
+
+  # Auto-save interval (data layer)
+  auto_save_interval: 5m
+
+  # Enable automatic backups (data layer)
+  enable_auto_backup: true
+
+  # Auto-backup interval (data layer)
+  auto_backup_interval: 24h
+
+environment:
+  # Starting season: spring, summer, autumn, winter
+  start_season: spring
+
+  # Length of each season in game hours
+  season_length_hours: 168.0
+
+  # Intensity of seasonal effects (0.0 - 1.0)
+  seasonal_intensity: 0.8
+
+  # Enable smooth transitions between seasons
+  enable_transitions: true
+
+  # Weather randomness/unpredictability (0.0 - 1.0)
+  weather_volatility: 0.5
+
+  # How often weather can change (in game hours)
+  weather_change_interval: 4.0
+
+  # Starting biome: grassland, forest, desert, tundra, mountain, ocean
+  starting_biome: grassland
+
+ui:
+  # Terminal width in characters (40-500)
+  width: 80
+
+  # Terminal height in characters (10-200)
+  height: 24
+
+  # Show FPS counter
+  show_fps: false
+
+  # Color scheme: default, dark, light
+  color_scheme: default
