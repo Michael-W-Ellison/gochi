@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -843,13 +844,13 @@ func TestCloudProvider(t *testing.T) {
 	provider := NewStubCloudProvider()
 
 	// Test IsConnected
-	if !provider.IsConnected() {
+	if !provider.IsConnected(context.Background()) {
 		t.Error("Provider should be connected initially")
 	}
 
 	// Test SetConnected
 	provider.SetConnected(false)
-	if provider.IsConnected() {
+	if provider.IsConnected(context.Background()) {
 		t.Error("Provider should be disconnected")
 	}
 	provider.SetConnected(true)
@@ -857,13 +858,13 @@ func TestCloudProvider(t *testing.T) {
 	// Test Upload
 	petID := types.PetID("test-pet")
 	data := []byte(`{"name":"TestPet"}`)
-	err := provider.Upload(petID, data)
+	err := provider.Upload(context.Background(), petID, data)
 	if err != nil {
 		t.Errorf("Upload failed: %v", err)
 	}
 
 	// Test Download
-	downloaded, err := provider.Download(petID)
+	downloaded, err := provider.Download(context.Background(), petID)
 	if err != nil {
 		t.Errorf("Download failed: %v", err)
 	}
@@ -872,7 +873,7 @@ func TestCloudProvider(t *testing.T) {
 	}
 
 	// Test List
-	petIDs, err := provider.List()
+	petIDs, err := provider.List(context.Background())
 	if err != nil {
 		t.Errorf("List failed: %v", err)
 	}
@@ -881,7 +882,7 @@ func TestCloudProvider(t *testing.T) {
 	}
 
 	// Test GetLastModified
-	modTime, err := provider.GetLastModified(petID)
+	modTime, err := provider.GetLastModified(context.Background(), petID)
 	if err != nil {
 		t.Errorf("GetLastModified failed: %v", err)
 	}
@@ -890,13 +891,13 @@ func TestCloudProvider(t *testing.T) {
 	}
 
 	// Test Delete
-	err = provider.Delete(petID)
+	err = provider.Delete(context.Background(), petID)
 	if err != nil {
 		t.Errorf("Delete failed: %v", err)
 	}
 
 	// Verify deletion
-	_, err = provider.Download(petID)
+	_, err = provider.Download(context.Background(), petID)
 	if err == nil {
 		t.Error("Download should fail after deletion")
 	}
@@ -936,7 +937,7 @@ func TestCloudSyncManagerSyncAll(t *testing.T) {
 
 	// Upload one pet to cloud
 	data, _ := os.ReadFile(localStorage.getFilename(petID1))
-	provider.Upload(petID1, data)
+	provider.Upload(context.Background(), petID1, data)
 
 	// Run sync
 	result := csm.SyncAll()
@@ -991,7 +992,7 @@ func TestCloudSyncManagerSyncPetByID(t *testing.T) {
 	}
 
 	// Verify it was uploaded to cloud
-	cloudData, err := provider.Download(petID)
+	cloudData, err := provider.Download(context.Background(), petID)
 	if err != nil {
 		t.Fatalf("Pet should be in cloud after sync: %v", err)
 	}
@@ -1020,7 +1021,7 @@ func TestCloudSyncManagerUploadPet(t *testing.T) {
 	}
 
 	// Verify it's in cloud
-	cloudData, err := provider.Download(petID)
+	cloudData, err := provider.Download(context.Background(), petID)
 	if err != nil {
 		t.Fatalf("Pet should be in cloud after upload: %v", err)
 	}
@@ -1050,7 +1051,7 @@ func TestCloudSyncManagerDownloadPet(t *testing.T) {
 
 	// Read the properly formatted file and upload to cloud provider
 	cloudData, _ := os.ReadFile(cloudStorage.getFilename(petID))
-	provider.Upload(petID, cloudData)
+	provider.Upload(context.Background(), petID, cloudData)
 
 	// Download from cloud
 	err := csm.DownloadPet(petID)
@@ -1155,7 +1156,7 @@ func TestCloudSyncBidirectional(t *testing.T) {
 	// Create and upload cloud pet with proper format
 	cloudStorage.Save(cloudPetID, map[string]interface{}{"name": "CloudOnly"})
 	cloudData, _ := os.ReadFile(cloudStorage.getFilename(cloudPetID))
-	provider.Upload(cloudPetID, cloudData)
+	provider.Upload(context.Background(), cloudPetID, cloudData)
 
 	// Sync all
 	result := csm.SyncAll()
@@ -1174,10 +1175,10 @@ func TestCloudSyncBidirectional(t *testing.T) {
 	}
 
 	// Verify both pets exist in cloud
-	if _, err := provider.Download(localPetID); err != nil {
+	if _, err := provider.Download(context.Background(), localPetID); err != nil {
 		t.Error("Local pet should be uploaded to cloud after sync")
 	}
-	if _, err := provider.Download(cloudPetID); err != nil {
+	if _, err := provider.Download(context.Background(), cloudPetID); err != nil {
 		t.Error("Cloud pet should still exist after sync")
 	}
 }
@@ -1205,7 +1206,7 @@ func TestCloudSyncNewerVersionPriority(t *testing.T) {
 	// Create and upload newer version to cloud
 	cloudStorage.Save(petID, map[string]interface{}{"name": "NewVersion", "version": 2})
 	newerData, _ := os.ReadFile(cloudStorage.getFilename(petID))
-	provider.Upload(petID, newerData)
+	provider.Upload(context.Background(), petID, newerData)
 
 	// Sync should download the newer cloud version
 	err := csm.SyncPetByID(petID)

@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -147,8 +148,11 @@ func (dm *DataManager) DeletePet(petID types.PetID) error {
 	dm.cache.InvalidatePet(petID)
 
 	// Delete from cloud if available
-	if dm.cloudSync != nil && dm.cloudSync.provider.IsConnected() {
-		dm.cloudSync.provider.Delete(petID)
+	if dm.cloudSync != nil && dm.cloudSync.provider != nil {
+		ctx := context.Background()
+		if dm.cloudSync.provider.IsConnected(ctx) {
+			dm.cloudSync.provider.Delete(ctx, petID)
+		}
 	}
 
 	return nil

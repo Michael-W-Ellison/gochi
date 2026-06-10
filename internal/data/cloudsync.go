@@ -112,7 +112,8 @@ func (csm *CloudSyncManager) SyncAll() *SyncResult {
 	}
 
 	// Check connection
-	if !csm.provider.IsConnected() {
+	ctx := context.Background()
+	if !csm.provider.IsConnected(ctx) {
 		result.Status = SyncStatusFailed
 		result.Errors = append(result.Errors, "Cloud provider not connected")
 		result.EndTime = time.Now()
@@ -131,7 +132,6 @@ func (csm *CloudSyncManager) SyncAll() *SyncResult {
 	}
 
 	// Get cloud pets with context
-	ctx := context.Background()
 	cloudPets, err := csm.provider.List(ctx)
 	if err != nil {
 		result.Status = SyncStatusFailed
@@ -335,7 +335,7 @@ func NewStubCloudProvider() *StubCloudProvider {
 	}
 }
 
-func (s *StubCloudProvider) Upload(petID types.PetID, data []byte) error {
+func (s *StubCloudProvider) Upload(ctx context.Context, petID types.PetID, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -344,7 +344,7 @@ func (s *StubCloudProvider) Upload(petID types.PetID, data []byte) error {
 	return nil
 }
 
-func (s *StubCloudProvider) Download(petID types.PetID) ([]byte, error) {
+func (s *StubCloudProvider) Download(ctx context.Context, petID types.PetID) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -355,7 +355,7 @@ func (s *StubCloudProvider) Download(petID types.PetID) ([]byte, error) {
 	return data, nil
 }
 
-func (s *StubCloudProvider) Delete(petID types.PetID) error {
+func (s *StubCloudProvider) Delete(ctx context.Context, petID types.PetID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -364,7 +364,7 @@ func (s *StubCloudProvider) Delete(petID types.PetID) error {
 	return nil
 }
 
-func (s *StubCloudProvider) List() ([]types.PetID, error) {
+func (s *StubCloudProvider) List(ctx context.Context) ([]types.PetID, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -375,7 +375,7 @@ func (s *StubCloudProvider) List() ([]types.PetID, error) {
 	return petIDs, nil
 }
 
-func (s *StubCloudProvider) GetLastModified(petID types.PetID) (time.Time, error) {
+func (s *StubCloudProvider) GetLastModified(ctx context.Context, petID types.PetID) (time.Time, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -386,7 +386,7 @@ func (s *StubCloudProvider) GetLastModified(petID types.PetID) (time.Time, error
 	return modTime, nil
 }
 
-func (s *StubCloudProvider) IsConnected() bool {
+func (s *StubCloudProvider) IsConnected(ctx context.Context) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
