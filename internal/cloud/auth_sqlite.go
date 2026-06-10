@@ -11,14 +11,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/pkg/security"
 	"golang.org/x/crypto/pbkdf2"
 	_ "modernc.org/sqlite"
 )
 
 // SQLiteAuthProvider implements AuthProvider using SQLite database
 type SQLiteAuthProvider struct {
-	mu sync.RWMutex
-	db *sql.DB
+	mu          sync.RWMutex
+	db          *sql.DB
+	rateLimiter *security.RateLimiter
 }
 
 // NewSQLiteAuthProvider creates a new SQLite-based auth provider
@@ -33,7 +35,13 @@ func NewSQLiteAuthProvider(dbPath string) (*SQLiteAuthProvider, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	provider := &SQLiteAuthProvider{db: db}
+	// Create rate limiter: 5 attempts per 15 minutes
+	rateLimiter := security.NewRateLimiter(5, 15*time.Minute)
+
+	provider := &SQLiteAuthProvider{
+		db:          db,
+		rateLimiter: rateLimiter,
+	}
 
 	// Initialize schema
 	if err := provider.initSchema(); err != nil {
@@ -88,6 +96,12 @@ func (s *SQLiteAuthProvider) initSchema() error {
 
 // Authenticate verifies credentials and creates a session
 func (s *SQLiteAuthProvider) Authenticate(username, password string) (*Session, error) {
+	// Check rate limit before acquiring lock
+	if s.rateLimiter.CheckLimit(username) {
+		security.LogRateLimitExceeded(username, "")
+		return nil, errors.New("too many authentication attempts, please try again later")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -97,16 +111,22 @@ func (s *SQLiteAuthProvider) Authenticate(username, password string) (*Session, 
 	query := "SELECT id, password_hash, password_salt, last_login_at FROM users WHERE username = ?"
 	err := s.db.QueryRow(query, username).Scan(&userID, &storedHash, &salt, &lastLoginUnix)
 	if err == sql.ErrNoRows {
+		security.LogLoginAttempt(username, "", false, "user not found")
 		return nil, errors.New("invalid credentials")
 	}
 	if err != nil {
+		security.LogLoginAttempt(username, "", false, "database error")
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 
 	// Verify password
 	if !verifyPassword(password, storedHash, salt) {
+		security.LogLoginAttempt(username, "", false, "invalid password")
 		return nil, errors.New("invalid credentials")
 	}
+
+	// Reset rate limit on successful authentication
+	s.rateLimiter.Reset(username)
 
 	// Create session
 	session := &Session{
@@ -137,6 +157,9 @@ func (s *SQLiteAuthProvider) Authenticate(username, password string) (*Session, 
 		return nil, fmt.Errorf("failed to update last login: %w", err)
 	}
 
+	// Log successful authentication
+	security.LogLoginAttempt(username, session.IPAddress, true, "authentication successful")
+
 	return session, nil
 }
 
@@ -145,8 +168,17 @@ func (s *SQLiteAuthProvider) Register(creds *Credentials) (*User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Validate credentials format
-	if err := ValidateCredentialsStrict(creds); err != nil {
+	// Validate credentials with enhanced security checks
+	if err := security.ValidateUsername(creds.Username); err != nil {
+		security.LogRegistration(creds.Username, "", false)
+		return nil, err
+	}
+	if err := security.ValidateEmail(creds.Email); err != nil {
+		security.LogRegistration(creds.Username, "", false)
+		return nil, err
+	}
+	if err := security.ValidatePassword(creds.Password); err != nil {
+		security.LogRegistration(creds.Username, "", false)
 		return nil, err
 	}
 
@@ -154,18 +186,22 @@ func (s *SQLiteAuthProvider) Register(creds *Credentials) (*User, error) {
 	var exists int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM users WHERE username = ?", creds.Username).Scan(&exists)
 	if err != nil {
+		security.LogRegistration(creds.Username, "", false)
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 	if exists > 0 {
+		security.LogRegistration(creds.Username, "", false)
 		return nil, errors.New("username already exists")
 	}
 
 	// Check if email exists
 	err = s.db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", creds.Email).Scan(&exists)
 	if err != nil {
+		security.LogRegistration(creds.Username, "", false)
 		return nil, fmt.Errorf("database error: %w", err)
 	}
 	if exists > 0 {
+		security.LogRegistration(creds.Username, "", false)
 		return nil, errors.New("email already exists")
 	}
 
@@ -194,6 +230,9 @@ func (s *SQLiteAuthProvider) Register(creds *Credentials) (*User, error) {
 		PetCount:    0,
 		IsPremium:   false,
 	}
+
+	// Log successful registration
+	security.LogRegistration(creds.Username, "", true)
 
 	return user, nil
 }

@@ -10,10 +10,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/pkg/security"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -292,41 +292,31 @@ func (ls *LocalStorage) GetSaveInfo(petID types.PetID) (*PetData, error) {
 // Helper methods
 
 func (ls *LocalStorage) getFilename(petID types.PetID) string {
-	// Sanitize petID to prevent path traversal attacks
 	idStr := string(petID)
 
-	// Check for empty pet ID
-	if idStr == "" {
+	// Validate pet ID using security package
+	if err := security.ValidatePetID(idStr); err != nil {
+		security.LogPathTraversalAttempt("", idStr)
 		return ""
 	}
 
-	// Extract just the base filename (removes any path components)
-	clean := filepath.Base(idStr)
-
-	// Verify no path traversal attempts
-	// filepath.Base should handle this, but be defensive
-	if clean != idStr || strings.Contains(idStr, "..") ||
-	   strings.ContainsAny(idStr, "/\\") {
-		// Log the attempt and return empty (will cause operation to fail)
+	// Sanitize the filename to remove any dangerous characters
+	sanitized := security.SanitizeFilename(idStr)
+	if sanitized == "" {
+		security.LogPathTraversalAttempt("", idStr)
 		return ""
 	}
 
-	// Validate filename characters (alphanumeric, dash, underscore only)
-	for _, ch := range clean {
-		if !((ch >= 'a' && ch <= 'z') ||
-		     (ch >= 'A' && ch <= 'Z') ||
-		     (ch >= '0' && ch <= '9') ||
-		     ch == '-' || ch == '_') {
-			return ""
-		}
-	}
+	// Build the full path
+	fullPath := filepath.Join(ls.basePath, sanitized+".json")
 
-	// Additional length check to prevent extremely long filenames
-	if len(clean) > 255 {
+	// Final validation to ensure path is within base directory
+	if err := security.ValidateFilePath(ls.basePath, fullPath); err != nil {
+		security.LogPathTraversalAttempt("", fullPath)
 		return ""
 	}
 
-	return filepath.Join(ls.basePath, clean+".json")
+	return fullPath
 }
 
 func (ls *LocalStorage) encrypt(data []byte) ([]byte, error) {

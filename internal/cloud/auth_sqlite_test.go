@@ -35,7 +35,7 @@ func TestSQLiteAuthProvider_RegisterAndAuthenticate(t *testing.T) {
 	// Register user
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 
@@ -80,7 +80,7 @@ func TestSQLiteAuthProvider_AuthenticateInvalidCredentials(t *testing.T) {
 	// Register user
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 	_, err = provider.Register(creds)
@@ -113,7 +113,7 @@ func TestSQLiteAuthProvider_DuplicateUsername(t *testing.T) {
 	// Register first user
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test1@example.com",
 	}
 	_, err = provider.Register(creds)
@@ -145,7 +145,7 @@ func TestSQLiteAuthProvider_DuplicateEmail(t *testing.T) {
 	// Register first user
 	creds := &Credentials{
 		Username: "testuser1",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 	_, err = provider.Register(creds)
@@ -177,7 +177,7 @@ func TestSQLiteAuthProvider_ValidateSession(t *testing.T) {
 	// Register and authenticate
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 	user, _ := provider.Register(creds)
@@ -215,7 +215,7 @@ func TestSQLiteAuthProvider_RevokeSession(t *testing.T) {
 	// Register and authenticate
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 	_, _ = provider.Register(creds)
@@ -246,7 +246,7 @@ func TestSQLiteAuthProvider_GetUser(t *testing.T) {
 	// Register user
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 	user, _ := provider.Register(creds)
@@ -283,7 +283,7 @@ func TestSQLiteAuthProvider_UpdateUser(t *testing.T) {
 	// Register user
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 	user, _ := provider.Register(creds)
@@ -323,7 +323,7 @@ func TestSQLiteAuthProvider_CleanupExpiredSessions(t *testing.T) {
 	// Register user
 	creds := &Credentials{
 		Username: "testuser",
-		Password: "password123",
+		Password: "TestPass123!",
 		Email:    "test@example.com",
 	}
 	_, _ = provider.Register(creds)
@@ -367,7 +367,7 @@ func TestValidateCredentialsStrict(t *testing.T) {
 			name: "valid credentials",
 			creds: &Credentials{
 				Username: "testuser",
-				Password: "password123",
+				Password: "TestPass123!",
 				Email:    "test@example.com",
 			},
 			wantErr: false,
@@ -376,7 +376,7 @@ func TestValidateCredentialsStrict(t *testing.T) {
 			name: "username too short",
 			creds: &Credentials{
 				Username: "ab",
-				Password: "password123",
+				Password: "TestPass123!",
 				Email:    "test@example.com",
 			},
 			wantErr: true,
@@ -385,7 +385,7 @@ func TestValidateCredentialsStrict(t *testing.T) {
 			name: "username too long",
 			creds: &Credentials{
 				Username: "abcdefghijklmnopqrstuvwxyz",
-				Password: "password123",
+				Password: "TestPass123!",
 				Email:    "test@example.com",
 			},
 			wantErr: true,
@@ -394,7 +394,7 @@ func TestValidateCredentialsStrict(t *testing.T) {
 			name: "username with invalid characters",
 			creds: &Credentials{
 				Username: "test-user!",
-				Password: "password123",
+				Password: "TestPass123!",
 				Email:    "test@example.com",
 			},
 			wantErr: true,
@@ -412,7 +412,7 @@ func TestValidateCredentialsStrict(t *testing.T) {
 			name: "invalid email - no @",
 			creds: &Credentials{
 				Username: "testuser",
-				Password: "password123",
+				Password: "TestPass123!",
 				Email:    "testexample.com",
 			},
 			wantErr: true,
@@ -421,7 +421,7 @@ func TestValidateCredentialsStrict(t *testing.T) {
 			name: "invalid email - no domain",
 			creds: &Credentials{
 				Username: "testuser",
-				Password: "password123",
+				Password: "TestPass123!",
 				Email:    "test@",
 			},
 			wantErr: true,
@@ -430,7 +430,7 @@ func TestValidateCredentialsStrict(t *testing.T) {
 			name: "invalid email - no TLD",
 			creds: &Credentials{
 				Username: "testuser",
-				Password: "password123",
+				Password: "TestPass123!",
 				Email:    "test@example",
 			},
 			wantErr: true,
