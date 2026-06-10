@@ -1,7 +1,10 @@
 package data
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -347,8 +350,69 @@ func (dm *DataManager) ExportPet(petID types.PetID, exportPath string) error {
 	dm.mu.RLock()
 	defer dm.mu.RUnlock()
 
-	// This would copy the pet file to the export location
-	// Implementation omitted for brevity
+	// Validate pet exists
+	if !dm.localStorage.Exists(petID) {
+		return fmt.Errorf("pet %s does not exist", petID)
+	}
+
+	// Validate export path is not empty
+	if exportPath == "" {
+		return fmt.Errorf("export path cannot be empty")
+	}
+
+	// Clean and validate export path
+	cleanPath := filepath.Clean(exportPath)
+
+	// Ensure export path directory exists
+	exportDir := filepath.Dir(cleanPath)
+	if err := os.MkdirAll(exportDir, 0755); err != nil {
+		return fmt.Errorf("failed to create export directory: %w", err)
+	}
+
+	// Read the complete pet data file
+	sourceFile := filepath.Join(dm.localStorage.GetBasePath(), string(petID)+".json")
+	fileData, err := os.ReadFile(sourceFile)
+	if err != nil {
+		return fmt.Errorf("failed to read pet file: %w", err)
+	}
+
+	// Parse to verify integrity
+	var petData PetData
+	if err := json.Unmarshal(fileData, &petData); err != nil {
+		return fmt.Errorf("failed to parse pet data: %w", err)
+	}
+
+	// Verify data integrity with checksum
+	currentChecksum := CalculateChecksum(petData.Data)
+	if petData.Checksum != currentChecksum {
+		return fmt.Errorf("data integrity check failed: checksum mismatch")
+	}
+
+	// Write to export location
+	if err := os.WriteFile(cleanPath, fileData, 0644); err != nil {
+		return fmt.Errorf("failed to write export file: %w", err)
+	}
+
+	// Verify the exported file
+	exportedData, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return fmt.Errorf("failed to verify export: %w", err)
+	}
+
+	// Parse exported file and verify checksum
+	var exportedPetData PetData
+	if err := json.Unmarshal(exportedData, &exportedPetData); err != nil {
+		os.Remove(cleanPath)
+		return fmt.Errorf("export verification failed: corrupted file: %w", err)
+	}
+
+	exportChecksum := CalculateChecksum(exportedPetData.Data)
+	if exportChecksum != currentChecksum {
+		// Clean up the corrupted export
+		os.Remove(cleanPath)
+		return fmt.Errorf("export verification failed: checksums do not match")
+	}
+
 	return nil
 }
 
@@ -357,9 +421,98 @@ func (dm *DataManager) ImportPet(importPath string) (types.PetID, error) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
-	// This would import a pet file from the import location
-	// Implementation omitted for brevity
-	return "", nil
+	// Validate import path
+	if importPath == "" {
+		return "", fmt.Errorf("import path cannot be empty")
+	}
+
+	// Clean the path
+	cleanPath := filepath.Clean(importPath)
+
+	// Check if file exists
+	if _, err := os.Stat(cleanPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("import file does not exist: %s", cleanPath)
+		}
+		return "", fmt.Errorf("failed to access import file: %w", err)
+	}
+
+	// Read the import file
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read import file: %w", err)
+	}
+
+	// Parse the pet data to validate format
+	var petData PetData
+	if err := json.Unmarshal(data, &petData); err != nil {
+		return "", fmt.Errorf("invalid pet data format: %w", err)
+	}
+
+	// Validate data version compatibility
+	if petData.Version != CurrentDataVersion {
+		return "", fmt.Errorf("incompatible data version: got %s, expected %s",
+			petData.Version, CurrentDataVersion)
+	}
+
+	// Verify checksum integrity
+	calculatedChecksum := CalculateChecksum(petData.Data)
+	if petData.Checksum != calculatedChecksum {
+		return "", fmt.Errorf("data integrity check failed: checksum mismatch")
+	}
+
+	// Check if pet already exists
+	originalID := petData.PetID
+	finalID := originalID
+
+	if dm.localStorage.Exists(originalID) {
+		// Generate a new unique ID by appending timestamp with nanoseconds for uniqueness
+		timestamp := time.Now().UnixNano()
+		finalID = types.PetID(fmt.Sprintf("%s_imported_%d", originalID, timestamp))
+
+		// Update the pet data with new ID
+		petData.PetID = finalID
+
+		// Re-marshal with new ID
+		data, err = json.Marshal(petData)
+		if err != nil {
+			return "", fmt.Errorf("failed to update pet data with new ID: %w", err)
+		}
+	}
+
+	// Write to storage location
+	basePath := dm.localStorage.GetBasePath()
+	targetFile := filepath.Join(basePath, string(finalID)+".json")
+
+	// Ensure directory exists
+	if err := os.MkdirAll(basePath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create storage directory: %w", err)
+	}
+
+	if err := os.WriteFile(targetFile, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write imported pet: %w", err)
+	}
+
+	// Verify the imported file
+	verifyData, err := os.ReadFile(targetFile)
+	if err != nil {
+		// Cleanup on verification failure
+		os.Remove(targetFile)
+		return "", fmt.Errorf("failed to verify import: %w", err)
+	}
+
+	verifyChecksum := CalculateChecksum(verifyData)
+	originalChecksum := CalculateChecksum(data)
+	if verifyChecksum != originalChecksum {
+		// Cleanup corrupted import
+		os.Remove(targetFile)
+		return "", fmt.Errorf("import verification failed: file corrupted during write")
+	}
+
+	// Invalidate cache for this pet (already holding dm.mu lock, so call cache directly)
+	dm.cache.InvalidatePet(finalID)
+
+	return finalID, nil
 }
 
 // GetStorageStats returns statistics about storage usage

@@ -1,6 +1,9 @@
 package core
 
 import (
+	"fmt"
+	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -112,8 +115,13 @@ func (es *EventSystem) Emit(event *GameEvent) {
 		go func(h EventHandler, evt *GameEvent) {
 			defer func() {
 				if r := recover(); r != nil {
-					// Log panic but don't crash
-					// In production, this would use proper logging
+					// Log panic with stack trace but don't crash the entire system
+					fmt.Fprintf(os.Stderr, "[CRITICAL] Event handler panic recovered:\n")
+					fmt.Fprintf(os.Stderr, "Event Type: %s\n", evt.Type.String())
+					fmt.Fprintf(os.Stderr, "Event Time: %s\n", evt.Timestamp.Format(time.RFC3339))
+					fmt.Fprintf(os.Stderr, "Panic: %v\n", r)
+					fmt.Fprintf(os.Stderr, "Stack trace:\n%s\n", debug.Stack())
+					fmt.Fprintf(os.Stderr, "Event handler will be skipped, system continues.\n")
 				}
 			}()
 			h(evt)

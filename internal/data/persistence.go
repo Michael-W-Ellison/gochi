@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +76,13 @@ func (ls *LocalStorage) DisableEncryption() {
 	ls.encryptionKey = nil
 }
 
+// GetBasePath returns the base path for storage
+func (ls *LocalStorage) GetBasePath() string {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+	return ls.basePath
+}
+
 // Save persists pet data to disk
 func (ls *LocalStorage) Save(petID types.PetID, data interface{}) error {
 	ls.mu.Lock()
@@ -127,6 +135,9 @@ func (ls *LocalStorage) Save(petID types.PetID, data interface{}) error {
 
 	// Write to file
 	filename := ls.getFilename(petID)
+	if filename == "" {
+		return fmt.Errorf("invalid pet ID: contains illegal characters or path traversal attempt")
+	}
 	if err := os.WriteFile(filename, finalData, 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
@@ -140,6 +151,9 @@ func (ls *LocalStorage) Load(petID types.PetID, target interface{}) error {
 	defer ls.mu.RUnlock()
 
 	filename := ls.getFilename(petID)
+	if filename == "" {
+		return fmt.Errorf("invalid pet ID: contains illegal characters or path traversal attempt")
+	}
 
 	// Read file
 	fileData, err := os.ReadFile(filename)
@@ -195,6 +209,9 @@ func (ls *LocalStorage) Delete(petID types.PetID) error {
 	defer ls.mu.Unlock()
 
 	filename := ls.getFilename(petID)
+	if filename == "" {
+		return fmt.Errorf("invalid pet ID: contains illegal characters or path traversal attempt")
+	}
 	if err := os.Remove(filename); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("save file not found: %w", err)
@@ -211,6 +228,9 @@ func (ls *LocalStorage) Exists(petID types.PetID) bool {
 	defer ls.mu.RUnlock()
 
 	filename := ls.getFilename(petID)
+	if filename == "" {
+		return false
+	}
 	_, err := os.Stat(filename)
 	return err == nil
 }
@@ -250,6 +270,9 @@ func (ls *LocalStorage) GetSaveInfo(petID types.PetID) (*PetData, error) {
 	defer ls.mu.RUnlock()
 
 	filename := ls.getFilename(petID)
+	if filename == "" {
+		return nil, fmt.Errorf("invalid pet ID: contains illegal characters or path traversal attempt")
+	}
 	fileData, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -269,7 +292,41 @@ func (ls *LocalStorage) GetSaveInfo(petID types.PetID) (*PetData, error) {
 // Helper methods
 
 func (ls *LocalStorage) getFilename(petID types.PetID) string {
-	return filepath.Join(ls.basePath, string(petID)+".json")
+	// Sanitize petID to prevent path traversal attacks
+	idStr := string(petID)
+
+	// Check for empty pet ID
+	if idStr == "" {
+		return ""
+	}
+
+	// Extract just the base filename (removes any path components)
+	clean := filepath.Base(idStr)
+
+	// Verify no path traversal attempts
+	// filepath.Base should handle this, but be defensive
+	if clean != idStr || strings.Contains(idStr, "..") ||
+	   strings.ContainsAny(idStr, "/\\") {
+		// Log the attempt and return empty (will cause operation to fail)
+		return ""
+	}
+
+	// Validate filename characters (alphanumeric, dash, underscore only)
+	for _, ch := range clean {
+		if !((ch >= 'a' && ch <= 'z') ||
+		     (ch >= 'A' && ch <= 'Z') ||
+		     (ch >= '0' && ch <= '9') ||
+		     ch == '-' || ch == '_') {
+			return ""
+		}
+	}
+
+	// Additional length check to prevent extremely long filenames
+	if len(clean) > 255 {
+		return ""
+	}
+
+	return filepath.Join(ls.basePath, clean+".json")
 }
 
 func (ls *LocalStorage) encrypt(data []byte) ([]byte, error) {
@@ -320,9 +377,15 @@ func (ls *LocalStorage) decrypt(data []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-func calculateChecksum(data []byte) string {
+// CalculateChecksum computes a SHA-256 checksum of the provided data
+func CalculateChecksum(data []byte) string {
 	hash := sha256.Sum256(data)
 	return fmt.Sprintf("%x", hash)
+}
+
+// calculateChecksum is the internal lowercase version for backward compatibility
+func calculateChecksum(data []byte) string {
+	return CalculateChecksum(data)
 }
 
 func getDeviceID() string {

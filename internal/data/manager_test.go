@@ -1,6 +1,7 @@
 package data
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -712,13 +713,44 @@ func TestExportPet(t *testing.T) {
 		t.Fatalf("NewDataManager failed: %v", err)
 	}
 
+	// Create a test pet first
 	petID := types.PetID("test-pet")
+	testData := map[string]interface{}{
+		"name": "TestPet",
+		"age":  5,
+	}
+
+	err = dm.SavePet(petID, testData)
+	if err != nil {
+		t.Fatalf("SavePet failed: %v", err)
+	}
+
 	exportPath := filepath.Join(tempDir, "export.json")
 
-	// Test export (stub implementation returns nil)
+	// Test export
 	err = dm.ExportPet(petID, exportPath)
 	if err != nil {
-		t.Errorf("ExportPet failed: %v", err)
+		t.Fatalf("ExportPet failed: %v", err)
+	}
+
+	// Verify export file exists
+	if _, err := os.Stat(exportPath); os.IsNotExist(err) {
+		t.Error("Export file should exist")
+	}
+
+	// Verify export file is valid JSON
+	data, err := os.ReadFile(exportPath)
+	if err != nil {
+		t.Fatalf("Failed to read export file: %v", err)
+	}
+
+	var petData PetData
+	if err := json.Unmarshal(data, &petData); err != nil {
+		t.Errorf("Export file should be valid JSON: %v", err)
+	}
+
+	if petData.PetID != petID {
+		t.Errorf("Expected pet ID %s, got %s", petID, petData.PetID)
 	}
 }
 
@@ -736,16 +768,47 @@ func TestImportPet(t *testing.T) {
 		t.Fatalf("NewDataManager failed: %v", err)
 	}
 
-	importPath := filepath.Join(tempDir, "import.json")
-
-	// Test import (stub implementation returns empty string)
-	petID, err := dm.ImportPet(importPath)
-	if err != nil {
-		t.Errorf("ImportPet failed: %v", err)
+	// Create and export a pet first
+	originalID := types.PetID("original-pet")
+	testData := map[string]interface{}{
+		"name": "OriginalPet",
+		"age":  3,
 	}
 
-	if petID != "" {
-		t.Errorf("Expected empty petID from stub, got %s", petID)
+	err = dm.SavePet(originalID, testData)
+	if err != nil {
+		t.Fatalf("SavePet failed: %v", err)
+	}
+
+	exportPath := filepath.Join(tempDir, "export.json")
+	err = dm.ExportPet(originalID, exportPath)
+	if err != nil {
+		t.Fatalf("ExportPet failed: %v", err)
+	}
+
+	// Now test import
+	importedID, err := dm.ImportPet(exportPath)
+	if err != nil {
+		t.Fatalf("ImportPet failed: %v", err)
+	}
+
+	if importedID == "" {
+		t.Error("ImportPet should return non-empty pet ID")
+	}
+
+	// Verify imported pet exists
+	if !dm.PetExists(importedID) {
+		t.Error("Imported pet should exist")
+	}
+
+	// Test importing again (should create new ID to avoid conflict)
+	secondImportID, err := dm.ImportPet(exportPath)
+	if err != nil {
+		t.Fatalf("Second import failed: %v", err)
+	}
+
+	if secondImportID == importedID {
+		t.Error("Second import should create a different ID")
 	}
 }
 
