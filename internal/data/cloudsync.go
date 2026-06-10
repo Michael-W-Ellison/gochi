@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -40,22 +41,22 @@ type SyncResult struct {
 // CloudProvider defines the interface for cloud storage providers
 type CloudProvider interface {
 	// Upload uploads pet data to the cloud
-	Upload(petID types.PetID, data []byte) error
+	Upload(ctx context.Context, petID types.PetID, data []byte) error
 
 	// Download retrieves pet data from the cloud
-	Download(petID types.PetID) ([]byte, error)
+	Download(ctx context.Context, petID types.PetID) ([]byte, error)
 
 	// Delete removes pet data from the cloud
-	Delete(petID types.PetID) error
+	Delete(ctx context.Context, petID types.PetID) error
 
 	// List returns all pet IDs stored in the cloud
-	List() ([]types.PetID, error)
+	List(ctx context.Context) ([]types.PetID, error)
 
 	// GetLastModified returns when a pet was last modified in the cloud
-	GetLastModified(petID types.PetID) (time.Time, error)
+	GetLastModified(ctx context.Context, petID types.PetID) (time.Time, error)
 
 	// IsConnected checks if the cloud service is reachable
-	IsConnected() bool
+	IsConnected(ctx context.Context) bool
 }
 
 // CloudSyncManager handles synchronization between local and cloud storage
@@ -129,8 +130,9 @@ func (csm *CloudSyncManager) SyncAll() *SyncResult {
 		return result
 	}
 
-	// Get cloud pets
-	cloudPets, err := csm.provider.List()
+	// Get cloud pets with context
+	ctx := context.Background()
+	cloudPets, err := csm.provider.List(ctx)
 	if err != nil {
 		result.Status = SyncStatusFailed
 		result.Errors = append(result.Errors, fmt.Sprintf("Failed to list cloud pets: %v", err))
@@ -259,8 +261,9 @@ func (csm *CloudSyncManager) syncPet(petID types.PetID, result *SyncResult) erro
 		return fmt.Errorf("failed to get local save info: %w", err)
 	}
 
-	// Get cloud last modified time
-	cloudModTime, err := csm.provider.GetLastModified(petID)
+	// Get cloud last modified time with context
+	ctx := context.Background()
+	cloudModTime, err := csm.provider.GetLastModified(ctx, petID)
 	if err != nil {
 		// If not found in cloud, upload
 		return csm.uploadPet(petID, result)
@@ -287,8 +290,9 @@ func (csm *CloudSyncManager) uploadPet(petID types.PetID, result *SyncResult) er
 		return fmt.Errorf("failed to read local file: %w", err)
 	}
 
-	// Upload to cloud
-	if err := csm.provider.Upload(petID, data); err != nil {
+	// Upload to cloud with context
+	ctx := context.Background()
+	if err := csm.provider.Upload(ctx, petID, data); err != nil {
 		return fmt.Errorf("failed to upload to cloud: %w", err)
 	}
 
@@ -297,8 +301,9 @@ func (csm *CloudSyncManager) uploadPet(petID types.PetID, result *SyncResult) er
 }
 
 func (csm *CloudSyncManager) downloadPet(petID types.PetID, result *SyncResult) error {
-	// Download from cloud
-	data, err := csm.provider.Download(petID)
+	// Download from cloud with context
+	ctx := context.Background()
+	data, err := csm.provider.Download(ctx, petID)
 	if err != nil {
 		return fmt.Errorf("failed to download from cloud: %w", err)
 	}

@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,7 +44,7 @@ func NewCloudStorageProvider(baseURL string, authManager *AuthManager) *CloudSto
 }
 
 // Upload uploads pet data to the cloud
-func (csp *CloudStorageProvider) Upload(petID types.PetID, data []byte) error {
+func (csp *CloudStorageProvider) Upload(ctx context.Context, petID types.PetID, data []byte) error {
 	csp.mu.Lock()
 	defer csp.mu.Unlock()
 
@@ -56,9 +57,9 @@ func (csp *CloudStorageProvider) Upload(petID types.PetID, data []byte) error {
 		return err
 	}
 
-	// Create request
+	// Create request with context
 	url := fmt.Sprintf("%s/pets/%s", csp.baseURL, petID)
-	req, err := http.NewRequest("PUT", url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(data))
 	if err != nil {
 		csp.lastError = err
 		return fmt.Errorf("failed to create request: %w", err)
@@ -90,7 +91,7 @@ func (csp *CloudStorageProvider) Upload(petID types.PetID, data []byte) error {
 }
 
 // Download retrieves pet data from the cloud
-func (csp *CloudStorageProvider) Download(petID types.PetID) ([]byte, error) {
+func (csp *CloudStorageProvider) Download(ctx context.Context, petID types.PetID) ([]byte, error) {
 	csp.mu.Lock()
 	defer csp.mu.Unlock()
 
@@ -103,9 +104,9 @@ func (csp *CloudStorageProvider) Download(petID types.PetID) ([]byte, error) {
 		return nil, err
 	}
 
-	// Create request
+	// Create request with context
 	url := fmt.Sprintf("%s/pets/%s", csp.baseURL, petID)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		csp.lastError = err
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -147,7 +148,7 @@ func (csp *CloudStorageProvider) Download(petID types.PetID) ([]byte, error) {
 }
 
 // Delete removes pet data from the cloud
-func (csp *CloudStorageProvider) Delete(petID types.PetID) error {
+func (csp *CloudStorageProvider) Delete(ctx context.Context, petID types.PetID) error {
 	csp.mu.Lock()
 	defer csp.mu.Unlock()
 
@@ -160,9 +161,9 @@ func (csp *CloudStorageProvider) Delete(petID types.PetID) error {
 		return err
 	}
 
-	// Create request
+	// Create request with context
 	url := fmt.Sprintf("%s/pets/%s", csp.baseURL, petID)
-	req, err := http.NewRequest("DELETE", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		csp.lastError = err
 		return fmt.Errorf("failed to create request: %w", err)
@@ -189,7 +190,7 @@ func (csp *CloudStorageProvider) Delete(petID types.PetID) error {
 }
 
 // List returns all pet IDs stored in the cloud
-func (csp *CloudStorageProvider) List() ([]types.PetID, error) {
+func (csp *CloudStorageProvider) List(ctx context.Context) ([]types.PetID, error) {
 	csp.mu.Lock()
 	defer csp.mu.Unlock()
 
@@ -202,9 +203,9 @@ func (csp *CloudStorageProvider) List() ([]types.PetID, error) {
 		return nil, err
 	}
 
-	// Create request
+	// Create request with context
 	url := fmt.Sprintf("%s/pets", csp.baseURL)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		csp.lastError = err
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -238,7 +239,7 @@ func (csp *CloudStorageProvider) List() ([]types.PetID, error) {
 }
 
 // GetLastModified returns when a pet was last modified in the cloud
-func (csp *CloudStorageProvider) GetLastModified(petID types.PetID) (time.Time, error) {
+func (csp *CloudStorageProvider) GetLastModified(ctx context.Context, petID types.PetID) (time.Time, error) {
 	csp.mu.Lock()
 	defer csp.mu.Unlock()
 
@@ -251,9 +252,9 @@ func (csp *CloudStorageProvider) GetLastModified(petID types.PetID) (time.Time, 
 		return time.Time{}, err
 	}
 
-	// Create request
+	// Create request with context
 	url := fmt.Sprintf("%s/pets/%s/metadata", csp.baseURL, petID)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		csp.lastError = err
 		return time.Time{}, fmt.Errorf("failed to create request: %w", err)
@@ -287,7 +288,7 @@ func (csp *CloudStorageProvider) GetLastModified(petID types.PetID) (time.Time, 
 }
 
 // IsConnected checks if the cloud service is reachable
-func (csp *CloudStorageProvider) IsConnected() bool {
+func (csp *CloudStorageProvider) IsConnected(ctx context.Context) bool {
 	csp.mu.RLock()
 	defer csp.mu.RUnlock()
 
@@ -297,7 +298,7 @@ func (csp *CloudStorageProvider) IsConnected() bool {
 
 	// Try to ping the server
 	url := fmt.Sprintf("%s/health", csp.baseURL)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return false
 	}
@@ -312,16 +313,16 @@ func (csp *CloudStorageProvider) IsConnected() bool {
 }
 
 // GetStatistics returns cloud storage statistics
-func (csp *CloudStorageProvider) GetStatistics() map[string]interface{} {
+func (csp *CloudStorageProvider) GetStatistics(ctx context.Context) map[string]interface{} {
 	csp.mu.RLock()
 	defer csp.mu.RUnlock()
 
 	stats := map[string]interface{}{
-		"upload_count":      csp.uploadCount,
-		"download_count":    csp.downloadCount,
-		"total_uploaded":    csp.totalUploaded,
-		"total_downloaded":  csp.totalDownloaded,
-		"is_connected":      csp.IsConnected(),
+		"upload_count":     csp.uploadCount,
+		"download_count":   csp.downloadCount,
+		"total_uploaded":   csp.totalUploaded,
+		"total_downloaded": csp.totalDownloaded,
+		"is_connected":     csp.IsConnected(ctx),
 	}
 
 	if csp.lastError != nil {
@@ -363,9 +364,20 @@ func NewMockCloudStorageProvider(authManager *AuthManager) *MockCloudStorageProv
 }
 
 // Upload uploads pet data
-func (m *MockCloudStorageProvider) Upload(petID types.PetID, data []byte) error {
+func (m *MockCloudStorageProvider) Upload(ctx context.Context, petID types.PetID, data []byte) error {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	if m.uploadDelay > 0 {
-		time.Sleep(m.uploadDelay)
+		select {
+		case <-time.After(m.uploadDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	m.mu.Lock()
@@ -387,9 +399,20 @@ func (m *MockCloudStorageProvider) Upload(petID types.PetID, data []byte) error 
 }
 
 // Download retrieves pet data
-func (m *MockCloudStorageProvider) Download(petID types.PetID) ([]byte, error) {
+func (m *MockCloudStorageProvider) Download(ctx context.Context, petID types.PetID) ([]byte, error) {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	if m.downloadDelay > 0 {
-		time.Sleep(m.downloadDelay)
+		select {
+		case <-time.After(m.downloadDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	m.mu.RLock()
@@ -415,7 +438,14 @@ func (m *MockCloudStorageProvider) Download(petID types.PetID) ([]byte, error) {
 }
 
 // Delete removes pet data
-func (m *MockCloudStorageProvider) Delete(petID types.PetID) error {
+func (m *MockCloudStorageProvider) Delete(ctx context.Context, petID types.PetID) error {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -434,7 +464,14 @@ func (m *MockCloudStorageProvider) Delete(petID types.PetID) error {
 }
 
 // List returns all pet IDs
-func (m *MockCloudStorageProvider) List() ([]types.PetID, error) {
+func (m *MockCloudStorageProvider) List(ctx context.Context) ([]types.PetID, error) {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -455,7 +492,14 @@ func (m *MockCloudStorageProvider) List() ([]types.PetID, error) {
 }
 
 // GetLastModified returns when a pet was last modified
-func (m *MockCloudStorageProvider) GetLastModified(petID types.PetID) (time.Time, error) {
+func (m *MockCloudStorageProvider) GetLastModified(ctx context.Context, petID types.PetID) (time.Time, error) {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return time.Time{}, ctx.Err()
+	default:
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -476,7 +520,14 @@ func (m *MockCloudStorageProvider) GetLastModified(petID types.PetID) (time.Time
 }
 
 // IsConnected returns connection status
-func (m *MockCloudStorageProvider) IsConnected() bool {
+func (m *MockCloudStorageProvider) IsConnected(ctx context.Context) bool {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return false
+	default:
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.connected

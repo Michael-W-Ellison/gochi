@@ -1,6 +1,7 @@
 package cloud
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -34,13 +35,13 @@ func TestUploadDownload(t *testing.T) {
 	petID := types.PetID("test-pet-123")
 	data := []byte("test pet data")
 
-	err := csp.Upload(petID, data)
+	err := csp.Upload(context.Background(), petID, data)
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
 
 	// Download
-	downloaded, err := csp.Download(petID)
+	downloaded, err := csp.Download(context.Background(), petID)
 	if err != nil {
 		t.Fatalf("Download failed: %v", err)
 	}
@@ -59,7 +60,7 @@ func TestUploadNotLoggedIn(t *testing.T) {
 	petID := types.PetID("test-pet-123")
 	data := []byte("test pet data")
 
-	err := csp.Upload(petID, data)
+	err := csp.Upload(context.Background(), petID, data)
 	if err == nil {
 		t.Error("Expected error when uploading without logging in")
 	}
@@ -82,16 +83,16 @@ func TestDelete(t *testing.T) {
 	// Upload
 	petID := types.PetID("test-pet-123")
 	data := []byte("test pet data")
-	csp.Upload(petID, data)
+	csp.Upload(context.Background(), petID, data)
 
 	// Delete
-	err := csp.Delete(petID)
+	err := csp.Delete(context.Background(), petID)
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
 
 	// Try to download deleted pet
-	_, err = csp.Download(petID)
+	_, err = csp.Download(context.Background(), petID)
 	if err == nil {
 		t.Error("Expected error when downloading deleted pet")
 	}
@@ -119,11 +120,11 @@ func TestList(t *testing.T) {
 	}
 
 	for _, petID := range petIDs {
-		csp.Upload(petID, []byte("data"))
+		csp.Upload(context.Background(), petID, []byte("data"))
 	}
 
 	// List
-	list, err := csp.List()
+	list, err := csp.List(context.Background())
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -149,10 +150,10 @@ func TestGetLastModified(t *testing.T) {
 
 	// Upload
 	petID := types.PetID("test-pet-123")
-	csp.Upload(petID, []byte("data"))
+	csp.Upload(context.Background(), petID, []byte("data"))
 
 	// Get last modified
-	modTime, err := csp.GetLastModified(petID)
+	modTime, err := csp.GetLastModified(context.Background(), petID)
 	if err != nil {
 		t.Fatalf("GetLastModified failed: %v", err)
 	}
@@ -169,13 +170,13 @@ func TestIsConnected(t *testing.T) {
 	csp := NewMockCloudStorageProvider(am)
 
 	// Should be connected by default
-	if !csp.IsConnected() {
+	if !csp.IsConnected(context.Background()) {
 		t.Error("Expected to be connected by default")
 	}
 
 	// Set disconnected
 	csp.SetConnected(false)
-	if csp.IsConnected() {
+	if csp.IsConnected(context.Background()) {
 		t.Error("Expected to be disconnected")
 	}
 
@@ -187,7 +188,7 @@ func TestIsConnected(t *testing.T) {
 	}
 	am.Register(creds)
 
-	err := csp.Upload(types.PetID("pet1"), []byte("data"))
+	err := csp.Upload(context.Background(), types.PetID("pet1"), []byte("data"))
 	if err == nil {
 		t.Error("Expected error when uploading while disconnected")
 	}
@@ -208,7 +209,7 @@ func TestDownloadNonExistent(t *testing.T) {
 	am.Register(creds)
 
 	// Try to download non-existent pet
-	_, err := csp.Download(types.PetID("nonexistent"))
+	_, err := csp.Download(context.Background(), types.PetID("nonexistent"))
 	if err == nil {
 		t.Error("Expected error when downloading non-existent pet")
 	}
@@ -234,11 +235,11 @@ func TestMultipleUploads(t *testing.T) {
 	data1 := []byte("data1")
 	data2 := []byte("data2")
 
-	csp.Upload(petID, data1)
-	csp.Upload(petID, data2)
+	csp.Upload(context.Background(), petID, data1)
+	csp.Upload(context.Background(), petID, data2)
 
 	// Download should get latest
-	downloaded, err := csp.Download(petID)
+	downloaded, err := csp.Download(context.Background(), petID)
 	if err != nil {
 		t.Fatalf("Download failed: %v", err)
 	}
@@ -267,7 +268,7 @@ func TestConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(n int) {
 			petID := types.PetID("pet-" + string(rune('0'+n)))
-			csp.Upload(petID, []byte("data"))
+			csp.Upload(context.Background(), petID, []byte("data"))
 			done <- true
 		}(i)
 	}
@@ -278,7 +279,7 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 
 	// List should show all pets
-	list, _ := csp.List()
+	list, _ := csp.List(context.Background())
 	if len(list) != 10 {
 		t.Errorf("Expected 10 pets after concurrent uploads, got %d", len(list))
 	}
@@ -303,7 +304,7 @@ func TestCloudStorageProviderGetStatistics(t *testing.T) {
 	am := NewAuthManager(provider)
 	csp := NewCloudStorageProvider("https://api.example.com", am)
 
-	stats := csp.GetStatistics()
+	stats := csp.GetStatistics(context.Background())
 
 	if stats == nil {
 		t.Fatal("GetStatistics returned nil")
@@ -353,33 +354,33 @@ func TestCloudStorageProviderNotLoggedIn(t *testing.T) {
 	csp := NewCloudStorageProvider("https://api.example.com", am)
 
 	// Try operations without logging in
-	err := csp.Upload(types.PetID("test"), []byte("data"))
+	err := csp.Upload(context.Background(), types.PetID("test"), []byte("data"))
 	if err == nil {
 		t.Error("Expected error when uploading without logging in")
 	}
 
-	_, err = csp.Download(types.PetID("test"))
+	_, err = csp.Download(context.Background(), types.PetID("test"))
 	if err == nil {
 		t.Error("Expected error when downloading without logging in")
 	}
 
-	err = csp.Delete(types.PetID("test"))
+	err = csp.Delete(context.Background(), types.PetID("test"))
 	if err == nil {
 		t.Error("Expected error when deleting without logging in")
 	}
 
-	_, err = csp.List()
+	_, err = csp.List(context.Background())
 	if err == nil {
 		t.Error("Expected error when listing without logging in")
 	}
 
-	_, err = csp.GetLastModified(types.PetID("test"))
+	_, err = csp.GetLastModified(context.Background(), types.PetID("test"))
 	if err == nil {
 		t.Error("Expected error when getting last modified without logging in")
 	}
 
 	// IsConnected should return false when not logged in
-	if csp.IsConnected() {
+	if csp.IsConnected(context.Background()) {
 		t.Error("Expected IsConnected to return false when not logged in")
 	}
 }
