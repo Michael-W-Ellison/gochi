@@ -5,7 +5,20 @@ app:
   name: Gochi
   version: 0.1.0-alpha
   debug: false
-  log_path: ./logs
+
+log:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Log format: text, json
+  format: text
+
+  # Output path for logs (empty = stdout only)
+  # Can also be set via GOCHI_LOG_OUTPUT environment variable
+  output_path: ""
+
+  # Add source file and line number to logs
+  add_source: false
 
 game:
   # Target frames per second (1-300)

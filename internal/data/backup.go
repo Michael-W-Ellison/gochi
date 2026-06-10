@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/pkg/logger"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -98,7 +99,7 @@ func (bm *BackupManager) CreateBackup() (string, error) {
 	// Cleanup old backups
 	if err := bm.cleanupOldBackups(); err != nil {
 		// Log error but don't fail the backup
-		fmt.Printf("Warning: failed to cleanup old backups: %v\n", err)
+		logger.Warn("failed to cleanup old backups", "error", err)
 	}
 
 	return backupFilename, nil

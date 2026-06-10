@@ -8,6 +8,7 @@ import (
 	"github.com/Michael-W-Ellison/gochi/internal/data"
 	"github.com/Michael-W-Ellison/gochi/internal/interaction"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
+	"github.com/Michael-W-Ellison/gochi/pkg/logger"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -155,7 +156,7 @@ func (gl *GameLoop) Stop() error {
 	// Save all pets before stopping
 	for petID, pet := range gl.activePets {
 		if err := gl.dataManager.SavePet(petID, pet); err != nil {
-			fmt.Printf("Warning: failed to save pet %s: %v\n", petID, err)
+			logger.Warn("failed to save pet", "pet_id", petID, "error", err)
 		}
 	}
 
@@ -562,7 +563,7 @@ func (gl *GameLoop) GetStatistics() map[string]interface{} {
 
 func (gl *GameLoop) performAutoSave() {
 	if err := gl.SaveAllPets(); err != nil {
-		fmt.Printf("Auto-save failed: %v\n", err)
+		logger.Error("auto-save failed", "error", err)
 	} else {
 		gl.lastAutoSave = time.Now()
 		gl.eventSystem.Emit(CreateEvent(EventAutoSave, "", "Auto-save completed"))
@@ -571,7 +572,7 @@ func (gl *GameLoop) performAutoSave() {
 
 func (gl *GameLoop) performAutoBackup() {
 	if _, err := gl.CreateBackup(); err != nil {
-		fmt.Printf("Auto-backup failed: %v\n", err)
+		logger.Error("auto-backup failed", "error", err)
 	} else {
 		gl.lastAutoBackup = time.Now()
 	}
@@ -616,11 +617,14 @@ func (gl *GameLoop) setupEventHandlers() {
 	// Register default event handlers
 	gl.eventSystem.RegisterHandler(EventPetDied, func(event *GameEvent) {
 		// Could trigger achievements, save final state, etc.
-		fmt.Printf("[EVENT] %s: %s\n", event.Type.String(), event.Message)
+		logger.Info(event.Message,
+			"event_type", event.Type.String(),
+			"pet_id", event.PetID,
+		)
 	})
 
 	gl.eventSystem.RegisterHandler(EventAutoSave, func(event *GameEvent) {
-		fmt.Printf("[EVENT] %s\n", event.Message)
+		logger.Info(event.Message, "event_type", event.Type.String())
 	})
 }
 

@@ -13,6 +13,7 @@ import (
 // AppConfig is the root configuration structure for the entire application
 type AppConfig struct {
 	App         AppSettings         `yaml:"app"`
+	Log         LogSettings         `yaml:"log"`
 	Game        GameSettings        `yaml:"game"`
 	Data        DataSettings        `yaml:"data"`
 	Environment EnvironmentSettings `yaml:"environment"`
@@ -24,7 +25,14 @@ type AppSettings struct {
 	Name    string `yaml:"name"`
 	Version string `yaml:"version"`
 	Debug   bool   `yaml:"debug"`
-	LogPath string `yaml:"log_path"`
+}
+
+// LogSettings holds logging configuration
+type LogSettings struct {
+	Level      string `yaml:"level"`       // debug, info, warn, error
+	Format     string `yaml:"format"`      // text, json
+	OutputPath string `yaml:"output_path"` // empty for stdout only
+	AddSource  bool   `yaml:"add_source"`  // add source file/line to logs
 }
 
 // GameSettings holds game loop and simulation configuration
@@ -77,7 +85,12 @@ func DefaultConfig() *AppConfig {
 			Name:    "Gochi",
 			Version: "0.1.0-alpha",
 			Debug:   false,
-			LogPath: "./logs",
+		},
+		Log: LogSettings{
+			Level:      "info",
+			Format:     "text",
+			OutputPath: "",
+			AddSource:  false,
 		},
 		Game: GameSettings{
 			TargetFPS:          60,
@@ -200,6 +213,16 @@ func (c *AppConfig) Validate() error {
 		return fmt.Errorf("app.version cannot be empty")
 	}
 
+	// Validate Log settings
+	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+	if !validLevels[c.Log.Level] {
+		return fmt.Errorf("log.level must be debug, info, warn, or error, got %s", c.Log.Level)
+	}
+	validFormats := map[string]bool{"text": true, "json": true}
+	if !validFormats[c.Log.Format] {
+		return fmt.Errorf("log.format must be text or json, got %s", c.Log.Format)
+	}
+
 	// Validate Game settings
 	if c.Game.TargetFPS < 1 || c.Game.TargetFPS > 300 {
 		return fmt.Errorf("game.target_fps must be between 1 and 300, got %d", c.Game.TargetFPS)
@@ -278,8 +301,23 @@ func applyEnvOverrides(config *AppConfig) error {
 		}
 		config.App.Debug = debug
 	}
-	if val := os.Getenv("GOCHI_LOG_PATH"); val != "" {
-		config.App.LogPath = val
+
+	// Log overrides
+	if val := os.Getenv("GOCHI_LOG_LEVEL"); val != "" {
+		config.Log.Level = val
+	}
+	if val := os.Getenv("GOCHI_LOG_FORMAT"); val != "" {
+		config.Log.Format = val
+	}
+	if val := os.Getenv("GOCHI_LOG_OUTPUT"); val != "" {
+		config.Log.OutputPath = val
+	}
+	if val := os.Getenv("GOCHI_LOG_SOURCE"); val != "" {
+		addSource, err := strconv.ParseBool(val)
+		if err != nil {
+			return fmt.Errorf("invalid GOCHI_LOG_SOURCE value: %w", err)
+		}
+		config.Log.AddSource = addSource
 	}
 
 	// Game overrides
