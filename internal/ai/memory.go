@@ -100,6 +100,25 @@ type Memory struct {
 	LastRecalled time.Time        // When the memory was last recalled
 }
 
+// InteractionPreference is what the pet has learned about one kind of
+// interaction. Unlike individual memories it does not decay with time;
+// it changes only when that interaction happens again.
+type InteractionPreference struct {
+	Affinity   float64 `json:"affinity"`   // Learned like (+) or dislike (-), -1.0 to 1.0
+	Experience int     `json:"experience"` // Number of interactions learned from
+}
+
+const (
+	// minPreferenceRate is the smallest weight a single interaction has on an
+	// established preference. Early interactions are averaged equally; after
+	// 1/minPreferenceRate of them each new one moves the preference by 2%.
+	minPreferenceRate = 0.02
+
+	// preferenceConfidenceScale is the experience count at which a
+	// preference has half of its full influence on behavior
+	preferenceConfidenceScale = 10.0
+)
+
 // MemoryAssociation links two memories together
 type MemoryAssociation struct {
 	FromID   string
@@ -138,6 +157,9 @@ type MemorySystem struct {
 	PositiveThreshold float64             // Valence at or above which a memory is positive
 	RetentionBonus    float64             // Strength bonus applied to new memories
 	EmotionalBaseline float64             // Strength-weighted average valence of memories
+
+	// Preferences learned from interactions (not subject to memory decay)
+	Preferences map[types.InteractionType]*InteractionPreference
 }
 
 // NewMemorySystem creates a new memory system
@@ -155,6 +177,7 @@ func NewMemorySystem(capacity int) *MemorySystem {
 		WorkingMemoryCap:  7,
 		TraumaThreshold:   -0.7,
 		PositiveThreshold: 0.7,
+		Preferences:       make(map[types.InteractionType]*InteractionPreference),
 	}
 }
 
@@ -236,7 +259,43 @@ func (m *MemorySystem) RecordInteractionFull(interactionType types.InteractionTy
 	strength := 0.3 + (quality * 0.7)
 	tags := []string{"interaction", interactionType.String()}
 
-	return m.RecordMemoryFull(MemoryInteraction, "User interaction: "+interactionType.String(), gameTime, strength, emotion, details, valence, arousal, importanceFromIntensity(arousal), tags)
+	memory := m.RecordMemoryFull(MemoryInteraction, "User interaction: "+interactionType.String(), gameTime, strength, emotion, details, valence, arousal, importanceFromIntensity(arousal), tags)
+	m.learnPreference(interactionType, valence)
+	return memory
+}
+
+// learnPreference folds one interaction's valence into the learned preference
+// for that interaction type
+func (m *MemorySystem) learnPreference(interactionType types.InteractionType, valence float64) {
+	if m.Preferences == nil {
+		m.Preferences = make(map[types.InteractionType]*InteractionPreference)
+	}
+
+	pref, ok := m.Preferences[interactionType]
+	if !ok {
+		pref = &InteractionPreference{}
+		m.Preferences[interactionType] = pref
+	}
+
+	pref.Experience++
+	rate := 1.0 / float64(pref.Experience)
+	if rate < minPreferenceRate {
+		rate = minPreferenceRate
+	}
+	pref.Affinity = clamp(pref.Affinity+rate*(clamp(valence, -1.0, 1.0)-pref.Affinity), -1.0, 1.0)
+}
+
+// GetLearnedAffinity returns the learned preference for an interaction type
+// weighted by confidence (-1.0 to 1.0; 0.0 when nothing has been learned)
+func (m *MemorySystem) GetLearnedAffinity(interactionType types.InteractionType) float64 {
+	pref, ok := m.Preferences[interactionType]
+	if !ok || pref.Experience == 0 {
+		return 0.0
+	}
+
+	experience := float64(pref.Experience)
+	confidence := experience / (experience + preferenceConfidenceScale)
+	return pref.Affinity * confidence
 }
 
 // RecordSocialMemory records an encounter with another pet.
@@ -378,13 +437,35 @@ func (m *MemorySystem) DecayMemories(deltaTime float64) {
 		}
 	}
 
-	// Long-term memories decay much slower
-	longTermDecayRate := decayRate * 0.1
+	// Long-term memories decay much slower, scaled by importance
 	for _, memory := range m.LongTermMemories {
-		memory.Strength -= longTermDecayRate
+		memory.Strength -= decayRate * 0.1 * longTermDecayFactor(memory.Importance)
 		if memory.Strength < 0 {
 			memory.Strength = 0
 		}
+	}
+}
+
+// longTermDecayFactor returns how fast a long-term memory of the given
+// importance fades relative to the base long-term rate. The server advances
+// one time unit (one game day) per real minute; at that rate a full-strength
+// memory lasts about this long in real time: Trivial 17 hours, Minor 2 weeks,
+// Moderate 4 weeks, Significant 8 weeks, Major 6 months. Formative memories
+// do not fade.
+func longTermDecayFactor(importance MemoryImportance) float64 {
+	switch importance {
+	case ImportanceTrivial:
+		return 1.0
+	case ImportanceMinor:
+		return 0.05
+	case ImportanceModerate:
+		return 0.025
+	case ImportanceSignificant:
+		return 0.0125
+	case ImportanceMajor:
+		return 0.004
+	default: // ImportanceFormative
+		return 0.0
 	}
 }
 
@@ -864,6 +945,12 @@ func (m *MemorySystem) Copy() *MemorySystem {
 		c.LongTermMemories = append(c.LongTermMemories, copyMemory(memory))
 	}
 	c.Associations = append([]MemoryAssociation(nil), m.Associations...)
+
+	c.Preferences = make(map[types.InteractionType]*InteractionPreference, len(m.Preferences))
+	for interactionType, pref := range m.Preferences {
+		prefCopy := *pref
+		c.Preferences[interactionType] = &prefCopy
+	}
 
 	c.RebuildIndexes()
 

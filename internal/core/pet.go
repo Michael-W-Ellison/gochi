@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -90,10 +91,8 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	// Decay memories
 	p.Memory.DecayMemories(deltaTime)
 
-	// Periodically consolidate memories
-	if p.TotalInteractions%10 == 0 {
-		p.Memory.ConsolidateMemories()
-	}
+	// Consolidate strong memories before short-term decay erodes them
+	p.Memory.ConsolidateMemories()
 
 	// Update relationships
 	p.Relationships.UpdateAll(deltaTime)
@@ -124,8 +123,10 @@ func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionTyp
 	stimulus := ai.CreateStimulusFromInteraction(interactionType, intensity)
 	p.Emotions.ApplyEmotionalStimulus(stimulus)
 
-	// Record memory
-	p.Memory.RecordInteraction(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion)
+	// Record memory; its valence also updates the learned preference
+	// for this interaction type, which shapes future behavior
+	valence := stimulus.Valence()
+	p.Memory.RecordInteractionFull(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion, valence, math.Abs(valence))
 
 	// Update behavior
 	p.updateBehavior()
@@ -200,13 +201,59 @@ func (p *DigitalPet) updateBehavior() {
 		}
 	} else if vitals.Nutrition < 0.3 {
 		p.CurrentBehavior = types.BehaviorEating
-	} else if p.Personality.GetTraitInfluence("play") > 0.6 && vitals.Energy > 0.4 {
-		p.CurrentBehavior = types.BehaviorPlaying
-	} else if p.Personality.GetTraitInfluence("explore") > 0.6 && vitals.Energy > 0.4 {
-		p.CurrentBehavior = types.BehaviorExploring
+	} else if vitals.Energy > 0.4 {
+		p.CurrentBehavior = p.chooseDiscretionaryBehavior()
 	} else {
 		p.CurrentBehavior = types.BehaviorIdle
 	}
+}
+
+const (
+	// learnedBehaviorWeight scales how far learned preferences shift a
+	// personality-based tendency (tendencies and the threshold are 0.0-1.0)
+	learnedBehaviorWeight = 0.3
+
+	// discretionaryThreshold is the tendency a behavior needs to be chosen
+	discretionaryThreshold = 0.6
+)
+
+// chooseDiscretionaryBehavior picks the strongest optional behavior from
+// personality plus what the pet has learned from past interactions.
+// It is deterministic, so behavior stays consistent until interactions
+// gradually change the learned preferences.
+func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
+	learned := p.Memory.GetLearnedAffinity
+
+	candidates := []struct {
+		behavior types.BehaviorState
+		score    float64
+	}{
+		{
+			// Enjoying play makes a pet more playful
+			types.BehaviorPlaying,
+			p.Personality.GetTraitInfluence("play") + learnedBehaviorWeight*learned(types.InteractionPlaying),
+		},
+		{
+			// Enjoying petting draws a pet toward its owner; discipline
+			// (always negative) makes it more withdrawn
+			types.BehaviorSocialInteraction,
+			p.Personality.GetTraitInfluence("social") +
+				learnedBehaviorWeight*(learned(types.InteractionPetting)+learned(types.InteractionDiscipline)),
+		},
+		{
+			types.BehaviorExploring,
+			p.Personality.GetTraitInfluence("explore"),
+		},
+	}
+
+	best := types.BehaviorIdle
+	bestScore := discretionaryThreshold
+	for _, c := range candidates {
+		if c.score > bestScore {
+			best, bestScore = c.behavior, c.score
+		}
+	}
+	return best
 }
 
 // GetCurrentStatus returns a comprehensive status report

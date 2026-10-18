@@ -151,6 +151,14 @@ type EmotionalStimulus struct {
 	Source           string // What caused this stimulus
 }
 
+// Valence returns the net emotional effect of the stimulus (-1.0 to 1.0):
+// the sum of positive emotion deltas minus the sum of negative ones, doubled
+func (s EmotionalStimulus) Valence() float64 {
+	positive := s.JoyDelta + s.ExcitementDelta + s.ContentmentDelta + s.AffectionDelta
+	negative := s.SadnessDelta + s.AngerDelta + s.FearDelta + s.LonelinessDelta
+	return clamp((positive-negative)*2.0, -1.0, 1.0)
+}
+
 // GetMoodScore returns an overall mood rating (-1.0 to 1.0)
 func (e *EmotionState) GetMoodScore() float64 {
 	positive := (e.Joy + e.Excitement + e.Contentment + e.Affection) / 4.0

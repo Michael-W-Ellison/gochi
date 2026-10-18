@@ -412,10 +412,10 @@ func TestDecayLongTermMemories(t *testing.T) {
 	// Decay
 	ms.DecayMemories(10.0)
 
-	// Long-term decay rate is 0.01 * deltaTime * 0.1 = 0.01
-	expectedDecay := 0.01
+	// Long-term decay rate for a Minor memory is 0.01 * deltaTime * 0.1 * 0.05 = 0.0005
+	expectedDecay := 0.0005
 	actualDecay := initialStrength - memory.Strength
-	tolerance := 0.001
+	tolerance := 0.00001
 
 	if actualDecay < expectedDecay-tolerance || actualDecay > expectedDecay+tolerance {
 		t.Errorf("Expected decay ~%f for long-term memory, got %f", expectedDecay, actualDecay)
@@ -1150,5 +1150,152 @@ func TestConsolidateSignificantImportance(t *testing.T) {
 
 	if consolidated != 1 {
 		t.Errorf("Expected 1 memory consolidated (significant importance), got %d", consolidated)
+	}
+}
+
+func TestLongTermDecayScalesWithImportance(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	importances := []MemoryImportance{
+		ImportanceTrivial, ImportanceMinor, ImportanceModerate,
+		ImportanceSignificant, ImportanceMajor, ImportanceFormative,
+	}
+	memories := make([]*Memory, len(importances))
+	for i, importance := range importances {
+		memories[i] = ms.RecordMemoryFull(MemoryEvent, importance.String(), 0, 1.0, "neutral", nil, 0.0, 0.5, importance, nil)
+	}
+	ms.ConsolidateMemoriesWithThreshold(0.0)
+
+	ms.DecayMemories(100.0)
+
+	for i := 1; i < len(memories); i++ {
+		if memories[i].Strength <= memories[i-1].Strength {
+			t.Errorf("%s memory (%f) should outlast %s memory (%f)",
+				importances[i], memories[i].Strength, importances[i-1], memories[i-1].Strength)
+		}
+	}
+
+	if memories[len(memories)-1].Strength != 1.0 {
+		t.Errorf("Formative memory should not fade, got %f", memories[len(memories)-1].Strength)
+	}
+}
+
+func TestMinorLongTermMemoryLastsAboutTwoWeeks(t *testing.T) {
+	// The server advances one time unit per real minute
+	const unitsPerDay = 24 * 60
+
+	ms := NewMemorySystem(100)
+	memory := ms.RecordMemory(MemoryEvent, "Minor", 0, 1.0, "neutral", nil)
+	ms.ConsolidateMemories()
+
+	ms.DecayMemories(13 * unitsPerDay)
+	if memory.Strength <= 0 {
+		t.Errorf("Minor memory should survive 13 days, strength %f", memory.Strength)
+	}
+
+	ms.DecayMemories(1 * unitsPerDay)
+	if memory.Strength != 0 {
+		t.Errorf("Minor memory should have faded after 14 days, strength %f", memory.Strength)
+	}
+}
+
+func TestStimulusValence(t *testing.T) {
+	petting := CreateStimulusFromInteraction(types.InteractionPetting, 1.0).Valence()
+	if petting <= 0 {
+		t.Errorf("Petting should have positive valence, got %f", petting)
+	}
+
+	discipline := CreateStimulusFromInteraction(types.InteractionDiscipline, 1.0).Valence()
+	if discipline >= 0 {
+		t.Errorf("Discipline should have negative valence, got %f", discipline)
+	}
+
+	none := EmotionalStimulus{}.Valence()
+	if none != 0 {
+		t.Errorf("Empty stimulus should have zero valence, got %f", none)
+	}
+}
+
+func TestLearnedAffinityGrowsWithExperience(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	if ms.GetLearnedAffinity(types.InteractionPlaying) != 0 {
+		t.Error("Affinity should be 0 before any interaction")
+	}
+
+	previous := 0.0
+	for i := 0; i < 20; i++ {
+		ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+		affinity := ms.GetLearnedAffinity(types.InteractionPlaying)
+		if affinity <= previous {
+			t.Fatalf("Affinity should grow with repeated positive play, got %f after %f", affinity, previous)
+		}
+		previous = affinity
+	}
+
+	if ms.GetLearnedAffinity(types.InteractionPetting) != 0 {
+		t.Error("Playing should not change the petting preference")
+	}
+}
+
+func TestLearnedPreferenceIsStable(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	for i := 0; i < 100; i++ {
+		ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "affectionate", 0.9, 0.9)
+	}
+	before := ms.Preferences[types.InteractionPetting].Affinity
+
+	// One bad experience barely moves an established preference
+	ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "fearful", -1.0, 1.0)
+	after := ms.Preferences[types.InteractionPetting].Affinity
+
+	if before-after > minPreferenceRate*(before+1.0)+1e-9 {
+		t.Errorf("A single interaction moved preference too far: %f -> %f", before, after)
+	}
+}
+
+func TestLearnedPreferenceChangesWithSustainedInteractions(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	for i := 0; i < 100; i++ {
+		ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "affectionate", 0.9, 0.9)
+	}
+	for i := 0; i < 150; i++ {
+		ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "fearful", -0.5, 0.5)
+	}
+
+	if ms.GetLearnedAffinity(types.InteractionPetting) >= 0 {
+		t.Errorf("Sustained negative interactions should turn the preference negative, got %f",
+			ms.GetLearnedAffinity(types.InteractionPetting))
+	}
+}
+
+func TestLearnedPreferenceUnaffectedByMemoryDecay(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	for i := 0; i < 10; i++ {
+		ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+	}
+	before := ms.GetLearnedAffinity(types.InteractionPlaying)
+
+	// A year without interaction
+	ms.ConsolidateMemories()
+	ms.DecayMemories(365 * 24 * 60)
+
+	if after := ms.GetLearnedAffinity(types.InteractionPlaying); after != before {
+		t.Errorf("Time alone should not change learned preference: %f -> %f", before, after)
+	}
+}
+
+func TestMemorySystemCopyPreferences(t *testing.T) {
+	ms := NewMemorySystem(100)
+	ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+
+	copied := ms.Copy()
+	copied.Preferences[types.InteractionPlaying].Affinity = -1.0
+
+	if ms.Preferences[types.InteractionPlaying].Affinity == -1.0 {
+		t.Error("Copied preferences should be independent of the original")
 	}
 }

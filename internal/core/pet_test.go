@@ -3,6 +3,7 @@ package core
 import (
 	"testing"
 
+	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -162,4 +163,119 @@ func TestDeadPetNoUpdates(t *testing.T) {
 
 	pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
 	// Should not panic or cause issues
+}
+
+// setCalmHealthyState puts the pet in a state where discretionary
+// behavior is chosen (healthy, rested, fed, neutral mood)
+func setCalmHealthyState(pet *DigitalPet) {
+	v := pet.Biology.Vitals
+	v.Health, v.Energy, v.Nutrition, v.Hydration = 1.0, 0.8, 0.8, 0.8
+	v.Happiness, v.Cleanliness, v.Stress, v.Fatigue = 0.8, 0.8, 0.0, 0.0
+	pet.Emotions = ai.NewEmotionState()
+}
+
+func TestBalancedPetIdlesWithoutLearning(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	setCalmHealthyState(pet)
+	pet.updateBehavior()
+
+	if pet.CurrentBehavior != types.BehaviorIdle {
+		t.Errorf("Balanced pet with no history should idle, got %s", pet.CurrentBehavior)
+	}
+}
+
+func TestEnjoyedPlayMakesPetPlayful(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+
+	for i := 0; i < 10; i++ {
+		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
+		setCalmHealthyState(pet)
+	}
+	pet.updateBehavior()
+
+	if pet.CurrentBehavior != types.BehaviorPlaying {
+		t.Errorf("Pet that enjoyed play should choose to play, got %s", pet.CurrentBehavior)
+	}
+}
+
+func TestEnjoyedPettingMakesPetSocial(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+
+	for i := 0; i < 10; i++ {
+		pet.ProcessUserInteraction(types.InteractionPetting, 1.0)
+		setCalmHealthyState(pet)
+	}
+	pet.updateBehavior()
+
+	if pet.CurrentBehavior != types.BehaviorSocialInteraction {
+		t.Errorf("Pet that enjoyed petting should seek interaction, got %s", pet.CurrentBehavior)
+	}
+}
+
+func TestDisciplineMakesPetWithdrawn(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+
+	for i := 0; i < 10; i++ {
+		pet.ProcessUserInteraction(types.InteractionPetting, 1.0)
+		setCalmHealthyState(pet)
+	}
+	for i := 0; i < 30; i++ {
+		pet.ProcessUserInteraction(types.InteractionDiscipline, 1.0)
+		setCalmHealthyState(pet)
+	}
+	pet.updateBehavior()
+
+	if pet.CurrentBehavior == types.BehaviorSocialInteraction {
+		t.Error("Frequent discipline should make the pet stop seeking interaction")
+	}
+}
+
+func TestLearnedBehaviorPersistsWithoutInteraction(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+
+	for i := 0; i < 10; i++ {
+		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
+		setCalmHealthyState(pet)
+	}
+	before := pet.Memory.GetLearnedAffinity(types.InteractionPlaying)
+
+	// Four weeks of real time with no interaction; the server advances one
+	// time unit per real minute. Vitals are reset each step so only memory
+	// and learning are under test.
+	for minute := 0; minute < 28*24*60; minute++ {
+		pet.Update(1)
+		setCalmHealthyState(pet)
+	}
+	if !pet.IsAlive() {
+		t.Fatal("Pet should be alive for this test to be meaningful")
+	}
+	pet.updateBehavior()
+
+	if after := pet.Memory.GetLearnedAffinity(types.InteractionPlaying); after != before {
+		t.Errorf("Learned preference should not change without interaction: %f -> %f", before, after)
+	}
+	if pet.CurrentBehavior != types.BehaviorPlaying {
+		t.Errorf("Pet should still prefer play after four weeks, got %s", pet.CurrentBehavior)
+	}
+}
+
+func TestLearnedPreferencesSurviveSaveLoad(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	for i := 0; i < 5; i++ {
+		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
+	}
+	want := pet.Memory.GetLearnedAffinity(types.InteractionPlaying)
+
+	data, err := pet.Save()
+	if err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	loaded, err := Load(data)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if got := loaded.Memory.GetLearnedAffinity(types.InteractionPlaying); got != want {
+		t.Errorf("Learned affinity after load = %f, want %f", got, want)
+	}
 }
