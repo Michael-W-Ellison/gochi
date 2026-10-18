@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,8 +58,8 @@ func TestNewMemorySystem(t *testing.T) {
 		t.Errorf("Expected capacity 100, got %d", ms.MemoryCapacity)
 	}
 
-	if ms.LongTermCapacity != 500 {
-		t.Errorf("Expected long-term capacity 500, got %d", ms.LongTermCapacity)
+	if ms.LongTermCapacity != 5000 {
+		t.Errorf("Expected long-term capacity 5000, got %d", ms.LongTermCapacity)
 	}
 
 	if ms.WorkingMemoryCap != 7 {
@@ -1297,5 +1299,65 @@ func TestMemorySystemCopyPreferences(t *testing.T) {
 
 	if ms.Preferences[types.InteractionPlaying].Affinity == -1.0 {
 		t.Error("Copied preferences should be independent of the original")
+	}
+}
+
+func TestMemorySystemJSONRoundTrip(t *testing.T) {
+	ms := NewMemorySystem(100)
+	strong := ms.RecordMemoryFull(MemoryEvent, "Strong", 0, 0.9, "joyful", nil, 0.5, 0.5, ImportanceModerate, []string{"park"})
+	weak := ms.RecordMemory(MemoryEvent, "Weak", 0, 0.3, "neutral", nil)
+	ms.ConsolidateMemories()
+	if err := ms.LinkMemories(strong.ID, weak.ID, "related", 0.5); err != nil {
+		t.Fatal(err)
+	}
+	ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+
+	data, err := json.Marshal(ms)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	if strings.Contains(string(data), "MemoryIndex") || strings.Contains(string(data), "TagIndex") {
+		t.Error("Indexes should not be serialized")
+	}
+
+	var restored MemorySystem
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if len(restored.LongTermMemories) != len(ms.LongTermMemories) || len(restored.ShortTermMemories) != len(ms.ShortTermMemories) {
+		t.Error("Memory lists should be restored")
+	}
+
+	// Indexes must point at the restored list entries, not separate copies
+	got, ok := restored.GetMemoryByID(strong.ID)
+	if !ok || got != restored.LongTermMemories[0] {
+		t.Error("Memory index should reference restored long-term memory")
+	}
+	if len(restored.SearchByTag("park")) != 1 {
+		t.Error("Tag index should be rebuilt")
+	}
+	if len(restored.GetLinkedMemories(strong.ID)) != 1 {
+		t.Error("Links should be restored")
+	}
+	if restored.GetLearnedAffinity(types.InteractionPlaying) != ms.GetLearnedAffinity(types.InteractionPlaying) {
+		t.Error("Learned preferences should be restored")
+	}
+
+	// The restored system must accept new memories
+	restored.RecordMemory(MemoryEvent, "New", 0, 0.5, "neutral", nil)
+}
+
+func TestMemorySystemUnmarshalAppliesDefaults(t *testing.T) {
+	var restored MemorySystem
+	if err := json.Unmarshal([]byte(`{"MemoryCapacity": 50}`), &restored); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if restored.MemoryCapacity != 50 {
+		t.Errorf("Saved capacity should be kept, got %d", restored.MemoryCapacity)
+	}
+	if restored.LongTermCapacity != DefaultLongTermCapacity || restored.TraumaThreshold != -0.7 || restored.WorkingMemoryCap != 7 {
+		t.Error("Missing fields should take default values")
 	}
 }

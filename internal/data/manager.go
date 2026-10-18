@@ -1,6 +1,7 @@
 package data
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -124,7 +125,7 @@ func (dm *DataManager) Save(saveData *SaveData, filename string) error {
 
 	// Write to file
 	savePath := dm.getSavePath(filename)
-	if err := os.WriteFile(savePath, data, 0644); err != nil {
+	if err := writeFileAtomic(savePath, data, 0644); err != nil {
 		dm.LastError = err
 		return fmt.Errorf("failed to write save file: %w", err)
 	}
@@ -132,6 +133,107 @@ func (dm *DataManager) Save(saveData *SaveData, filename string) error {
 	dm.CurrentSave = saveData
 	dm.IsDirty = false
 	return nil
+}
+
+// writeFileAtomic writes data to a temporary file in the same directory and
+// renames it over path, so an interrupted write never leaves a partial file
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// LoadLatest loads the most recent valid save for filename. It tries the
+// save file first, then its backups from newest to oldest, skipping any that
+// cannot be read, cannot be parsed or fail checksum validation. It returns
+// the save data and the path it was loaded from. If neither the save file
+// nor any backup exists, the error wraps os.ErrNotExist.
+func (dm *DataManager) LoadLatest(filename string) (*SaveData, string, error) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	candidates := []string{dm.getSavePath(filename)}
+	backups, err := dm.listBackupsLocked(filename)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, "", err
+	}
+	for _, backup := range backups {
+		candidates = append(candidates, backup.Path)
+	}
+
+	var failures []string
+	for _, path := range candidates {
+		saveData, err := dm.loadPathLocked(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+
+		dm.CurrentSave = saveData
+		dm.LastError = nil
+		if len(failures) > 0 {
+			dm.LastError = fmt.Errorf("skipped unusable saves: %s", strings.Join(failures, "; "))
+		}
+		return saveData, path, nil
+	}
+
+	if len(failures) == 0 {
+		return nil, "", fmt.Errorf("no save found for %s: %w", filename, os.ErrNotExist)
+	}
+	dm.LastError = fmt.Errorf("no usable save found: %s", strings.Join(failures, "; "))
+	return nil, "", dm.LastError
+}
+
+// loadPathLocked reads, parses and validates a save file at path
+func (dm *DataManager) loadPathLocked(path string) (*SaveData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var saveData *SaveData
+	if dm.EncryptionEnabled && dm.EncryptionKey != nil {
+		saveData, err = FromEncryptedJSON(data, dm.EncryptionKey)
+	} else {
+		saveData, err = FromJSON(data)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if !saveData.ValidateChecksum() {
+		return nil, fmt.Errorf("checksum mismatch")
+	}
+	return saveData, nil
 }
 
 // Load reads save data from disk
@@ -322,6 +424,11 @@ func (dm *DataManager) ListBackups(filename string) ([]SaveFileInfo, error) {
 	dm.mu.RLock()
 	defer dm.mu.RUnlock()
 
+	return dm.listBackupsLocked(filename)
+}
+
+// listBackupsLocked returns backups for a save, newest first; caller must hold dm.mu
+func (dm *DataManager) listBackupsLocked(filename string) ([]SaveFileInfo, error) {
 	prefix := strings.TrimSuffix(filename, ".json")
 
 	files, err := os.ReadDir(dm.BackupPath)

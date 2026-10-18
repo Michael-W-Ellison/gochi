@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
@@ -20,6 +25,7 @@ type Server struct {
 	pet        *core.DigitalPet
 	webDir     string
 	lastUpdate time.Time
+	store      *petStore // nil disables saving
 }
 
 // APIResponse is a standard API response wrapper
@@ -45,6 +51,11 @@ type PetStatus struct {
 }
 
 func main() {
+	dataDir := flag.String("data-dir", "", "directory for saves and backups (default ~/.gochi)")
+	autosaveInterval := flag.Duration("autosave", time.Minute, "how often to save the pet automatically (0 disables)")
+	addr := flag.String("addr", ":8080", "address to listen on")
+	flag.Parse()
+
 	// Find web directory
 	webDir := findWebDir()
 	if webDir == "" {
@@ -52,14 +63,44 @@ func main() {
 	}
 	log.Printf("Serving web content from: %s", webDir)
 
+	store, err := newPetStore(*dataDir)
+	if err != nil {
+		log.Fatalf("Could not set up save directory: %v", err)
+	}
+
 	// Create server
 	server := &Server{
 		webDir:     webDir,
 		lastUpdate: time.Now(),
+		store:      store,
 	}
 
-	// Start background update loop
+	// Restore the most recent save. Time does not pass while the program is
+	// closed: the pet resumes exactly as it was saved.
+	pet, path, err := store.Load()
+	switch {
+	case err == nil:
+		server.pet = pet
+		log.Printf("Restored %s from %s", pet.Name, path)
+		if warning := store.LastWarning(); warning != nil {
+			log.Printf("Warning: %v", warning)
+		}
+	case errors.Is(err, os.ErrNotExist):
+		log.Printf("No saved pet found; saves will be written to %s", store.SavePath())
+	default:
+		log.Printf("Warning: could not restore saved pet: %v", err)
+		log.Printf("Starting without a pet; creating a new one will replace the save (previous files are kept as backups)")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Start background update and autosave loops
 	go server.updateLoop()
+	if *autosaveInterval > 0 {
+		go server.autosaveLoop(ctx, *autosaveInterval)
+		log.Printf("Autosaving every %s", *autosaveInterval)
+	}
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -74,6 +115,7 @@ func main() {
 	mux.HandleFunc("/api/interact", server.handleInteract)
 	mux.HandleFunc("/api/rename", server.handleRename)
 	mux.HandleFunc("/api/create", server.handleCreate)
+	mux.HandleFunc("/api/save", server.handleSave)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -88,12 +130,34 @@ func main() {
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	addr := ":8080"
-	log.Printf("Starting Gochi server at http://localhost%s", addr)
-	log.Printf("Open your browser to http://localhost:8080 to play!")
+	httpServer := &http.Server{Addr: *addr, Handler: mux}
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- httpServer.ListenAndServe()
+	}()
+	log.Printf("Starting Gochi server at http://localhost%s", *addr)
+	log.Printf("Open your browser to http://localhost%s to play! Press Ctrl+C to save and exit.", *addr)
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	select {
+	case err := <-serverErr:
 		log.Fatal(err)
+	case <-ctx.Done():
+		stop() // A second Ctrl+C exits immediately
+	}
+
+	// Save and exit
+	log.Printf("Shutting down...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Warning: HTTP shutdown: %v", err)
+	}
+
+	if saved, err := server.saveNow(); err != nil {
+		log.Printf("Failed to save pet on exit: %v", err)
+		os.Exit(1)
+	} else if saved {
+		log.Printf("Saved pet to %s", store.SavePath())
 	}
 }
 
@@ -252,6 +316,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .action-btn.pet { background: #ff6b9d; color: white; }
         .action-btn.play { background: #6bcb77; color: white; }
         .action-btn.groom { background: #74b9ff; color: white; }
+        .save-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; }
+        .save-btn { padding: 8px 20px; border: 2px solid #667eea; border-radius: 20px; background: white; color: #667eea; font-weight: bold; cursor: pointer; }
+        .save-btn:disabled { opacity: 0.6; cursor: default; }
+        .save-status { font-size: 0.85em; color: #666; }
         .status-text { text-align: center; margin-top: 15px; color: #888; font-size: 0.9em; }
         .dead { filter: grayscale(100%); }
         .dead .pet-display { animation: none; }
@@ -336,6 +404,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="action-btn pet" onclick="interact('pet')">Pet</button>
                 <button class="action-btn play" onclick="interact('play')">Play</button>
                 <button class="action-btn groom" onclick="interact('groom')">Groom</button>
+            </div>
+
+            <div class="save-row">
+                <button class="save-btn" id="saveBtn" onclick="savePet()">Save</button>
+                <span class="save-status" id="saveStatus">Progress is saved automatically</span>
             </div>
 
             <div class="status-text" id="statusText">Age: 0 days | Wellbeing: 100%</div>
@@ -488,6 +561,24 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             .catch(console.error);
         }
 
+        function savePet() {
+            const btn = document.getElementById('saveBtn');
+            const statusEl = document.getElementById('saveStatus');
+            btn.disabled = true;
+
+            fetch('/api/save', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        statusEl.textContent = 'Saved at ' + new Date(data.data.saved_at).toLocaleTimeString();
+                    } else {
+                        statusEl.textContent = 'Save failed: ' + (data.error || 'unknown error');
+                    }
+                })
+                .catch(() => { statusEl.textContent = 'Save failed: connection error'; })
+                .finally(() => { btn.disabled = false; });
+        }
+
         // Handle Enter key in name input
         document.getElementById('petNameInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
@@ -502,6 +593,72 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 </body>
 </html>`
 	w.Write([]byte(html))
+}
+
+// autosaveLoop saves the pet every interval until ctx is done
+func (s *Server) autosaveLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := s.saveNow(); err != nil {
+				log.Printf("Autosave failed: %v", err)
+			}
+		}
+	}
+}
+
+// saveNow writes the current pet to disk. It reports whether a pet was saved;
+// with no pet (or saving disabled) it does nothing.
+func (s *Server) saveNow() (bool, error) {
+	if s.store == nil {
+		return false, nil
+	}
+
+	// Serialize under the lock so the pet is not updated mid-save; write
+	// the file after releasing it
+	s.mu.RLock()
+	if s.pet == nil {
+		s.mu.RUnlock()
+		return false, nil
+	}
+	petData, err := s.pet.Save()
+	s.mu.RUnlock()
+	if err != nil {
+		return false, err
+	}
+
+	if err := s.store.Save(petData); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// handleSave handles POST /api/save - saves the pet immediately
+func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	saved, err := s.saveNow()
+	if err != nil {
+		log.Printf("Manual save failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Save failed"})
+		return
+	}
+	if !saved {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "No pet to save"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]string{
+		"saved_at": time.Now().Format(time.RFC3339),
+	}})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -627,6 +784,9 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	log.Printf("Created new pet: %s", req.Name)
+	if _, err := s.saveNow(); err != nil {
+		log.Printf("Failed to save new pet: %v", err)
+	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.getPetData()})
 }
 

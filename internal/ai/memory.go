@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"encoding/json"
 	"errors"
 	"sort"
 	"strconv"
@@ -148,8 +149,8 @@ type MemorySystem struct {
 	LongTermCapacity  int                 // Max long-term memories
 	ConsolidationRate float64             // How often memories are consolidated
 	TotalMemories     int                 // Total memories ever formed
-	MemoryIndex       map[string]*Memory  // Quick lookup by ID
-	TagIndex          map[string][]string // Memory IDs by tag
+	MemoryIndex       map[string]*Memory  `json:"-"` // Quick lookup by ID (rebuilt on load)
+	TagIndex          map[string][]string `json:"-"` // Memory IDs by tag (rebuilt on load)
 	Associations      []MemoryAssociation // Links between memories
 	WorkingMemory     []*Memory           `json:"-"` // Currently active memories
 	WorkingMemoryCap  int                 // Max working memory items
@@ -162,13 +163,16 @@ type MemorySystem struct {
 	Preferences map[types.InteractionType]*InteractionPreference
 }
 
+// DefaultLongTermCapacity is the default maximum number of long-term memories
+const DefaultLongTermCapacity = 5000
+
 // NewMemorySystem creates a new memory system
 func NewMemorySystem(capacity int) *MemorySystem {
 	return &MemorySystem{
 		ShortTermMemories: make([]*Memory, 0, capacity),
 		LongTermMemories:  make([]*Memory, 0),
 		MemoryCapacity:    capacity,
-		LongTermCapacity:  500,
+		LongTermCapacity:  DefaultLongTermCapacity,
 		ConsolidationRate: 0.1,
 		MemoryIndex:       make(map[string]*Memory),
 		TagIndex:          make(map[string][]string),
@@ -896,6 +900,25 @@ func (m *MemorySystem) GetEmotionalTendency() string {
 	default:
 		return "balanced"
 	}
+}
+
+// UnmarshalJSON restores a memory system, applying defaults for fields
+// missing from the data and rebuilding the indexes, which are not saved
+func (m *MemorySystem) UnmarshalJSON(data []byte) error {
+	type plain MemorySystem // Same fields without this method, avoiding recursion
+
+	restored := plain(*NewMemorySystem(100))
+	if err := json.Unmarshal(data, &restored); err != nil {
+		return err
+	}
+
+	*m = MemorySystem(restored)
+	if m.Preferences == nil {
+		m.Preferences = make(map[types.InteractionType]*InteractionPreference)
+	}
+	m.WorkingMemory = make([]*Memory, 0)
+	m.RebuildIndexes()
+	return nil
 }
 
 // RebuildIndexes reconstructs the ID and tag indexes from stored memories
