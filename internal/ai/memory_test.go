@@ -1022,6 +1022,32 @@ func TestGenerateMemoryID(t *testing.T) {
 	}
 }
 
+func TestGenerateMemoryIDUniqueAcrossCounts(t *testing.T) {
+	// Counts in the UTF-16 surrogate range and above the maximum rune
+	// must not collapse to the same ID
+	seen := make(map[string]int)
+	for _, count := range []int{0, 1, 0xD7FF, 0xD800, 0xD801, 0xDFFF, 0x10FFFF, 0x110000, 0x110001} {
+		id := generateMemoryID(count)
+		if prev, exists := seen[id]; exists {
+			t.Errorf("generateMemoryID(%d) duplicates generateMemoryID(%d): %q", count, prev, id)
+		}
+		seen[id] = count
+	}
+}
+
+func TestMemoryIndexHoldsAllMemoriesPastSurrogateRange(t *testing.T) {
+	ms := NewMemorySystem(100)
+	ms.TotalMemories = 0xD7FE
+
+	for i := 0; i < 5; i++ {
+		ms.RecordMemory(MemoryEvent, "Event", 100.0, 0.5, "neutral", nil)
+	}
+
+	if len(ms.MemoryIndex) != 5 {
+		t.Errorf("Expected 5 indexed memories, got %d", len(ms.MemoryIndex))
+	}
+}
+
 func TestContainsIgnoreCase(t *testing.T) {
 	tests := []struct {
 		s        string

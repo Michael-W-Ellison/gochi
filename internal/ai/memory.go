@@ -3,6 +3,7 @@ package ai
 import (
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -901,7 +902,9 @@ func containsIgnoreCase(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
-// Helper function to generate unique memory IDs
+// Helper function to generate unique memory IDs.
+// The count is the system's TotalMemories, which only increases, so IDs
+// within one memory system never repeat.
 func generateMemoryID(count int) string {
-	return time.Now().Format("20060102150405") + string(rune(count))
+	return "mem_" + time.Now().Format("20060102150405") + "_" + strconv.Itoa(count)
 }
