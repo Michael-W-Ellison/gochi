@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
@@ -36,6 +37,9 @@ type DigitalPet struct {
 	// Statistics
 	TotalInteractions int     `json:"total_interactions"`
 	TotalPlayTime     float64 `json:"total_play_time"` // In hours
+
+	// mu guards concurrent updates, interactions and reads of pet state
+	mu sync.Mutex
 }
 
 // NewDigitalPet creates a new digital pet with default systems
@@ -70,6 +74,9 @@ func NewDigitalPetRandom(name string, owner types.UserID) *DigitalPet {
 
 // Update processes all system updates for a given time delta
 func (p *DigitalPet) Update(deltaTime float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if !p.Biology.IsAlive {
 		return
 	}
@@ -101,6 +108,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 
 // ProcessUserInteraction handles user actions and applies effects
 func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionType, intensity float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if !p.Biology.IsAlive {
 		return
 	}
@@ -201,6 +211,9 @@ func (p *DigitalPet) updateBehavior() {
 
 // GetCurrentStatus returns a comprehensive status report
 func (p *DigitalPet) GetCurrentStatus() PetStatus {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	return PetStatus{
 		PetID:            p.ID,
 		Name:             p.Name,
@@ -251,6 +264,9 @@ func (s PetStatus) String() string {
 
 // Save serializes the pet to JSON
 func (p *DigitalPet) Save() ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	return json.MarshalIndent(p, "", "  ")
 }
 

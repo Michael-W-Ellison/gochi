@@ -1,6 +1,7 @@
 package test
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,8 +15,8 @@ func TestARSessionLifecycle(t *testing.T) {
 	service := ar.NewARService(nil) // nil uses default config
 
 	// Verify initial state
-	if service.State != ar.ARSessionStateInactive {
-		t.Errorf("Initial state should be Inactive, got %v", service.State)
+	if service.GetSessionState() != ar.ARSessionStateInactive {
+		t.Errorf("Initial state should be Inactive, got %v", service.GetSessionState())
 	}
 
 	// Start session
@@ -27,29 +28,29 @@ func TestARSessionLifecycle(t *testing.T) {
 	// Give time for initialization
 	time.Sleep(600 * time.Millisecond)
 
-	if service.State != ar.ARSessionStateTracking {
-		t.Errorf("State should be Tracking after start, got %v", service.State)
+	if service.GetSessionState() != ar.ARSessionStateTracking {
+		t.Errorf("State should be Tracking after start, got %v", service.GetSessionState())
 	}
 
 	// Pause session
 	service.PauseSession()
 
-	if service.State != ar.ARSessionStatePaused {
-		t.Errorf("State should be Paused, got %v", service.State)
+	if service.GetSessionState() != ar.ARSessionStatePaused {
+		t.Errorf("State should be Paused, got %v", service.GetSessionState())
 	}
 
 	// Resume session
 	service.ResumeSession()
 
-	if service.State != ar.ARSessionStateTracking {
-		t.Errorf("State should be Tracking after resume, got %v", service.State)
+	if service.GetSessionState() != ar.ARSessionStateTracking {
+		t.Errorf("State should be Tracking after resume, got %v", service.GetSessionState())
 	}
 
 	// Stop session
 	service.StopSession()
 
-	if service.State != ar.ARSessionStateInactive {
-		t.Errorf("State should be Inactive after stop, got %v", service.State)
+	if service.GetSessionState() != ar.ARSessionStateInactive {
+		t.Errorf("State should be Inactive after stop, got %v", service.GetSessionState())
 	}
 }
 
@@ -401,16 +402,16 @@ func TestARSnapshot(t *testing.T) {
 func TestARCallbacks(t *testing.T) {
 	service := ar.NewARService(nil)
 
-	planeDetected := false
-	stateChanged := false
+	// Callbacks may run on the session's background goroutine
+	var planeDetected, stateChanged atomic.Bool
 
 	// Set callbacks
 	service.OnPlaneDetected = func(plane *ar.DetectedPlane) {
-		planeDetected = true
+		planeDetected.Store(true)
 	}
 
 	service.OnTrackingStateChange = func(state ar.ARSessionState) {
-		stateChanged = true
+		stateChanged.Store(true)
 	}
 
 	// Trigger callbacks
@@ -419,7 +420,7 @@ func TestARCallbacks(t *testing.T) {
 
 	time.Sleep(600 * time.Millisecond)
 
-	if !stateChanged {
+	if !stateChanged.Load() {
 		t.Error("OnTrackingStateChange should have been called")
 	}
 
@@ -431,7 +432,7 @@ func TestARCallbacks(t *testing.T) {
 		Extent: ar.Vector3{X: 1, Y: 0, Z: 1},
 	})
 
-	if !planeDetected {
+	if !planeDetected.Load() {
 		t.Error("OnPlaneDetected should have been called")
 	}
 }

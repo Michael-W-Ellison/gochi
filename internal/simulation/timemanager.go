@@ -185,6 +185,11 @@ func (tm *TimeManager) GetTimeOfDay() float64 {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
+	return tm.timeOfDay()
+}
+
+// timeOfDay returns the time of day in hours; caller must hold tm.mu
+func (tm *TimeManager) timeOfDay() float64 {
 	hour := float64(tm.CurrentSimTime.Hour())
 	minute := float64(tm.CurrentSimTime.Minute()) / 60.0
 	second := float64(tm.CurrentSimTime.Second()) / 3600.0
@@ -205,8 +210,11 @@ func (tm *TimeManager) IsNighttime() bool {
 
 // GetDayPhase returns a description of the current day phase
 func (tm *TimeManager) GetDayPhase() string {
-	hour := tm.GetTimeOfDay()
+	return dayPhaseForHour(tm.GetTimeOfDay())
+}
 
+// dayPhaseForHour returns the day phase for a time of day in hours
+func dayPhaseForHour(hour float64) string {
 	switch {
 	case hour >= 5.0 && hour < 8.0:
 		return "dawn"
@@ -235,7 +243,7 @@ func (tm *TimeManager) GetStats() TimeStats {
 		CurrentTimeScale:    tm.CurrentTimeScale,
 		TimeScaleMultiplier: tm.TimeScaleMultiplier,
 		IsPaused:            tm.IsPaused,
-		CurrentDayPhase:     tm.GetDayPhase(),
+		CurrentDayPhase:     dayPhaseForHour(tm.timeOfDay()),
 		TickCount:           tm.TickCount,
 		AverageTickRate:     float64(tm.TickCount) / tm.TotalRealTimeElapsed.Seconds(),
 	}
