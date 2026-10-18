@@ -216,3 +216,94 @@ func TestCatalogItemsAreValid(t *testing.T) {
 		}
 	}
 }
+
+func changeOf(changes []StatChange, stat string) (float64, bool) {
+	for _, c := range changes {
+		if c.Stat == stat {
+			return c.Change, true
+		}
+	}
+	return 0, false
+}
+
+func TestInteractionReportsStatChanges(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	v := pet.Biology.Vitals
+	v.Happiness, v.Energy, v.Stress = 0.3, 0.8, 0.5
+
+	r := pet.Interact(types.InteractionPlaying, 1.0)
+
+	want := map[string]float64{"Happiness": 0.2, "Energy": -0.1, "Stress": -0.05}
+	for stat, delta := range want {
+		got, ok := changeOf(r.Changes, stat)
+		if !ok || math.Abs(got-delta) > 1e-9 {
+			t.Errorf("%s change = %f (reported %v), want %f", stat, got, ok, delta)
+		}
+	}
+	if _, ok := changeOf(r.Changes, "Water"); ok {
+		t.Error("Unchanged stats should not be reported")
+	}
+	if r.BoostedBy != nil {
+		t.Error("Play without a toy should not report a boost")
+	}
+}
+
+func TestHungerChangeIsReportedAsShown(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	pet.Biology.Vitals.Nutrition = 0.4
+
+	r := pet.Interact(types.InteractionFeeding, 1.0)
+
+	// Feeding raises nutrition by 0.3, so the Hunger bar drops by 0.3
+	if got, _ := changeOf(r.Changes, "Hunger"); math.Abs(got+0.3) > 1e-9 {
+		t.Errorf("Hunger change = %f, want -0.3", got)
+	}
+}
+
+func TestInteractionReportsBoostingItem(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	pet.FriendshipPoints = 1000
+	pet.BuyItem("squeaky_toy")
+	pet.BuyItem("puzzle_ball")
+	pet.Biology.Vitals.Happiness = 0.3
+
+	r := pet.Interact(types.InteractionPlaying, 1.0)
+
+	if r.BoostedBy == nil || r.BoostedBy.ID != "puzzle_ball" {
+		t.Fatalf("Play should report the best toy as the boost, got %+v", r.BoostedBy)
+	}
+	if got, _ := changeOf(r.Changes, "Happiness"); math.Abs(got-0.3) > 1e-9 {
+		t.Errorf("Boosted happiness change = %f, want 0.3", got)
+	}
+	// A better toy makes play more fun, not more tiring
+	if got, _ := changeOf(r.Changes, "Energy"); math.Abs(got+0.1) > 1e-9 {
+		t.Errorf("Boosted energy change = %f, want -0.1", got)
+	}
+
+	if r := pet.Interact(types.InteractionFeeding, 1.0); r.BoostedBy != nil {
+		t.Error("A toy should not boost feeding")
+	}
+}
+
+func TestActiveEffects(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	if effects := pet.ActiveEffects(); len(effects) != 0 {
+		t.Errorf("A new pet should have no active effects, got %+v", effects)
+	}
+
+	pet.FriendshipPoints = 1000
+	for _, id := range []string{"water_bowl", "water_fountain", "cozy_bed", "balloon"} {
+		if err := pet.BuyItem(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var ids []string
+	for _, item := range pet.ActiveEffects() {
+		ids = append(ids, item.ID)
+	}
+	// The fountain outclasses the bowl; decorations have no effect
+	if len(ids) != 2 || ids[0] != "water_fountain" || ids[1] != "cozy_bed" {
+		t.Errorf("Active effects = %v, want [water_fountain cozy_bed]", ids)
+	}
+}

@@ -596,3 +596,44 @@ func TestShopThroughServer(t *testing.T) {
 		}
 	}
 }
+
+func TestInteractionEffectsThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+	server.pet.FriendshipPoints = 500
+	if err := server.pet.BuyItem("puzzle_ball"); err != nil {
+		t.Fatal(err)
+	}
+	server.pet.Biology.Vitals.Happiness = 0.3
+
+	rec := post(t, server.handleInteract, `{"action":"play"}`)
+	var resp struct {
+		Data struct {
+			Changes []core.StatChange `json:"changes"`
+			Boost   *core.ShopItem    `json:"boosted_by"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Data.Boost == nil || resp.Data.Boost.ID != "puzzle_ball" {
+		t.Errorf("Response should name the boosting toy: %s", rec.Body.String())
+	}
+	found := false
+	for _, c := range resp.Data.Changes {
+		if c.Stat == "Happiness" && c.Change > 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Response should report the happiness gain: %s", rec.Body.String())
+	}
+
+	statusRec := httptest.NewRecorder()
+	server.handleStatus(statusRec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	if !strings.Contains(statusRec.Body.String(), `"effects":[{"id":"puzzle_ball"`) {
+		t.Errorf("Status should list the active effect: %s", statusRec.Body.String())
+	}
+}

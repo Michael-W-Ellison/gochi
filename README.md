@@ -141,7 +141,8 @@ Only the active pet's time passes; pets that are not loaded wait in their save f
 ### Caring for Your Pet
 
 Use **Feed**, **Drink**, **Pet**, **Play** and **Groom** to look after your pet. The bars show its
-health, energy, happiness, hunger and water.
+health, energy, happiness, hunger and water. After each action the page shows what changed, for
+example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
 
 ### Friendship Points and the Shop
 
@@ -162,7 +163,9 @@ pet that earned them. Press **Shop** to spend them on items for that pet:
 | Balloon, Potted Plant, Night Lamp, Painting, Rainbow Mural | 30–120 | Decorations |
 
 Items work automatically once bought; if a pet owns two items of the same kind, the better one
-applies. Owned items are shown under the pet's name.
+applies. Owned items are shown under the pet's name, with an **Active effects** list of the items
+currently working. When a toy or brush improves an action, the page says so after that action.
+Toys make play more fun without making it more tiring.
 
 ### Hibernation
 

@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"math"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/biology"
@@ -118,8 +119,67 @@ func findItem(id string) (ShopItem, bool) {
 
 // InteractionResult reports the outcome of an interaction
 type InteractionResult struct {
-	Applied      bool // False if the pet could not respond (hibernating or not alive)
-	PointsEarned int  // Friendship Points earned by this interaction
+	Applied      bool         // False if the pet could not respond (hibernating or not alive)
+	PointsEarned int          // Friendship Points earned by this interaction
+	Changes      []StatChange // How the pet's stats changed
+	BoostedBy    *ShopItem    // Item that made this interaction more effective, if any
+}
+
+// StatChange is the change in one of the pet's stats (-1.0 to 1.0)
+type StatChange struct {
+	Stat   string  `json:"stat"`
+	Change float64 `json:"change"`
+}
+
+// minReportedChange is the smallest stat change worth reporting
+const minReportedChange = 0.005
+
+// statChanges lists the stats that changed between two snapshots, in
+// display order. Hunger is reported as it is shown: the opposite of
+// nutrition.
+func statChanges(before, after biology.VitalStats) []StatChange {
+	all := []StatChange{
+		{"Health", after.Health - before.Health},
+		{"Energy", after.Energy - before.Energy},
+		{"Happiness", after.Happiness - before.Happiness},
+		{"Hunger", before.Nutrition - after.Nutrition},
+		{"Water", after.Hydration - before.Hydration},
+		{"Cleanliness", after.Cleanliness - before.Cleanliness},
+		{"Stress", after.Stress - before.Stress},
+	}
+
+	changes := []StatChange{}
+	for _, c := range all {
+		if math.Abs(c.Change) >= minReportedChange {
+			changes = append(changes, c)
+		}
+	}
+	return changes
+}
+
+// ActiveEffects returns the items whose effects currently apply to the
+// pet: the best owned item in each category with an effect. Items that
+// are outclassed by a better one, and decorations, are not included.
+func (p *DigitalPet) ActiveEffects() []ShopItem {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	effects := []ShopItem{}
+	for _, c := range []struct {
+		category ItemCategory
+		lower    bool
+	}{
+		{CategoryFoodBowl, true},
+		{CategoryWaterBowl, true},
+		{CategoryToy, false},
+		{CategoryBed, true},
+		{CategoryBrush, false},
+	} {
+		if item, ok := p.bestItemLocked(c.category, c.lower); ok {
+			effects = append(effects, item)
+		}
+	}
+	return effects
 }
 
 // Interact applies an interaction like ProcessUserInteraction and reports
@@ -210,16 +270,26 @@ func (p *DigitalPet) OwnedItems() []ShopItem {
 // (decay multipliers) instead of the largest (effectiveness multipliers).
 // Caller must hold p.mu.
 func (p *DigitalPet) bestEffectLocked(category ItemCategory, lower bool) float64 {
-	best := 1.0
+	if item, ok := p.bestItemLocked(category, lower); ok {
+		return item.Effect
+	}
+	return 1.0
+}
+
+// bestItemLocked returns the owned item with the strongest effect in a
+// category. Caller must hold p.mu.
+func (p *DigitalPet) bestItemLocked(category ItemCategory, lower bool) (ShopItem, bool) {
+	var best ShopItem
+	found := false
 	for _, item := range shopCatalog {
 		if item.Category != category || !p.ownsLocked(item.ID) {
 			continue
 		}
-		if (lower && item.Effect < best) || (!lower && item.Effect > best) {
-			best = item.Effect
+		if !found || (lower && item.Effect < best.Effect) || (!lower && item.Effect > best.Effect) {
+			best, found = item, true
 		}
 	}
-	return best
+	return best, found
 }
 
 // decayMultipliersLocked returns how the pet's belongings slow its needs.
@@ -232,15 +302,15 @@ func (p *DigitalPet) decayMultipliersLocked() biology.DecayMultipliers {
 	}
 }
 
-// careEffectivenessLocked returns how much the pet's belongings strengthen
-// an interaction. Caller must hold p.mu.
-func (p *DigitalPet) careEffectivenessLocked(interactionType types.InteractionType) float64 {
+// careBoostLocked returns the owned item that strengthens an interaction,
+// if any. Caller must hold p.mu.
+func (p *DigitalPet) careBoostLocked(interactionType types.InteractionType) (ShopItem, bool) {
 	switch interactionType {
 	case types.InteractionPlaying:
-		return p.bestEffectLocked(CategoryToy, false)
+		return p.bestItemLocked(CategoryToy, false)
 	case types.InteractionGrooming:
-		return p.bestEffectLocked(CategoryBrush, false)
+		return p.bestItemLocked(CategoryBrush, false)
 	default:
-		return 1.0
+		return ShopItem{}, false
 	}
 }

@@ -213,12 +213,19 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	}
 
 	p.TotalInteractions++
+	before := *p.Biology.Vitals
 
 	// Belongings such as toys and brushes make care more effective
-	intensity *= p.careEffectivenessLocked(interactionType)
+	result := InteractionResult{Applied: true}
+	boost := 1.0
+	if item, ok := p.careBoostLocked(interactionType); ok {
+		boost = item.Effect
+		result.BoostedBy = &item
+	}
 
-	// Apply biological effects
-	p.applyInteractionEffects(interactionType, intensity)
+	// Apply biological effects; the boost strengthens the benefits only
+	p.applyInteractionEffects(interactionType, intensity, boost)
+	intensity *= boost
 
 	// Apply emotional effects
 	stimulus := ai.CreateStimulusFromInteraction(interactionType, intensity)
@@ -229,16 +236,19 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	valence := stimulus.Valence()
 	p.Memory.RecordInteractionFull(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion, valence, math.Abs(valence))
 
-	points := p.awardCareLocked(interactionType)
+	result.PointsEarned = p.awardCareLocked(interactionType)
 
 	// Update behavior
 	p.updateBehavior()
 
-	return InteractionResult{Applied: true, PointsEarned: points}
+	result.Changes = statChanges(before, *p.Biology.Vitals)
+	return result
 }
 
-// applyInteractionEffects modifies vital stats based on interaction type
-func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionType, intensity float64) {
+// applyInteractionEffects modifies vital stats based on interaction type.
+// boost (from items) multiplies the benefits of play and grooming but not
+// their costs, such as the energy play uses.
+func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionType, intensity, boost float64) {
 	vitals := p.Biology.Vitals
 
 	switch interactionType {
@@ -252,17 +262,17 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Stress -= 0.1 * intensity
 
 	case types.InteractionPlaying:
-		vitals.Happiness += 0.2 * intensity
+		vitals.Happiness += 0.2 * intensity * boost
 		vitals.Energy -= 0.1 * intensity
-		vitals.Stress -= 0.05 * intensity
+		vitals.Stress -= 0.05 * intensity * boost
 
 	case types.InteractionDrinking:
 		vitals.Hydration += 0.4 * intensity
 		vitals.Happiness += 0.02 * intensity
 
 	case types.InteractionGrooming:
-		vitals.Cleanliness += 0.3 * intensity
-		vitals.Happiness += 0.05 * intensity
+		vitals.Cleanliness += 0.3 * intensity * boost
+		vitals.Happiness += 0.05 * intensity * boost
 
 	case types.InteractionMedicalCare:
 		vitals.Health += 0.2 * intensity

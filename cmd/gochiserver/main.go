@@ -69,7 +69,8 @@ type PetStatus struct {
 	PauseReason string  `json:"pause_reason,omitempty"`
 
 	FriendshipPoints int             `json:"friendship_points"`
-	Items            []core.ShopItem `json:"items"` // Owned items
+	Items            []core.ShopItem `json:"items"`   // Owned items
+	Effects          []core.ShopItem `json:"effects"` // Items whose effects currently apply
 }
 
 func main() {
@@ -385,6 +386,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .friendship { text-align: center; color: #d6336c; font-weight: 600; margin-top: -12px; margin-bottom: 6px; }
         .belongings { text-align: center; font-size: 1.6em; min-height: 1.2em; letter-spacing: 4px; }
         .points-toast { text-align: center; min-height: 1.3em; margin-top: 10px; font-size: 0.9em; color: #d6336c; }
+        .points-toast .changes { color: #444; font-weight: 600; }
+        .points-toast .boost { color: #2b8a3e; }
+        .effects { margin: 6px auto 0; font-size: 0.8em; color: #2b8a3e; text-align: center; }
+        .effects-title { color: #777; font-weight: 600; }
         .shop-header { text-align: center; margin-bottom: 16px; }
         .shop-header .friendship { margin: 6px 0 0; }
         .shop-category { margin: 14px 0 6px; color: #555; font-size: 0.95em; font-weight: 600; }
@@ -487,6 +492,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="pet-name" id="petName">Loading...</div>
             <div class="friendship" id="friendship"></div>
             <div class="belongings" id="belongings"></div>
+            <div class="effects hidden" id="effects"></div>
             <div class="pet-display" id="petSprite">🐱</div>
             <div class="mood" id="mood">Mood: Happy</div>
             <div class="pause-banner hidden" id="pauseBanner"></div>
@@ -913,11 +919,26 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         let toastTimer = null;
-        function showPointsToast(text) {
+        // lines: array of [text, className]
+        function showPointsToast(lines) {
+            if (typeof lines === 'string') lines = [[lines, '']];
             const toast = document.getElementById('pointsToast');
-            toast.textContent = text;
+            toast.replaceChildren();
+            lines.forEach(([text, className]) => {
+                const line = document.createElement('div');
+                line.textContent = text;
+                if (className) line.className = className;
+                toast.append(line);
+            });
             if (toastTimer) clearTimeout(toastTimer);
-            toastTimer = setTimeout(() => { toast.textContent = ''; }, 3000);
+            toastTimer = setTimeout(() => { toast.replaceChildren(); }, 5000);
+        }
+
+        function formatChanges(changes) {
+            return changes.map(c => {
+                const percent = Math.round(c.change * 100);
+                return c.stat + ' ' + (percent > 0 ? '+' : '−') + Math.abs(percent) + '%';
+            }).join(' · ');
         }
 
         function showError(msg) {
@@ -991,6 +1012,22 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 span.title = item.name;
                 belongings.append(span);
             });
+
+            const effects = document.getElementById('effects');
+            effects.replaceChildren();
+            const active = status.effects || [];
+            if (active.length > 0) {
+                const title = document.createElement('div');
+                title.className = 'effects-title';
+                title.textContent = status.hibernating ? 'Item effects (paused while hibernating)' : 'Active effects';
+                effects.append(title);
+                active.forEach(item => {
+                    const line = document.createElement('div');
+                    line.textContent = item.icon + ' ' + item.name + ': ' + item.description;
+                    effects.append(line);
+                });
+            }
+            effects.classList.toggle('hidden', active.length === 0);
             document.getElementById('mood').textContent = 'Mood: ' + status.mood;
             document.getElementById('statusText').textContent =
                 'Age: ' + status.age.toFixed(1) + ' days | Wellbeing: ' + (status.wellbeing * 100).toFixed(0) + '%';
@@ -1061,11 +1098,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    const lines = [];
+                    const changes = data.data.changes || [];
+                    if (changes.length > 0) lines.push([formatChanges(changes), 'changes']);
+                    const boost = data.data.boosted_by;
+                    if (boost) lines.push([boost.icon + ' ' + boost.name + ': ' + boost.description, 'boost']);
                     if (data.data.points_earned > 0) {
-                        showPointsToast('+' + data.data.points_earned + ' Friendship Points!');
+                        lines.push(['+' + data.data.points_earned + ' Friendship Points!', '']);
                     } else {
-                        showPointsToast('Your pet enjoyed that! This kind of care earns points again in a few minutes.');
+                        lines.push(['This kind of care earns points again in a few minutes.', '']);
                     }
+                    showPointsToast(lines);
                     setTimeout(fetchStatus, 500);
                 } else if (data.error) {
                     showPointsToast(data.error);
@@ -1571,6 +1614,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 		FriendshipPoints: s.pet.FriendshipPoints,
 		Items:            s.pet.OwnedItems(),
+		Effects:          s.pet.ActiveEffects(),
 	}
 	if petStatus.Items == nil {
 		petStatus.Items = []core.ShopItem{}
@@ -1634,6 +1678,8 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 		"message":           "Interaction successful",
 		"points_earned":     result.PointsEarned,
 		"friendship_points": s.pet.FriendshipPoints,
+		"changes":           result.Changes,
+		"boosted_by":        result.BoostedBy,
 	}})
 }
 
