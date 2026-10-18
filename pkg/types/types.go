@@ -67,6 +67,7 @@ const (
 	InteractionSocialIntroduction
 	InteractionDiscipline
 	InteractionRewards
+	InteractionDrinking
 )
 
 // String returns the string representation of InteractionType
@@ -74,7 +75,7 @@ func (it InteractionType) String() string {
 	return [...]string{
 		"Feeding", "Petting", "Playing", "Training", "Grooming",
 		"Medical Care", "Environmental Enrichment", "Social Introduction",
-		"Discipline", "Rewards",
+		"Discipline", "Rewards", "Drinking",
 	}[it]
 }
 

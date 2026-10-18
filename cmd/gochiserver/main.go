@@ -60,12 +60,16 @@ type PetStatus struct {
 	Energy      float64 `json:"energy"`
 	Happiness   float64 `json:"happiness"`
 	Hunger      float64 `json:"hunger"`
+	Water       float64 `json:"water"`
 	Wellbeing   float64 `json:"wellbeing"`
 	Personality string  `json:"personality"`
 	Slot        string  `json:"slot"`
 	Hibernating bool    `json:"hibernating"`
 	Paused      bool    `json:"paused"`
 	PauseReason string  `json:"pause_reason,omitempty"`
+
+	FriendshipPoints int             `json:"friendship_points"`
+	Items            []core.ShopItem `json:"items"` // Owned items
 }
 
 func main() {
@@ -145,6 +149,8 @@ func main() {
 	mux.HandleFunc("/api/pause", server.handlePause)
 	mux.HandleFunc("/api/revive", server.handleRevive)
 	mux.HandleFunc("/api/delete", server.handleDelete)
+	mux.HandleFunc("/api/shop", server.handleShop)
+	mux.HandleFunc("/api/shop/buy", server.handleBuy)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -347,6 +353,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .stat-fill.energy { background: linear-gradient(90deg, #ffd93d, #f9c74f); }
         .stat-fill.happiness { background: linear-gradient(90deg, #6bcb77, #4caf50); }
         .stat-fill.hunger { background: linear-gradient(90deg, #ff9f43, #ee8500); }
+        .stat-fill.water { background: linear-gradient(90deg, #74c0fc, #339af0); }
         .mood { text-align: center; font-size: 1.2em; color: #666; margin: 15px 0; }
         .actions {
             display: grid;
@@ -373,6 +380,21 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .action-btn.pet { background: #ff6b9d; color: white; }
         .action-btn.play { background: #6bcb77; color: white; }
         .action-btn.groom { background: #74b9ff; color: white; }
+        .action-btn.drink { background: #4dabf7; color: white; }
+        .actions .action-btn:last-child:nth-child(odd) { grid-column: span 2; }
+        .friendship { text-align: center; color: #d6336c; font-weight: 600; margin-top: -12px; margin-bottom: 6px; }
+        .belongings { text-align: center; font-size: 1.6em; min-height: 1.2em; letter-spacing: 4px; }
+        .points-toast { text-align: center; min-height: 1.3em; margin-top: 10px; font-size: 0.9em; color: #d6336c; }
+        .shop-header { text-align: center; margin-bottom: 16px; }
+        .shop-header .friendship { margin: 6px 0 0; }
+        .shop-category { margin: 14px 0 6px; color: #555; font-size: 0.95em; font-weight: 600; }
+        .shop-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; border: 2px solid #eee; border-radius: 12px; }
+        .shop-item.owned { border-color: #b2f2bb; background: #f4fdf5; }
+        .shop-icon { font-size: 1.8em; flex-shrink: 0; }
+        .shop-info { flex: 1; min-width: 0; }
+        .shop-name { font-weight: bold; color: #333; }
+        .shop-desc { font-size: 0.8em; color: #777; }
+        .shop-msg { text-align: center; min-height: 1.3em; color: #c94a4a; font-size: 0.9em; margin-top: 8px; }
         .save-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; }
         .save-btn { padding: 8px 20px; border: 2px solid #667eea; border-radius: 20px; background: white; color: #667eea; font-weight: bold; cursor: pointer; }
         .save-btn:disabled { opacity: 0.6; cursor: default; }
@@ -463,9 +485,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         <div id="petView" class="hidden">
             <h1>Gochi</h1>
             <div class="pet-name" id="petName">Loading...</div>
+            <div class="friendship" id="friendship"></div>
+            <div class="belongings" id="belongings"></div>
             <div class="pet-display" id="petSprite">🐱</div>
             <div class="mood" id="mood">Mood: Happy</div>
             <div class="pause-banner hidden" id="pauseBanner"></div>
+            <div class="points-toast" id="pointsToast"></div>
             <div class="hibernate-banner hidden" id="hibernateBanner">
                 <span id="hibernateText"></span>
                 <button class="save-btn" id="reviveBtn" onclick="revivePet()">Revive</button>
@@ -488,10 +513,15 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     <span class="stat-label">Hunger</span>
                     <div class="stat-bar"><div class="stat-fill hunger" id="hungerBar" style="width: 50%"></div></div>
                 </div>
+                <div class="stat">
+                    <span class="stat-label">Water</span>
+                    <div class="stat-bar"><div class="stat-fill water" id="waterBar" style="width: 100%"></div></div>
+                </div>
             </div>
 
             <div class="actions">
                 <button class="action-btn feed" onclick="interact('feed')">Feed</button>
+                <button class="action-btn drink" onclick="interact('drink')">Drink</button>
                 <button class="action-btn pet" onclick="interact('pet')">Pet</button>
                 <button class="action-btn play" onclick="interact('play')">Play</button>
                 <button class="action-btn groom" onclick="interact('groom')">Groom</button>
@@ -501,12 +531,25 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" id="saveBtn" onclick="savePet()">Save</button>
                 <button class="save-btn" id="pauseBtn" onclick="togglePause()">Pause</button>
                 <button class="save-btn" onclick="openChooser()">Switch Pet</button>
+                <button class="save-btn" onclick="openShop()">Shop</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
             </div>
 
             <div class="status-text" id="statusText">Age: 0 days | Wellbeing: 100%</div>
+        </div>
+    </div>
+
+    <div class="container hidden" id="shopView">
+        <div class="shop-header">
+            <h1>Shop</h1>
+            <div class="friendship" id="shopPoints"></div>
+        </div>
+        <div id="shopList"></div>
+        <div class="shop-msg" id="shopMsg"></div>
+        <div style="text-align: center;">
+            <button class="back-btn" onclick="closeShop()">Back to my pet</button>
         </div>
     </div>
 
@@ -767,6 +810,116 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('petView').classList.remove('hidden');
         }
 
+        function formatPoints(points) {
+            return '❤️ ' + points + ' Friendship Point' + (points === 1 ? '' : 's');
+        }
+
+        // Shop: spend the active pet's Friendship Points on items for it
+        let shopping = false;
+        const shopCategories = [
+            ['food_bowl', 'Food containers'], ['water_bowl', 'Water containers'],
+            ['toy', 'Toys'], ['bed', 'Beds'], ['brush', 'Grooming'], ['decoration', 'Decorations']
+        ];
+
+        function openShop() {
+            shopping = true;
+            document.getElementById('app').classList.add('hidden');
+            document.getElementById('shopView').classList.remove('hidden');
+            document.getElementById('shopMsg').textContent = '';
+            loadShop();
+        }
+
+        function closeShop() {
+            shopping = false;
+            document.getElementById('shopView').classList.add('hidden');
+            document.getElementById('app').classList.remove('hidden');
+            fetchStatus();
+        }
+
+        function loadShop() {
+            fetch('/api/shop')
+                .then(r => r.json())
+                .then(data => { if (data.success) renderShop(data.data); })
+                .catch(err => console.error('Shop error:', err));
+        }
+
+        function renderShop(shop) {
+            document.getElementById('shopPoints').textContent = formatPoints(shop.friendship_points);
+            const list = document.getElementById('shopList');
+            list.replaceChildren();
+
+            shopCategories.forEach(([category, title]) => {
+                const items = shop.items.filter(item => item.category === category);
+                if (items.length === 0) return;
+
+                const heading = document.createElement('div');
+                heading.className = 'shop-category';
+                heading.textContent = title;
+                list.append(heading);
+
+                items.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = 'shop-item' + (item.owned ? ' owned' : '');
+
+                    const icon = document.createElement('div');
+                    icon.className = 'shop-icon';
+                    icon.textContent = item.icon;
+
+                    const info = document.createElement('div');
+                    info.className = 'shop-info';
+                    const name = document.createElement('div');
+                    name.className = 'shop-name';
+                    name.textContent = item.name;
+                    const desc = document.createElement('div');
+                    desc.className = 'shop-desc';
+                    desc.textContent = item.description;
+                    info.append(name, desc);
+
+                    const btn = document.createElement('button');
+                    btn.className = 'save-btn';
+                    if (item.owned) {
+                        btn.textContent = 'Owned';
+                        btn.disabled = true;
+                    } else {
+                        btn.textContent = '❤️ ' + item.price;
+                        btn.disabled = shop.friendship_points < item.price;
+                        btn.onclick = () => buyItem(item.id);
+                    }
+
+                    row.append(icon, info, btn);
+                    list.append(row);
+                });
+            });
+        }
+
+        function buyItem(id) {
+            const msg = document.getElementById('shopMsg');
+            msg.textContent = '';
+            fetch('/api/shop/buy', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({item: id})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    renderShop(data.data);
+                } else {
+                    msg.textContent = data.error || 'Could not buy this item';
+                    loadShop();
+                }
+            })
+            .catch(() => { msg.textContent = 'Connection error. Please try again.'; });
+        }
+
+        let toastTimer = null;
+        function showPointsToast(text) {
+            const toast = document.getElementById('pointsToast');
+            toast.textContent = text;
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { toast.textContent = ''; }, 3000);
+        }
+
         function showError(msg) {
             const errEl = document.getElementById('errorMsg');
             errEl.textContent = msg;
@@ -828,6 +981,16 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('energyBar').style.width = (status.energy * 100) + '%';
             document.getElementById('happinessBar').style.width = (status.happiness * 100) + '%';
             document.getElementById('hungerBar').style.width = (status.hunger * 100) + '%';
+            document.getElementById('waterBar').style.width = (status.water * 100) + '%';
+            document.getElementById('friendship').textContent = formatPoints(status.friendship_points);
+            const belongings = document.getElementById('belongings');
+            belongings.replaceChildren();
+            (status.items || []).forEach(item => {
+                const span = document.createElement('span');
+                span.textContent = item.icon;
+                span.title = item.name;
+                belongings.append(span);
+            });
             document.getElementById('mood').textContent = 'Mood: ' + status.mood;
             document.getElementById('statusText').textContent =
                 'Age: ' + status.age.toFixed(1) + ' days | Wellbeing: ' + (status.wellbeing * 100).toFixed(0) + '%';
@@ -859,7 +1022,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .then(data => {
                     if (data.success) {
                         hasPet = true;
-                        if (!choosing) {
+                        if (!choosing && !shopping) {
                             showPetView();
                             updateUI(data.data);
                         }
@@ -886,7 +1049,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             // Show reaction
             const sprite = document.getElementById('petSprite');
-            if (action === 'feed') sprite.textContent = sprites.eating;
+            if (action === 'feed' || action === 'drink') sprite.textContent = sprites.eating;
             else if (action === 'play') sprite.textContent = sprites.playing;
             else if (action === 'pet') sprite.textContent = sprites.happy;
 
@@ -898,7 +1061,14 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    if (data.data.points_earned > 0) {
+                        showPointsToast('+' + data.data.points_earned + ' Friendship Points!');
+                    } else {
+                        showPointsToast('Your pet enjoyed that! This kind of care earns points again in a few minutes.');
+                    }
                     setTimeout(fetchStatus, 500);
+                } else if (data.error) {
+                    showPointsToast(data.error);
                 }
             })
             .catch(console.error);
@@ -1131,6 +1301,85 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// shopItemView is a shop item with whether the active pet owns it
+type shopItemView struct {
+	core.ShopItem
+	Owned bool `json:"owned"`
+}
+
+// shopDataLocked returns the shop for the active pet. Caller must hold s.mu.
+func (s *Server) shopDataLocked() map[string]interface{} {
+	catalog := core.ShopCatalog()
+	items := make([]shopItemView, len(catalog))
+	for i, item := range catalog {
+		items[i] = shopItemView{ShopItem: item, Owned: s.pet.Owns(item.ID)}
+	}
+	return map[string]interface{}{
+		"friendship_points": s.pet.FriendshipPoints,
+		"items":             items,
+	}
+}
+
+// handleShop handles GET /api/shop - lists items and the active pet's points
+func (s *Server) handleShop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.shopDataLocked()})
+}
+
+// handleBuy handles POST /api/shop/buy - {"item": id} buys an item for the
+// active pet with its Friendship Points
+func (s *Server) handleBuy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	var req struct {
+		Item string `json:"item"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	s.mu.Lock()
+	if s.pet == nil {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	s.markActiveLocked(time.Now())
+	err := s.pet.BuyItem(req.Item)
+	data := s.shopDataLocked()
+	s.mu.Unlock()
+
+	switch {
+	case errors.Is(err, core.ErrUnknownItem):
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown item"})
+	case errors.Is(err, core.ErrAlreadyOwned):
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: "Your pet already has this"})
+	case errors.Is(err, core.ErrNotEnoughPoints):
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Not enough Friendship Points"})
+	case err != nil:
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "This pet cannot use items"})
+	default:
+		if _, err := s.saveNow(); err != nil {
+			log.Printf("Failed to save after purchase: %v", err)
+		}
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
+	}
+}
+
 // handleRevive handles POST /api/revive - wakes the active pet from hibernation
 func (s *Server) handleRevive(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1314,10 +1563,17 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Energy:      s.pet.Biology.Vitals.Energy,
 		Happiness:   s.pet.Biology.Vitals.Happiness,
 		Hunger:      1.0 - s.pet.Biology.Vitals.Nutrition,
+		Water:       s.pet.Biology.Vitals.Hydration,
 		Wellbeing:   status.Wellbeing,
 		Personality: s.pet.GetPersonalityDescription(),
 		Slot:        s.slot,
 		Hibernating: status.Hibernating,
+
+		FriendshipPoints: s.pet.FriendshipPoints,
+		Items:            s.pet.OwnedItems(),
+	}
+	if petStatus.Items == nil {
+		petStatus.Items = []core.ShopItem{}
 	}
 	petStatus.PauseReason = s.pauseReasonLocked(now)
 	petStatus.Paused = petStatus.PauseReason != ""
@@ -1355,6 +1611,8 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 	switch req.Action {
 	case "feed":
 		interactionType = types.InteractionFeeding
+	case "drink":
+		interactionType = types.InteractionDrinking
 	case "pet":
 		interactionType = types.InteractionPetting
 	case "play":
@@ -1371,8 +1629,12 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markActiveLocked(time.Now())
-	s.pet.ProcessUserInteraction(interactionType, 1.0)
-	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]string{"message": "Interaction successful"}})
+	result := s.pet.Interact(interactionType, 1.0)
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"message":           "Interaction successful",
+		"points_earned":     result.PointsEarned,
+		"friendship_points": s.pet.FriendshipPoints,
+	}})
 }
 
 func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
@@ -1536,6 +1798,9 @@ func (s *Server) handleInteractV1(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(path, "/feed") {
 		interactionType = types.InteractionFeeding
 		actionName = "fed"
+	} else if strings.Contains(path, "/drink") {
+		interactionType = types.InteractionDrinking
+		actionName = "given a drink by"
 	} else if strings.Contains(path, "/pet") {
 		interactionType = types.InteractionPetting
 		actionName = "petted"

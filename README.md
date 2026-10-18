@@ -138,6 +138,32 @@ Pets need regular care, so time only passes while you are playing:
 
 Only the active pet's time passes; pets that are not loaded wait in their save files.
 
+### Caring for Your Pet
+
+Use **Feed**, **Drink**, **Pet**, **Play** and **Groom** to look after your pet. The bars show its
+health, energy, happiness, hunger and water.
+
+### Friendship Points and the Shop
+
+Caring for a pet earns it Friendship Points: 5 points for each kind of care, at most once every
+3 minutes per kind (more clicks still help your pet but earn nothing extra). Points belong to the
+pet that earned them. Press **Shop** to spend them on items for that pet:
+
+| Item | Price | Effect |
+|---|---|---|
+| Sturdy Food Bowl | 100 | Hunger builds 20% slower |
+| Automatic Feeder | 250 | Hunger builds 40% slower |
+| Big Water Bowl | 100 | Thirst builds 20% slower |
+| Water Fountain | 250 | Thirst builds 40% slower |
+| Squeaky Toy | 80 | Playing is 25% more fun |
+| Puzzle Ball | 200 | Playing is 50% more fun |
+| Cozy Bed | 150 | Tiredness builds 25% slower |
+| Soft Brush | 80 | Grooming is 50% more effective |
+| Balloon, Potted Plant, Night Lamp, Painting, Rainbow Mural | 30–120 | Decorations |
+
+Items work automatically once bought; if a pet owns two items of the same kind, the better one
+applies. Owned items are shown under the pet's name.
+
 ### Hibernation
 
 If a pet's health or water falls to a critical level, or its food and energy both do, the pet goes

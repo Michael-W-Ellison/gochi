@@ -504,3 +504,95 @@ func TestHibernationThroughServer(t *testing.T) {
 		t.Errorf("Reviving an awake pet: status %d, want %d", rec.Code, http.StatusConflict)
 	}
 }
+
+func TestDrinkAndPointsThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+	server.pet.Biology.Vitals.Hydration = 0.3
+
+	rec := post(t, server.handleInteract, `{"action":"drink"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Drink: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"points_earned":5`) {
+		t.Errorf("First drink should earn 5 points: %s", rec.Body.String())
+	}
+	if server.pet.Biology.Vitals.Hydration <= 0.3 {
+		t.Error("Drinking should restore water")
+	}
+
+	rec = post(t, server.handleInteract, `{"action":"drink"}`)
+	if !strings.Contains(rec.Body.String(), `"points_earned":0`) {
+		t.Errorf("Second drink within the cooldown should earn nothing: %s", rec.Body.String())
+	}
+
+	statusRec := httptest.NewRecorder()
+	server.handleStatus(statusRec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	body := statusRec.Body.String()
+	if !strings.Contains(body, `"friendship_points":5`) || !strings.Contains(body, `"water":`) || !strings.Contains(body, `"items":[]`) {
+		t.Errorf("Status should report points, water and items: %s", body)
+	}
+}
+
+func TestShopThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := post(t, server.handleBuy, `{"item":"balloon"}`); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "Not enough Friendship Points") {
+		t.Errorf("Buying without points: status %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	server.pet.FriendshipPoints = 100
+	rec := post(t, server.handleBuy, `{"item":"balloon"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Buy: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"friendship_points":70`) {
+		t.Errorf("Response should show the new balance: %s", rec.Body.String())
+	}
+
+	if rec := post(t, server.handleBuy, `{"item":"balloon"}`); rec.Code != http.StatusConflict {
+		t.Errorf("Buying twice: status %d, want %d", rec.Code, http.StatusConflict)
+	}
+	if rec := post(t, server.handleBuy, `{"item":"spaceship"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Unknown item: status %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	// The purchase was saved with the pet
+	saved, _, _, err := server.store.Load(server.slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.Owns("balloon") || saved.FriendshipPoints != 70 {
+		t.Errorf("Saved pet: owns balloon=%v, points %d; want true, 70", saved.Owns("balloon"), saved.FriendshipPoints)
+	}
+
+	shopRec := httptest.NewRecorder()
+	server.handleShop(shopRec, httptest.NewRequest(http.MethodGet, "/api/shop", nil))
+	var shop struct {
+		Data struct {
+			Points int `json:"friendship_points"`
+			Items  []struct {
+				ID    string `json:"id"`
+				Price int    `json:"price"`
+				Owned bool   `json:"owned"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(shopRec.Body.Bytes(), &shop); err != nil {
+		t.Fatal(err)
+	}
+	if shop.Data.Points != 70 || len(shop.Data.Items) != len(core.ShopCatalog()) {
+		t.Errorf("Shop: %d points, %d items", shop.Data.Points, len(shop.Data.Items))
+	}
+	for _, item := range shop.Data.Items {
+		if item.Owned != (item.ID == "balloon") || item.Price <= 0 {
+			t.Errorf("Unexpected shop entry %+v", item)
+		}
+	}
+}

@@ -130,6 +130,26 @@ type BiologicalSystems struct {
 	LastUpdate  time.Time
 	IsAlive     bool
 	CauseOfDeath string
+
+	// DecayMultipliers scale how fast needs build up (set by the pet's
+	// belongings each update; not saved)
+	DecayMultipliers DecayMultipliers `json:"-"`
+}
+
+// DecayMultipliers scale natural decay rates. A value of 0 means 1.0
+// (normal rate); 0.8 makes that need build up 20% slower.
+type DecayMultipliers struct {
+	Nutrition float64
+	Hydration float64
+	Fatigue   float64
+}
+
+// rate returns the multiplier to apply, treating 0 as the normal rate
+func rate(multiplier float64) float64 {
+	if multiplier <= 0 {
+		return 1.0
+	}
+	return multiplier
 }
 
 // NewBiologicalSystems creates a new biological system for a pet
@@ -190,12 +210,12 @@ func (b *BiologicalSystems) processMetabolism(deltaTime float64) {
 // decayVitalStats handles natural decay of stats over time
 func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	// Natural decay rates (per game day)
-	b.Vitals.Hydration -= deltaTime * 0.05
-	b.Vitals.Nutrition -= deltaTime * 0.03
+	b.Vitals.Hydration -= deltaTime * 0.05 * rate(b.DecayMultipliers.Hydration)
+	b.Vitals.Nutrition -= deltaTime * 0.03 * rate(b.DecayMultipliers.Nutrition)
 	b.Vitals.Energy -= deltaTime * 0.02
 
 	// Fatigue builds up over time awake
-	b.Vitals.Fatigue += deltaTime * 0.01
+	b.Vitals.Fatigue += deltaTime * 0.01 * rate(b.DecayMultipliers.Fatigue)
 
 	// Cleanliness decreases slowly
 	b.Vitals.Cleanliness -= deltaTime * 0.01

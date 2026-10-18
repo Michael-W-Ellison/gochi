@@ -44,6 +44,12 @@ type DigitalPet struct {
 	// stats are frozen and it ignores interactions until it is revived.
 	Hibernating bool `json:"hibernating"`
 
+	// Friendship Points earned by caring for this pet, the items bought
+	// with them, and when each kind of care last earned points
+	FriendshipPoints int                                 `json:"friendship_points"`
+	Inventory        []string                            `json:"inventory"`
+	LastCareReward   map[types.InteractionType]time.Time `json:"last_care_reward"`
+
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
 }
@@ -107,6 +113,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		p.hibernateLocked()
 		return
 	}
+
+	// Belongings such as bowls and beds slow the pet's needs
+	p.Biology.DecayMultipliers = p.decayMultipliersLocked()
 
 	// Update biological systems in small steps, stopping if a stat
 	// becomes critical; the rest of the pet lives only that long
@@ -193,12 +202,20 @@ func (p *DigitalPet) Revive() error {
 func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionType, intensity float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.interactLocked(interactionType, intensity)
+}
 
+// interactLocked applies an interaction and awards Friendship Points.
+// Caller must hold p.mu.
+func (p *DigitalPet) interactLocked(interactionType types.InteractionType, intensity float64) InteractionResult {
 	if !p.Biology.IsAlive || p.Hibernating {
-		return
+		return InteractionResult{}
 	}
 
 	p.TotalInteractions++
+
+	// Belongings such as toys and brushes make care more effective
+	intensity *= p.careEffectivenessLocked(interactionType)
 
 	// Apply biological effects
 	p.applyInteractionEffects(interactionType, intensity)
@@ -212,8 +229,12 @@ func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionTyp
 	valence := stimulus.Valence()
 	p.Memory.RecordInteractionFull(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion, valence, math.Abs(valence))
 
+	points := p.awardCareLocked(interactionType)
+
 	// Update behavior
 	p.updateBehavior()
+
+	return InteractionResult{Applied: true, PointsEarned: points}
 }
 
 // applyInteractionEffects modifies vital stats based on interaction type
@@ -234,6 +255,10 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.2 * intensity
 		vitals.Energy -= 0.1 * intensity
 		vitals.Stress -= 0.05 * intensity
+
+	case types.InteractionDrinking:
+		vitals.Hydration += 0.4 * intensity
+		vitals.Happiness += 0.02 * intensity
 
 	case types.InteractionGrooming:
 		vitals.Cleanliness += 0.3 * intensity
