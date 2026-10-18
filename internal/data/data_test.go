@@ -841,3 +841,39 @@ func TestIsBackupOf(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteWithBackups(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	for _, name := range []string{"pet", "pet_2"} {
+		sd := NewSaveData("user", name)
+		dm.Save(sd, name)
+		dm.Save(sd, name) // Creates a backup
+	}
+
+	if err := dm.DeleteWithBackups("pet"); err != nil {
+		t.Fatalf("DeleteWithBackups failed: %v", err)
+	}
+
+	if dm.Exists("pet") {
+		t.Error("Save file should be deleted")
+	}
+	if backups, _ := dm.ListBackups("pet"); len(backups) != 0 {
+		t.Errorf("Backups should be deleted, %d remain", len(backups))
+	}
+	if _, _, err := dm.LoadLatest("pet"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Deleted save should not be loadable, got %v", err)
+	}
+
+	// The other save is untouched
+	if !dm.Exists("pet_2") {
+		t.Error("Other save should not be deleted")
+	}
+	if backups, _ := dm.ListBackups("pet_2"); len(backups) != 1 {
+		t.Errorf("Other save's backups should remain, got %d", len(backups))
+	}
+
+	if err := dm.DeleteWithBackups("pet"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Deleting again should report os.ErrNotExist, got %v", err)
+	}
+}

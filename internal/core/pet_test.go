@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
@@ -277,5 +278,130 @@ func TestLearnedPreferencesSurviveSaveLoad(t *testing.T) {
 
 	if got := loaded.Memory.GetLearnedAffinity(types.InteractionPlaying); got != want {
 		t.Errorf("Learned affinity after load = %f, want %f", got, want)
+	}
+}
+
+func TestNeglectedPetHibernatesInsteadOfDying(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+
+	// Many small updates with no care
+	for i := 0; i < 1000; i++ {
+		pet.Update(1)
+	}
+
+	if !pet.IsAlive() {
+		t.Fatalf("Neglected pet should hibernate, not die (cause: %s)", pet.Biology.CauseOfDeath)
+	}
+	if !pet.IsHibernating() || pet.CurrentBehavior != types.BehaviorHibernating {
+		t.Errorf("Neglected pet should be hibernating, behavior %s", pet.CurrentBehavior)
+	}
+	if v := pet.Biology.Vitals; v.Hydration <= 0 || v.Health <= 0 {
+		t.Errorf("Hibernation should start before a stat reaches zero: %+v", *v)
+	}
+}
+
+func TestLargeUpdateCannotSkipHibernation(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+
+	pet.Update(10000)
+
+	if !pet.IsAlive() || !pet.IsHibernating() {
+		t.Errorf("A single long update should end in hibernation, alive=%v hibernating=%v", pet.IsAlive(), pet.IsHibernating())
+	}
+}
+
+func TestHibernationFreezesStats(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	pet.Update(10000)
+	if !pet.IsHibernating() {
+		t.Fatal("Pet should be hibernating")
+	}
+
+	vitals := *pet.Biology.Vitals
+	age := pet.GetAge()
+	emotions := *pet.Emotions
+
+	pet.Update(500)
+
+	if *pet.Biology.Vitals != vitals || pet.GetAge() != age {
+		t.Error("Vitals and age should not change while hibernating")
+	}
+	if pet.Emotions.Joy != emotions.Joy || pet.Emotions.Sadness != emotions.Sadness {
+		t.Error("Emotions should not change while hibernating")
+	}
+}
+
+func TestHibernatingPetIgnoresInteractions(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	pet.Update(10000)
+	interactions := pet.TotalInteractions
+	nutrition := pet.Biology.Vitals.Nutrition
+
+	pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
+
+	if pet.TotalInteractions != interactions || pet.Biology.Vitals.Nutrition != nutrition {
+		t.Error("A hibernating pet should not respond to interactions")
+	}
+}
+
+func TestReviveRestoresPet(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+
+	if err := pet.Revive(); !errors.Is(err, ErrNotHibernating) {
+		t.Errorf("Reviving an awake pet should return ErrNotHibernating, got %v", err)
+	}
+
+	pet.Update(10000)
+	if err := pet.Revive(); err != nil {
+		t.Fatalf("Revive failed: %v", err)
+	}
+
+	if pet.IsHibernating() || pet.CurrentBehavior == types.BehaviorHibernating {
+		t.Error("Revived pet should be awake")
+	}
+	v := pet.Biology.Vitals
+	if v.Health < reviveLevel || v.Hydration < reviveLevel || v.Nutrition < reviveLevel || v.Energy < reviveLevel {
+		t.Errorf("Critical stats should be restored to at least %.1f: %+v", reviveLevel, *v)
+	}
+
+	// The pet can be cared for and lives on
+	pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
+	if pet.TotalInteractions != 1 {
+		t.Error("Revived pet should accept interactions")
+	}
+	pet.Update(1)
+	if pet.IsHibernating() {
+		t.Error("Revived pet should not immediately hibernate again")
+	}
+}
+
+func TestInteractionLeavingStatCriticalHibernates(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	pet.Biology.Vitals.Nutrition = 0.05
+	pet.Biology.Vitals.Energy = 0.15
+
+	// Play uses energy, leaving food and energy both critical
+	pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
+
+	if !pet.IsHibernating() || !pet.IsAlive() {
+		t.Errorf("Pet should hibernate after play leaves it exhausted and hungry, hibernating=%v", pet.IsHibernating())
+	}
+}
+
+func TestHibernationSurvivesSaveLoad(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	pet.Update(10000)
+
+	data, err := pet.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !loaded.IsHibernating() {
+		t.Error("Hibernation should be restored from a save")
 	}
 }

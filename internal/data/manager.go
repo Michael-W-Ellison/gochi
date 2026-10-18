@@ -285,6 +285,44 @@ func (dm *DataManager) Delete(filename string) error {
 	return nil
 }
 
+// DeleteWithBackups permanently removes a save file and all of its backups.
+// It succeeds if the save file is already gone; the error wraps
+// os.ErrNotExist only if neither the save nor any backup existed.
+func (dm *DataManager) DeleteWithBackups(filename string) error {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	found := false
+	if err := os.Remove(dm.getSavePath(filename)); err == nil {
+		found = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		dm.LastError = err
+		return fmt.Errorf("failed to delete save file: %w", err)
+	}
+
+	backups, err := dm.listBackupsLocked(filename)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	var failures []string
+	for _, backup := range backups {
+		if err := os.Remove(backup.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failures = append(failures, err.Error())
+			continue
+		}
+		found = true
+	}
+	if len(failures) > 0 {
+		dm.LastError = fmt.Errorf("failed to delete backups: %s", strings.Join(failures, "; "))
+		return dm.LastError
+	}
+
+	if !found {
+		return fmt.Errorf("no save found for %s: %w", filename, os.ErrNotExist)
+	}
+	return nil
+}
+
 // ListSaves returns all available save files
 func (dm *DataManager) ListSaves() ([]SaveFileInfo, error) {
 	dm.mu.RLock()

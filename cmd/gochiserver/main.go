@@ -51,20 +51,21 @@ type APIResponse struct {
 
 // PetStatus represents the pet's current state for the frontend
 type PetStatus struct {
-	Name       string  `json:"name"`
-	Age        float64 `json:"age"`
-	IsAlive    bool    `json:"is_alive"`
-	Behavior   string  `json:"behavior"`
-	Mood       string  `json:"mood"`
-	Health     float64 `json:"health"`
-	Energy     float64 `json:"energy"`
-	Happiness  float64 `json:"happiness"`
-	Hunger     float64 `json:"hunger"`
-	Wellbeing  float64 `json:"wellbeing"`
-	Personality string `json:"personality"`
-	Slot        string `json:"slot"`
-	Paused      bool   `json:"paused"`
-	PauseReason string `json:"pause_reason,omitempty"`
+	Name        string  `json:"name"`
+	Age         float64 `json:"age"`
+	IsAlive     bool    `json:"is_alive"`
+	Behavior    string  `json:"behavior"`
+	Mood        string  `json:"mood"`
+	Health      float64 `json:"health"`
+	Energy      float64 `json:"energy"`
+	Happiness   float64 `json:"happiness"`
+	Hunger      float64 `json:"hunger"`
+	Wellbeing   float64 `json:"wellbeing"`
+	Personality string  `json:"personality"`
+	Slot        string  `json:"slot"`
+	Hibernating bool    `json:"hibernating"`
+	Paused      bool    `json:"paused"`
+	PauseReason string  `json:"pause_reason,omitempty"`
 }
 
 func main() {
@@ -142,6 +143,8 @@ func main() {
 	mux.HandleFunc("/api/saves", server.handleListSaves)
 	mux.HandleFunc("/api/load", server.handleLoad)
 	mux.HandleFunc("/api/pause", server.handlePause)
+	mux.HandleFunc("/api/revive", server.handleRevive)
+	mux.HandleFunc("/api/delete", server.handleDelete)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -384,6 +387,19 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .saved-pet-info { min-width: 0; }
         .saved-pet-name { font-weight: bold; color: #333; overflow-wrap: anywhere; }
         .saved-pet-meta { font-size: 0.8em; color: #888; }
+        .saved-pet-actions { display: flex; gap: 6px; flex-shrink: 0; }
+        .delete-btn { border-color: #e17070; color: #c94a4a; }
+        .hibernate-banner { text-align: center; margin: 10px 0; padding: 12px; border-radius: 12px; background: #fff4e0; color: #8a5a00; font-size: 0.9em; }
+        .hibernate-banner button { display: block; margin: 10px auto 0; }
+        .action-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+        .modal-box { background: white; border-radius: 16px; padding: 24px; max-width: 360px; width: 100%; text-align: center; }
+        .modal-box h3 { color: #333; margin-bottom: 10px; overflow-wrap: anywhere; }
+        .modal-box p { color: #555; font-size: 0.95em; margin-bottom: 14px; overflow-wrap: anywhere; }
+        .modal-box input { width: 100%; padding: 10px 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 1em; margin-bottom: 14px; }
+        .modal-actions { display: flex; gap: 10px; justify-content: center; }
+        .danger-btn { padding: 8px 16px; border: none; border-radius: 20px; background: #d9534f; color: white; font-weight: bold; cursor: pointer; }
+        .danger-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .back-btn { margin-top: 12px; background: none; border: none; color: #667eea; cursor: pointer; font-size: 0.95em; }
         .status-text { text-align: center; margin-top: 15px; color: #888; font-size: 0.9em; }
         .dead { filter: grayscale(100%); }
@@ -450,6 +466,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="pet-display" id="petSprite">🐱</div>
             <div class="mood" id="mood">Mood: Happy</div>
             <div class="pause-banner hidden" id="pauseBanner"></div>
+            <div class="hibernate-banner hidden" id="hibernateBanner">
+                <span id="hibernateText"></span>
+                <button class="save-btn" id="reviveBtn" onclick="revivePet()">Revive</button>
+            </div>
 
             <div class="stats">
                 <div class="stat">
@@ -490,6 +510,28 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         </div>
     </div>
 
+    <div class="modal hidden" id="deleteModal" role="dialog" aria-modal="true">
+        <div class="modal-box">
+            <div id="deleteStep1">
+                <h3 id="deleteTitle"></h3>
+                <p id="deleteWarning"></p>
+                <div class="modal-actions">
+                    <button class="save-btn" onclick="closeDeleteModal()">Cancel</button>
+                    <button class="danger-btn" onclick="showDeleteStep2()">Delete</button>
+                </div>
+            </div>
+            <div id="deleteStep2" class="hidden">
+                <h3>Are you sure?</h3>
+                <p id="deletePrompt"></p>
+                <input type="text" id="deleteConfirmInput" autocomplete="off" oninput="updateDeleteButton()">
+                <div class="modal-actions">
+                    <button class="save-btn" onclick="closeDeleteModal()">Cancel</button>
+                    <button class="danger-btn" id="deleteFinalBtn" onclick="confirmDelete()" disabled>Delete forever</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const sprites = {
             idle: '🐱',
@@ -498,6 +540,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             playing: '😸',
             sleeping: '😴',
             sick: '🤒',
+            hibernating: '💤',
             dead: '😿'
         };
 
@@ -566,8 +609,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         name.textContent = pet.name;
                         const meta = document.createElement('div');
                         meta.className = 'saved-pet-meta';
-                        meta.textContent = (pet.is_alive ? formatAge(pet.age) : 'Passed away') +
-                            ' · saved ' + new Date(pet.saved_at).toLocaleString();
+                        const state = !pet.is_alive ? 'Passed away' :
+                            pet.hibernating ? 'Hibernating · ' + formatAge(pet.age) : formatAge(pet.age);
+                        meta.textContent = state + ' · saved ' + new Date(pet.saved_at).toLocaleString();
                         info.append(name, meta);
 
                         const btn = document.createElement('button');
@@ -576,7 +620,16 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         btn.disabled = isActive;
                         btn.onclick = () => loadPet(pet.slot, btn);
 
-                        item.append(info, btn);
+                        const del = document.createElement('button');
+                        del.className = 'save-btn delete-btn';
+                        del.textContent = 'Delete';
+                        del.onclick = () => openDeleteModal(pet);
+
+                        const actions = document.createElement('div');
+                        actions.className = 'saved-pet-actions';
+                        actions.append(btn, del);
+
+                        item.append(info, actions);
                         list.append(item);
                     });
                 })
@@ -610,6 +663,79 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 showError('Connection error. Please try again.');
                 loadSavedPets();
             });
+        }
+
+        // Deleting takes two confirmations: a warning, then typing the name
+        let deleteTarget = null;
+
+        function openDeleteModal(pet) {
+            deleteTarget = pet;
+            document.getElementById('deleteTitle').textContent = 'Delete ' + pet.name + '?';
+            document.getElementById('deleteWarning').textContent =
+                'This permanently deletes ' + pet.name + ' and all of its saved backups. It cannot be undone.';
+            document.getElementById('deleteStep1').classList.remove('hidden');
+            document.getElementById('deleteStep2').classList.add('hidden');
+            document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function showDeleteStep2() {
+            document.getElementById('deletePrompt').textContent =
+                'Type ' + deleteTarget.name + ' below to delete it forever.';
+            const input = document.getElementById('deleteConfirmInput');
+            input.value = '';
+            updateDeleteButton();
+            document.getElementById('deleteStep1').classList.add('hidden');
+            document.getElementById('deleteStep2').classList.remove('hidden');
+            input.focus();
+        }
+
+        function updateDeleteButton() {
+            const typed = document.getElementById('deleteConfirmInput').value.trim();
+            document.getElementById('deleteFinalBtn').disabled = !deleteTarget || typed !== deleteTarget.name;
+        }
+
+        function closeDeleteModal() {
+            deleteTarget = null;
+            document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        function confirmDelete() {
+            if (!deleteTarget) return;
+            const btn = document.getElementById('deleteFinalBtn');
+            btn.disabled = true;
+
+            fetch('/api/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    slot: deleteTarget.slot,
+                    confirm_name: document.getElementById('deleteConfirmInput').value
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                closeDeleteModal();
+                if (data.success) {
+                    if (data.data.was_active) hasPet = false;
+                    showCreateView();
+                } else {
+                    showError(data.error || 'Could not delete pet');
+                }
+            })
+            .catch(() => {
+                closeDeleteModal();
+                showError('Connection error. Please try again.');
+            });
+        }
+
+        function revivePet() {
+            const btn = document.getElementById('reviveBtn');
+            btn.disabled = true;
+            fetch('/api/revive', {method: 'POST'})
+                .then(r => r.json())
+                .then(() => fetchStatus())
+                .catch(console.error)
+                .finally(() => { btn.disabled = false; });
         }
 
         function togglePause() {
@@ -712,12 +838,19 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 document.getElementById('petView').classList.add('dead');
             } else {
                 document.getElementById('petView').classList.remove('dead');
-                if (status.behavior === 'Sleeping') sprite = sprites.sleeping;
+                if (status.hibernating) sprite = sprites.hibernating;
+                else if (status.behavior === 'Sleeping') sprite = sprites.sleeping;
                 else if (status.behavior === 'Sick') sprite = sprites.sick;
                 else if (status.happiness > 0.7) sprite = sprites.happy;
             }
             document.getElementById('petSprite').textContent = sprite;
             updatePauseUI(status);
+
+            const hibernating = status.is_alive && status.hibernating;
+            document.getElementById('hibernateText').textContent = hibernating ?
+                '💤 ' + status.name + ' got too weak and is hibernating to stay safe. Its stats are paused. Revive it to keep playing.' : '';
+            document.getElementById('hibernateBanner').classList.toggle('hidden', !hibernating);
+            document.querySelectorAll('.actions .action-btn').forEach(b => { b.disabled = hibernating; });
         }
 
         function fetchStatus() {
@@ -998,6 +1131,109 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleRevive handles POST /api/revive - wakes the active pet from hibernation
+func (s *Server) handleRevive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	s.mu.Lock()
+	if s.pet == nil {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	s.markActiveLocked(time.Now())
+	name := s.pet.Name
+	err := s.pet.Revive()
+	s.mu.Unlock()
+
+	switch {
+	case errors.Is(err, core.ErrNotHibernating):
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: name + " is not hibernating"})
+	case err != nil:
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Could not revive " + name})
+	default:
+		log.Printf("Revived %s", name)
+		if _, err := s.saveNow(); err != nil {
+			log.Printf("Failed to save after revive: %v", err)
+		}
+		writeJSON(w, http.StatusOK, APIResponse{Success: true})
+	}
+}
+
+// handleDelete handles POST /api/delete - permanently deletes a saved pet
+// and its backups. The request must include the pet's exact name as
+// confirm_name; the page asks for it as the second confirmation.
+func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	var req struct {
+		Slot        string `json:"slot"`
+		ConfirmName string `json:"confirm_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !ValidSlot(req.Slot) {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid save slot"})
+		return
+	}
+	if s.store == nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Saving is disabled"})
+		return
+	}
+
+	// Hold both locks so an autosave cannot write the pet back
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	active := s.pet != nil && s.slot == req.Slot
+
+	// The active pet may have been renamed since it was last saved
+	var name string
+	if active {
+		name = s.pet.Name
+	} else {
+		summary, err := s.store.Summary(req.Slot)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No saved pet in that slot"})
+			return
+		case err != nil:
+			name = req.Slot // Unreadable save: confirm with the slot name
+		default:
+			name = summary.Name
+		}
+	}
+
+	if name == "" {
+		name = req.Slot
+	}
+	if strings.TrimSpace(req.ConfirmName) != name {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Type the pet's name exactly to confirm"})
+		return
+	}
+
+	if err := s.store.Delete(req.Slot); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("Delete failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not delete pet"})
+		return
+	}
+	if active {
+		s.pet, s.slot = nil, ""
+	}
+
+	log.Printf("Deleted %s (%s)", name, req.Slot)
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"deleted":    req.Slot,
+		"was_active": active,
+	}})
+}
+
 // handlePause handles POST /api/pause - {"paused": true|false} stops or
 // resumes time for the active pet
 func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
@@ -1069,18 +1305,19 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.pet.GetCurrentStatus()
 
 	petStatus := PetStatus{
-		Name:       s.pet.Name,
-		Age:        status.Age,
-		IsAlive:    status.IsAlive,
-		Behavior:   s.pet.CurrentBehavior.String(),
-		Mood:       s.pet.Emotions.GetMoodDescription(),
-		Health:     s.pet.Biology.Vitals.Health,
-		Energy:     s.pet.Biology.Vitals.Energy,
-		Happiness:  s.pet.Biology.Vitals.Happiness,
-		Hunger:     1.0 - s.pet.Biology.Vitals.Nutrition,
-		Wellbeing:  status.Wellbeing,
+		Name:        s.pet.Name,
+		Age:         status.Age,
+		IsAlive:     status.IsAlive,
+		Behavior:    s.pet.CurrentBehavior.String(),
+		Mood:        s.pet.Emotions.GetMoodDescription(),
+		Health:      s.pet.Biology.Vitals.Health,
+		Energy:      s.pet.Biology.Vitals.Energy,
+		Happiness:   s.pet.Biology.Vitals.Happiness,
+		Hunger:      1.0 - s.pet.Biology.Vitals.Nutrition,
+		Wellbeing:   status.Wellbeing,
 		Personality: s.pet.GetPersonalityDescription(),
 		Slot:        s.slot,
+		Hibernating: status.Hibernating,
 	}
 	petStatus.PauseReason = s.pauseReasonLocked(now)
 	petStatus.Paused = petStatus.PauseReason != ""
@@ -1107,6 +1344,10 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 
 	if s.pet == nil || !s.pet.IsAlive() {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Pet is not available"})
+		return
+	}
+	if s.pet.IsHibernating() {
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: s.pet.Name + " is hibernating. Revive it first."})
 		return
 	}
 
@@ -1282,6 +1523,10 @@ func (s *Server) handleInteractV1(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Pet is not available"})
 		return
 	}
+	if s.pet.IsHibernating() {
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: s.pet.Name + " is hibernating. Revive it first."})
+		return
+	}
 
 	// Get action from path
 	path := r.URL.Path
@@ -1332,6 +1577,7 @@ func (s *Server) getPetData() map[string]interface{} {
 		"name":             s.pet.Name,
 		"age":              status.Age,
 		"is_alive":         status.IsAlive,
+		"hibernating":      status.Hibernating,
 		"current_behavior": s.pet.CurrentBehavior.String(),
 		"wellbeing":        status.Wellbeing,
 		"vitals": map[string]float64{

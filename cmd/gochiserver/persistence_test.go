@@ -389,3 +389,118 @@ func TestAwayPauseKeepsPetAlive(t *testing.T) {
 		t.Errorf("Returning player should resume time: %s", rec.Body.String())
 	}
 }
+
+func TestHandleDeleteRequiresName(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Mochi", false); err != nil {
+		t.Fatal(err)
+	}
+	slot := server.slot
+	if err := server.createPet("Bean", false); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"", "mochi", "Bean"} {
+		rec := post(t, server.handleDelete, `{"slot":"`+slot+`","confirm_name":"`+name+`"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("Confirm name %q: status %d, want %d", name, rec.Code, http.StatusBadRequest)
+		}
+	}
+	if _, err := server.store.Summary(slot); err != nil {
+		t.Fatalf("Pet should not be deleted without the right name: %v", err)
+	}
+
+	rec := post(t, server.handleDelete, `{"slot":"`+slot+`","confirm_name":"Mochi"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Delete: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if _, err := server.store.Summary(slot); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Save should be gone, got %v", err)
+	}
+	if backups, _ := server.store.dm.ListBackups(slot); len(backups) != 0 {
+		t.Errorf("Backups should be gone, %d remain", len(backups))
+	}
+	if server.pet == nil || server.pet.Name != "Bean" {
+		t.Error("Deleting another pet should not change the active pet")
+	}
+
+	if rec := post(t, server.handleDelete, `{"slot":"`+slot+`","confirm_name":"Mochi"}`); rec.Code != http.StatusNotFound {
+		t.Errorf("Deleting again: status %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	if rec := post(t, server.handleDelete, `{"slot":"../x","confirm_name":"x"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Bad slot: status %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleDeleteActivePet(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Mochi", false); err != nil {
+		t.Fatal(err)
+	}
+	slot := server.slot
+
+	// Renamed since the last save: the current name must be typed
+	server.pet.Name = "Mochi Jr"
+	if rec := post(t, server.handleDelete, `{"slot":"`+slot+`","confirm_name":"Mochi"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Old name should not confirm: status %d", rec.Code)
+	}
+
+	rec := post(t, server.handleDelete, `{"slot":"`+slot+`","confirm_name":"Mochi Jr"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"was_active":true`) {
+		t.Fatalf("Delete active: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if server.pet != nil || server.slot != "" {
+		t.Error("Deleting the active pet should unload it")
+	}
+
+	// An autosave afterwards must not bring the pet back
+	if saved, err := server.saveNow(); saved || err != nil {
+		t.Errorf("Nothing should be saved after deleting the active pet: saved=%v err=%v", saved, err)
+	}
+	if pets, _ := server.store.List(); len(pets) != 0 {
+		t.Errorf("Expected no saved pets, got %d", len(pets))
+	}
+}
+
+func TestHibernationThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	server.awayTimeout = 0
+	if err := server.createPet("Mochi", false); err != nil {
+		t.Fatal(err)
+	}
+
+	// Neglect for a long time while "present"
+	start := time.Now()
+	for elapsed := time.Duration(0); elapsed <= 3*time.Hour; elapsed += time.Minute {
+		server.tick(start.Add(elapsed))
+	}
+	if !server.pet.IsAlive() || !server.pet.IsHibernating() {
+		t.Fatalf("Neglected pet should hibernate, alive=%v hibernating=%v", server.pet.IsAlive(), server.pet.IsHibernating())
+	}
+
+	rec := httptest.NewRecorder()
+	server.handleStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	if !strings.Contains(rec.Body.String(), `"hibernating":true`) {
+		t.Errorf("Status should report hibernation: %s", rec.Body.String())
+	}
+
+	if rec := post(t, server.handleInteract, `{"action":"feed"}`); rec.Code != http.StatusConflict {
+		t.Errorf("Interacting while hibernating: status %d, want %d", rec.Code, http.StatusConflict)
+	}
+
+	// The saved list shows hibernation after a save
+	server.saveNow()
+	if pets, _ := server.store.List(); len(pets) != 1 || !pets[0].Hibernating {
+		t.Errorf("Saved list should show hibernation: %+v", pets)
+	}
+
+	if rec := post(t, server.handleRevive, ""); rec.Code != http.StatusOK {
+		t.Fatalf("Revive: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(t, server.handleInteract, `{"action":"feed"}`); rec.Code != http.StatusOK {
+		t.Errorf("Interacting after revive: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(t, server.handleRevive, ""); rec.Code != http.StatusConflict {
+		t.Errorf("Reviving an awake pet: status %d, want %d", rec.Code, http.StatusConflict)
+	}
+}

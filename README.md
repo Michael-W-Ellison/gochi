@@ -138,6 +138,19 @@ Pets need regular care, so time only passes while you are playing:
 
 Only the active pet's time passes; pets that are not loaded wait in their save files.
 
+### Hibernation
+
+If a pet's health or water falls to a critical level, or its food and energy both do, the pet goes
+into hibernation instead of dying. While it hibernates its stats, age and mood stay exactly as they
+are and it does not respond to care. Press **Revive** to wake it: its health, water, food and
+energy are restored to at least half, and you can look after it again.
+
+### Deleting Pets
+
+Press **Switch Pet**, then **Delete** next to the pet. Deleting asks twice: first to confirm, then
+to type the pet's name. Deleting removes the pet's save file and all of its backups, so it cannot
+be undone.
+
 ### Development
 
 ```bash

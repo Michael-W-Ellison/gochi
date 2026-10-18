@@ -24,11 +24,12 @@ type petStore struct {
 
 // savedPet summarizes a saved pet for the pet list
 type savedPet struct {
-	Slot    string    `json:"slot"`
-	Name    string    `json:"name"`
-	Age     float64   `json:"age"`
-	IsAlive bool      `json:"is_alive"`
-	SavedAt time.Time `json:"saved_at"`
+	Slot        string    `json:"slot"`
+	Name        string    `json:"name"`
+	Age         float64   `json:"age"`
+	IsAlive     bool      `json:"is_alive"`
+	Hibernating bool      `json:"hibernating"`
+	SavedAt     time.Time `json:"saved_at"`
 }
 
 // newPetStore creates a store that keeps saves and backups under dir
@@ -127,38 +128,66 @@ func (ps *petStore) List() ([]savedPet, error) {
 
 	pets := make([]savedPet, 0, len(files))
 	for _, file := range files {
-		contents, err := os.ReadFile(file.Path)
+		pet, err := readSummary(strings.TrimSuffix(file.Filename, ".json"), file.Path)
 		if err != nil {
 			continue
 		}
-		saveData, err := data.FromJSON(contents)
-		if err != nil {
-			continue
-		}
-
-		// Read only the fields the list shows, not the whole pet
-		var summary struct {
-			Name    string `json:"name"`
-			Biology struct {
-				IsAlive   bool
-				Processes struct {
-					Age float64 `json:"age"`
-				}
-			} `json:"biology"`
-		}
-		if err := json.Unmarshal(saveData.PetData, &summary); err != nil {
-			continue
-		}
-
-		pets = append(pets, savedPet{
-			Slot:    strings.TrimSuffix(file.Filename, ".json"),
-			Name:    summary.Name,
-			Age:     summary.Biology.Processes.Age,
-			IsAlive: summary.Biology.IsAlive,
-			SavedAt: saveData.LastSaveTime,
-		})
+		pets = append(pets, pet)
 	}
 	return pets, nil
+}
+
+// Summary returns the list entry for the pet saved in slot
+func (ps *petStore) Summary(slot string) (savedPet, error) {
+	return readSummary(slot, ps.SavePath(slot))
+}
+
+// readSummary reads only the fields the pet list shows, not the whole pet
+func readSummary(slot, path string) (savedPet, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return savedPet{}, err
+	}
+	saveData, err := data.FromJSON(contents)
+	if err != nil {
+		return savedPet{}, err
+	}
+
+	var summary struct {
+		Name        string `json:"name"`
+		Hibernating bool   `json:"hibernating"`
+		Biology     struct {
+			IsAlive   bool
+			Processes struct {
+				Age float64 `json:"age"`
+			}
+		} `json:"biology"`
+	}
+	if err := json.Unmarshal(saveData.PetData, &summary); err != nil {
+		return savedPet{}, err
+	}
+
+	return savedPet{
+		Slot:        slot,
+		Name:        summary.Name,
+		Age:         summary.Biology.Processes.Age,
+		IsAlive:     summary.Biology.IsAlive,
+		Hibernating: summary.Hibernating,
+		SavedAt:     saveData.LastSaveTime,
+	}, nil
+}
+
+// Delete permanently removes the pet in slot and all of its backups.
+// If the slot has no save, the error wraps os.ErrNotExist.
+func (ps *petStore) Delete(slot string) error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	if err := ps.dm.DeleteWithBackups(slot); err != nil {
+		return err
+	}
+	delete(ps.saves, slot)
+	return nil
 }
 
 // NewSlot returns an unused slot name for a pet, derived from its ID

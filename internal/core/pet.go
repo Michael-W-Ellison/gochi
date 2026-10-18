@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -39,6 +40,10 @@ type DigitalPet struct {
 	TotalInteractions int     `json:"total_interactions"`
 	TotalPlayTime     float64 `json:"total_play_time"` // In hours
 
+	// Hibernating is set when a vital stat reaches a critical level. The pet's
+	// stats are frozen and it ignores interactions until it is revived.
+	Hibernating bool `json:"hibernating"`
+
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
 }
@@ -73,17 +78,49 @@ func NewDigitalPetRandom(name string, owner types.UserID) *DigitalPet {
 	return pet
 }
 
+const (
+	// criticalLevel is the level at which a vital stat that could cause
+	// death sends the pet into hibernation (death occurs at 0.0)
+	criticalLevel = 0.1
+
+	// reviveLevel is the minimum level critical stats are restored to on revival
+	reviveLevel = 0.5
+
+	// maxBiologyStep is the largest time step the biology is advanced by at
+	// once, so a long update cannot skip past the critical level (the
+	// fastest stat, hydration, falls 0.05 per unit)
+	maxBiologyStep = 0.05
+)
+
+// ErrNotHibernating is returned when reviving a pet that is not hibernating
+var ErrNotHibernating = errors.New("pet is not hibernating")
+
 // Update processes all system updates for a given time delta
 func (p *DigitalPet) Update(deltaTime float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.Biology.IsAlive {
+	if !p.Biology.IsAlive || p.Hibernating {
+		return
+	}
+	if p.isCriticalLocked() {
+		p.hibernateLocked()
 		return
 	}
 
-	// Update biological systems
-	p.Biology.Update(deltaTime)
+	// Update biological systems in small steps, stopping if a stat
+	// becomes critical; the rest of the pet lives only that long
+	elapsed := 0.0
+	for elapsed < deltaTime {
+		step := min(maxBiologyStep, deltaTime-elapsed)
+		p.Biology.Update(step)
+		elapsed += step
+		if p.isCriticalLocked() {
+			p.hibernateLocked()
+			break
+		}
+	}
+	deltaTime = elapsed
 
 	// Update emotions
 	p.Emotions.Update(deltaTime)
@@ -105,12 +142,59 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	p.TotalPlayTime += deltaTime / 60.0 // Convert to hours
 }
 
+// isCriticalLocked reports whether a stat that could cause death has
+// reached the critical level. Caller must hold p.mu.
+func (p *DigitalPet) isCriticalLocked() bool {
+	v := p.Biology.Vitals
+	return v.Health <= criticalLevel ||
+		v.Hydration <= criticalLevel ||
+		(v.Nutrition <= criticalLevel && v.Energy <= criticalLevel)
+}
+
+// hibernateLocked puts the pet into hibernation. Caller must hold p.mu.
+func (p *DigitalPet) hibernateLocked() {
+	p.Hibernating = true
+	p.CurrentBehavior = types.BehaviorHibernating
+}
+
+// IsHibernating reports whether the pet is hibernating
+func (p *DigitalPet) IsHibernating() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.Hibernating
+}
+
+// Revive wakes a hibernating pet, restoring its critical stats to at least
+// reviveLevel so it can be cared for again
+func (p *DigitalPet) Revive() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.Biology.IsAlive {
+		return errors.New("pet is not alive")
+	}
+	if !p.Hibernating {
+		return ErrNotHibernating
+	}
+
+	v := p.Biology.Vitals
+	v.Health = max(v.Health, reviveLevel)
+	v.Hydration = max(v.Hydration, reviveLevel)
+	v.Nutrition = max(v.Nutrition, reviveLevel)
+	v.Energy = max(v.Energy, reviveLevel)
+	v.Clamp()
+
+	p.Hibernating = false
+	p.updateBehavior()
+	return nil
+}
+
 // ProcessUserInteraction handles user actions and applies effects
 func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionType, intensity float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.Biology.IsAlive {
+	if !p.Biology.IsAlive || p.Hibernating {
 		return
 	}
 
@@ -173,6 +257,12 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 // updateBehavior determines the current behavior based on state
 func (p *DigitalPet) updateBehavior() {
 	vitals := p.Biology.Vitals
+
+	// An interaction (such as tiring play) can leave a stat critical
+	if p.Hibernating || p.isCriticalLocked() {
+		p.hibernateLocked()
+		return
+	}
 
 	// Critical needs override other behaviors
 	if vitals.Health < 0.3 {
@@ -265,6 +355,7 @@ func (p *DigitalPet) GetCurrentStatus() PetStatus {
 		PetID:            p.ID,
 		Name:             p.Name,
 		IsAlive:          p.Biology.IsAlive,
+		Hibernating:      p.Hibernating,
 		Age:              p.Biology.GetAgeInDays(),
 		Health:           p.Biology.Vitals.Health,
 		Energy:           p.Biology.Vitals.Energy,
@@ -282,6 +373,7 @@ type PetStatus struct {
 	PetID             types.PetID
 	Name              string
 	IsAlive           bool
+	Hibernating       bool
 	Age               float64
 	Health            float64
 	Energy            float64
@@ -298,6 +390,9 @@ func (s PetStatus) String() string {
 	status := fmt.Sprintf("=== %s (Age: %.1f days) ===\n", s.Name, s.Age)
 	status += fmt.Sprintf("Status: %s | Mood: %s\n", s.StatusDescription, s.MoodDescription)
 	status += fmt.Sprintf("Behavior: %s\n", s.CurrentBehavior.String())
+	if s.Hibernating {
+		status += "💤 Hibernating - revive to continue\n"
+	}
 	status += fmt.Sprintf("Health: %.0f%% | Energy: %.0f%% | Happiness: %.0f%%\n",
 		s.Health*100, s.Energy*100, s.Happiness*100)
 	status += fmt.Sprintf("Overall Wellbeing: %.0f%%\n", s.Wellbeing*100)
