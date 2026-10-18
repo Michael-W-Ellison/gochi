@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -21,22 +24,43 @@ func newTestStore(t *testing.T) *petStore {
 	return store
 }
 
-func savePet(t *testing.T, store *petStore, pet *core.DigitalPet) {
+func savePet(t *testing.T, store *petStore, slot string, pet *core.DigitalPet) {
 	t.Helper()
 	data, err := pet.Save()
 	if err != nil {
 		t.Fatalf("pet.Save failed: %v", err)
 	}
-	if err := store.Save(data); err != nil {
+	if err := store.Save(slot, data); err != nil {
 		t.Fatalf("store.Save failed: %v", err)
 	}
+}
+
+func newTestServer(t *testing.T) *Server {
+	t.Helper()
+	now := time.Now()
+	return &Server{
+		store:        newTestStore(t),
+		lastUpdate:   now,
+		lastActivity: now,
+		awayTimeout:  2 * time.Minute,
+	}
+}
+
+func post(t *testing.T, handler http.HandlerFunc, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	handler(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	return rec
 }
 
 func TestPetStoreLoadWithoutSave(t *testing.T) {
 	store := newTestStore(t)
 
-	if _, _, err := store.Load(); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("Expected os.ErrNotExist with no save, got %v", err)
+	if _, _, _, _, err := store.LoadMostRecent(); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Expected os.ErrNotExist with no saves, got %v", err)
+	}
+	if _, _, _, err := store.Load("missing"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Expected os.ErrNotExist for a missing slot, got %v", err)
 	}
 }
 
@@ -48,18 +72,21 @@ func TestPetStoreRoundTrip(t *testing.T) {
 		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 	}
 	pet.Update(1)
-	savePet(t, store, pet)
+	savePet(t, store, "mochi", pet)
 
 	// A new store instance simulates restarting the program
 	restarted, err := newPetStore(filepath.Dir(store.dm.SavePath))
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, _, err := restarted.Load()
+	restored, slot, _, _, err := restarted.LoadMostRecent()
 	if err != nil {
-		t.Fatalf("Load failed: %v", err)
+		t.Fatalf("LoadMostRecent failed: %v", err)
 	}
 
+	if slot != "mochi" {
+		t.Errorf("Restored slot %q, want mochi", slot)
+	}
 	if restored.Name != "Mochi" || restored.ID != pet.ID {
 		t.Errorf("Restored identity %q/%q, want %q/%q", restored.Name, restored.ID, "Mochi", pet.ID)
 	}
@@ -88,11 +115,11 @@ func TestPetStoreRestoresMostRecentSave(t *testing.T) {
 	store := newTestStore(t)
 
 	pet := core.NewDigitalPet("Mochi", "web_user")
-	savePet(t, store, pet)
+	savePet(t, store, "mochi", pet)
 	pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
-	savePet(t, store, pet)
+	savePet(t, store, "mochi", pet)
 
-	restored, _, err := store.Load()
+	restored, _, _, err := store.Load("mochi")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -101,54 +128,264 @@ func TestPetStoreRestoresMostRecentSave(t *testing.T) {
 	}
 }
 
+func TestPetStoreLoadMostRecentPicksNewestPet(t *testing.T) {
+	store := newTestStore(t)
+
+	savePet(t, store, "older", core.NewDigitalPet("Older", "web_user"))
+	// Make the first save clearly older
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(store.SavePath("older"), old, old)
+	savePet(t, store, "newer", core.NewDigitalPet("Newer", "web_user"))
+
+	pet, slot, _, _, err := store.LoadMostRecent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slot != "newer" || pet.Name != "Newer" {
+		t.Errorf("Expected most recently saved pet, got %q in slot %q", pet.Name, slot)
+	}
+}
+
 func TestPetStoreFallsBackToBackup(t *testing.T) {
 	store := newTestStore(t)
 
 	pet := core.NewDigitalPet("Mochi", "web_user")
-	savePet(t, store, pet)
+	savePet(t, store, "mochi", pet)
 	pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
-	savePet(t, store, pet) // Backs up the first save
+	savePet(t, store, "mochi", pet) // Backs up the first save
 
-	if err := os.WriteFile(store.SavePath(), []byte("not json"), 0644); err != nil {
+	if err := os.WriteFile(store.SavePath("mochi"), []byte("not json"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	restored, _, err := store.Load()
+	restored, _, warning, err := store.Load("mochi")
 	if err != nil {
 		t.Fatalf("Load should fall back to the backup: %v", err)
 	}
 	if restored.Name != "Mochi" {
 		t.Errorf("Restored name %q, want Mochi", restored.Name)
 	}
-	if store.LastWarning() == nil {
+	if warning == nil {
 		t.Error("Skipping the corrupt save should produce a warning")
 	}
 }
 
-func TestHandleSave(t *testing.T) {
+func TestPetStoreList(t *testing.T) {
 	store := newTestStore(t)
-	server := &Server{store: store}
+
+	alive := core.NewDigitalPet("Alive", "web_user")
+	alive.Update(2)
+	savePet(t, store, "alive", alive)
+
+	gone := core.NewDigitalPet("Gone", "web_user")
+	gone.Biology.IsAlive = false
+	savePet(t, store, "gone", gone)
+
+	pets, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pets) != 2 {
+		t.Fatalf("Expected 2 saved pets, got %d", len(pets))
+	}
+
+	bySlot := map[string]savedPet{}
+	for _, p := range pets {
+		bySlot[p.Slot] = p
+	}
+	if p := bySlot["alive"]; p.Name != "Alive" || !p.IsAlive || p.Age != alive.GetAge() {
+		t.Errorf("Unexpected summary for alive pet: %+v", p)
+	}
+	if p := bySlot["gone"]; p.Name != "Gone" || p.IsAlive {
+		t.Errorf("Unexpected summary for gone pet: %+v", p)
+	}
+}
+
+func TestNewSlotIsUniqueAndSafe(t *testing.T) {
+	store := newTestStore(t)
+
+	pet := core.NewDigitalPet("../Mo chi", "web_user")
+	slot := store.NewSlot(pet)
+	if !ValidSlot(slot) {
+		t.Fatalf("NewSlot returned invalid slot %q", slot)
+	}
+	savePet(t, store, slot, pet)
+
+	if again := store.NewSlot(pet); again == slot || !ValidSlot(again) {
+		t.Errorf("Second slot %q should differ from %q and be valid", again, slot)
+	}
+
+	for _, bad := range []string{"", "..", "a/b", "a b"} {
+		if ValidSlot(bad) {
+			t.Errorf("ValidSlot(%q) should be false", bad)
+		}
+	}
+}
+
+func TestHandleSave(t *testing.T) {
+	server := newTestServer(t)
 
 	// No pet yet
-	rec := httptest.NewRecorder()
-	server.handleSave(rec, httptest.NewRequest(http.MethodPost, "/api/save", nil))
-	if rec.Code != http.StatusBadRequest {
+	if rec := post(t, server.handleSave, ""); rec.Code != http.StatusBadRequest {
 		t.Errorf("Save without a pet: status %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 
-	server.pet = core.NewDigitalPet("Mochi", "web_user")
-	rec = httptest.NewRecorder()
-	server.handleSave(rec, httptest.NewRequest(http.MethodPost, "/api/save", nil))
-	if rec.Code != http.StatusOK {
+	if err := server.createPet("Mochi", false); err != nil {
+		t.Fatal(err)
+	}
+	if rec := post(t, server.handleSave, ""); rec.Code != http.StatusOK {
 		t.Fatalf("Save: status %d, body %s", rec.Code, rec.Body.String())
 	}
-	if _, err := os.Stat(store.SavePath()); err != nil {
+	if _, err := os.Stat(server.store.SavePath(server.slot)); err != nil {
 		t.Errorf("Save file should exist: %v", err)
 	}
 
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	server.handleSave(rec, httptest.NewRequest(http.MethodGet, "/api/save", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET /api/save: status %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestCreateKeepsPreviousPet(t *testing.T) {
+	server := newTestServer(t)
+
+	if err := server.createPet("First", false); err != nil {
+		t.Fatal(err)
+	}
+	firstSlot := server.slot
+	server.pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
+
+	if err := server.createPet("Second", false); err != nil {
+		t.Fatal(err)
+	}
+	if server.pet.Name != "Second" || server.slot == firstSlot {
+		t.Fatalf("Expected new active pet in a new slot, got %q in %q", server.pet.Name, server.slot)
+	}
+
+	// The first pet was saved, including the interaction made after creation
+	first, _, _, err := server.store.Load(firstSlot)
+	if err != nil {
+		t.Fatalf("First pet should still be saved: %v", err)
+	}
+	if first.Name != "First" || first.TotalInteractions != 1 {
+		t.Errorf("First pet = %q with %d interactions, want First with 1", first.Name, first.TotalInteractions)
+	}
+}
+
+func TestHandleLoadSwitchesPets(t *testing.T) {
+	server := newTestServer(t)
+
+	if err := server.createPet("First", false); err != nil {
+		t.Fatal(err)
+	}
+	firstSlot := server.slot
+	if err := server.createPet("Second", false); err != nil {
+		t.Fatal(err)
+	}
+	secondSlot := server.slot
+	server.pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
+
+	rec := post(t, server.handleLoad, `{"slot":"`+firstSlot+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Load: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if server.pet.Name != "First" || server.slot != firstSlot {
+		t.Errorf("Active pet = %q in %q, want First in %q", server.pet.Name, server.slot, firstSlot)
+	}
+
+	// Switching away saved the second pet's progress
+	second, _, _, err := server.store.Load(secondSlot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.TotalInteractions != 1 {
+		t.Errorf("Second pet should be saved with 1 interaction, got %d", second.TotalInteractions)
+	}
+
+	// The list includes both pets and marks the active one
+	listRec := httptest.NewRecorder()
+	server.handleListSaves(listRec, httptest.NewRequest(http.MethodGet, "/api/saves", nil))
+	var resp struct {
+		Data struct {
+			Pets       []savedPet `json:"pets"`
+			ActiveSlot string     `json:"active_slot"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Data.Pets) != 2 || resp.Data.ActiveSlot != firstSlot {
+		t.Errorf("List = %d pets, active %q; want 2, %q", len(resp.Data.Pets), resp.Data.ActiveSlot, firstSlot)
+	}
+}
+
+func TestHandleLoadRejectsBadSlots(t *testing.T) {
+	server := newTestServer(t)
+
+	if rec := post(t, server.handleLoad, `{"slot":"../etc/passwd"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Path traversal slot: status %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if rec := post(t, server.handleLoad, `{"slot":"missing"}`); rec.Code != http.StatusNotFound {
+		t.Errorf("Missing slot: status %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestManualPauseStopsTime(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Mochi", false); err != nil {
+		t.Fatal(err)
+	}
+
+	post(t, server.handlePause, `{"paused":true}`)
+	age := server.pet.GetAge()
+
+	// A whole day of real time passes while paused
+	server.tick(time.Now().Add(24 * time.Hour))
+	if server.pet.GetAge() != age || !server.pet.IsAlive() {
+		t.Errorf("No time should pass while paused: age %f -> %f, alive %v", age, server.pet.GetAge(), server.pet.IsAlive())
+	}
+
+	// Resuming does not apply the paused time
+	post(t, server.handlePause, `{"paused":false}`)
+	server.tick(time.Now().Add(24*time.Hour + time.Second))
+	if server.pet.GetAge() > age+0.1 || !server.pet.IsAlive() {
+		t.Errorf("Resuming should continue from the pause, age %f -> %f", age, server.pet.GetAge())
+	}
+}
+
+func TestAwayPauseKeepsPetAlive(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Mochi", false); err != nil {
+		t.Fatal(err)
+	}
+
+	// The player leaves for a school day; the server ticks every second
+	start := time.Now()
+	for elapsed := time.Duration(0); elapsed <= 8*time.Hour; elapsed += time.Second {
+		server.tick(start.Add(elapsed))
+	}
+
+	if !server.pet.IsAlive() {
+		t.Fatal("Pet should survive the player being away")
+	}
+	// Only the time before the away timeout counts: 2 minutes = 2 game days
+	if age := server.pet.GetAge(); age > 2.1 {
+		t.Errorf("Time should stop after the away timeout, age %f", age)
+	}
+
+	// Status (which uses the real clock) reports the away pause until the
+	// player returns
+	server.lastActivity = time.Now().Add(-8 * time.Hour)
+	rec := httptest.NewRecorder()
+	server.handleStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	if !strings.Contains(rec.Body.String(), `"pause_reason":"away"`) {
+		t.Errorf("Status should report away pause: %s", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.handleStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status?active=1", nil))
+	if !strings.Contains(rec.Body.String(), `"paused":false`) {
+		t.Errorf("Returning player should resume time: %s", rec.Body.String())
 	}
 }

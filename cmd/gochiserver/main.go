@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -21,12 +22,25 @@ import (
 
 // Server holds the server state
 type Server struct {
+	saveMu     sync.Mutex // Orders saves and pet switches; acquire before mu
 	mu         sync.RWMutex
-	pet        *core.DigitalPet
+	pet        *core.DigitalPet // The active pet; only its time passes
+	slot       string           // Save slot of the active pet
 	webDir     string
 	lastUpdate time.Time
 	store      *petStore // nil disables saving
+
+	// Time stops while the game is paused, so the pet cannot decline
+	manualPause  bool          // Paused with the Pause button
+	lastActivity time.Time     // Last time the player was present
+	awayTimeout  time.Duration // Pause after this long without the player (0 disables)
 }
+
+// Pause reasons reported by /api/status
+const (
+	pauseReasonManual = "manual" // Player pressed Pause
+	pauseReasonAway   = "away"   // Player has not been present for awayTimeout
+)
 
 // APIResponse is a standard API response wrapper
 type APIResponse struct {
@@ -48,11 +62,15 @@ type PetStatus struct {
 	Hunger     float64 `json:"hunger"`
 	Wellbeing  float64 `json:"wellbeing"`
 	Personality string `json:"personality"`
+	Slot        string `json:"slot"`
+	Paused      bool   `json:"paused"`
+	PauseReason string `json:"pause_reason,omitempty"`
 }
 
 func main() {
 	dataDir := flag.String("data-dir", "", "directory for saves and backups (default ~/.gochi)")
 	autosaveInterval := flag.Duration("autosave", time.Minute, "how often to save the pet automatically (0 disables)")
+	awayTimeout := flag.Duration("away-pause", 2*time.Minute, "pause time when the player has been away this long (0 disables)")
 	addr := flag.String("addr", ":8080", "address to listen on")
 	flag.Parse()
 
@@ -70,26 +88,31 @@ func main() {
 
 	// Create server
 	server := &Server{
-		webDir:     webDir,
-		lastUpdate: time.Now(),
-		store:      store,
+		webDir:       webDir,
+		lastUpdate:   time.Now(),
+		store:        store,
+		lastActivity: time.Now(),
+		awayTimeout:  *awayTimeout,
 	}
 
-	// Restore the most recent save. Time does not pass while the program is
-	// closed: the pet resumes exactly as it was saved.
-	pet, path, err := store.Load()
+	// Restore the most recently saved pet. Time does not pass while the
+	// program is closed: the pet resumes exactly as it was saved.
+	pet, slot, path, warning, err := store.LoadMostRecent()
 	switch {
 	case err == nil:
-		server.pet = pet
+		server.pet, server.slot = pet, slot
 		log.Printf("Restored %s from %s", pet.Name, path)
-		if warning := store.LastWarning(); warning != nil {
+		if warning != nil {
 			log.Printf("Warning: %v", warning)
 		}
 	case errors.Is(err, os.ErrNotExist):
-		log.Printf("No saved pet found; saves will be written to %s", store.SavePath())
+		log.Printf("No saved pets found; pets will be saved in %s", store.SaveDir())
 	default:
-		log.Printf("Warning: could not restore saved pet: %v", err)
-		log.Printf("Starting without a pet; creating a new one will replace the save (previous files are kept as backups)")
+		log.Printf("Warning: could not restore a saved pet: %v", err)
+		log.Printf("Starting without a pet; the save files have been left in place in %s", store.SaveDir())
+	}
+	if *awayTimeout > 0 {
+		log.Printf("Time pauses after %s without the player", *awayTimeout)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -116,6 +139,9 @@ func main() {
 	mux.HandleFunc("/api/rename", server.handleRename)
 	mux.HandleFunc("/api/create", server.handleCreate)
 	mux.HandleFunc("/api/save", server.handleSave)
+	mux.HandleFunc("/api/saves", server.handleListSaves)
+	mux.HandleFunc("/api/load", server.handleLoad)
+	mux.HandleFunc("/api/pause", server.handlePause)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -157,7 +183,7 @@ func main() {
 		log.Printf("Failed to save pet on exit: %v", err)
 		os.Exit(1)
 	} else if saved {
-		log.Printf("Saved pet to %s", store.SavePath())
+		log.Printf("Saved pet to %s", store.SavePath(server.slot))
 	}
 }
 
@@ -202,17 +228,45 @@ func (s *Server) updateLoop() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		s.mu.Lock()
-		if s.pet != nil && s.pet.IsAlive() {
-			deltaTime := time.Since(s.lastUpdate).Seconds()
-			s.lastUpdate = time.Now()
-			// Convert real seconds to game time (1 real second = 1/60 game minute)
-			gameTime := deltaTime / 60.0
-			s.pet.Update(gameTime)
-		}
-		s.mu.Unlock()
+	for now := range ticker.C {
+		s.tick(now)
 	}
+}
+
+// tick advances the active pet to now, unless the game is paused
+func (s *Server) tick(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.pet == nil || !s.pet.IsAlive() || s.pauseReasonLocked(now) != "" {
+		// No time passes; resuming continues from now
+		s.lastUpdate = now
+		return
+	}
+
+	deltaTime := now.Sub(s.lastUpdate).Seconds()
+	s.lastUpdate = now
+	// Convert real seconds to game time; the simulation treats one unit as
+	// one game day, so one real minute is one game day
+	s.pet.Update(deltaTime / 60.0)
+}
+
+// pauseReasonLocked returns why time is paused, or "" if it is running.
+// Caller must hold s.mu.
+func (s *Server) pauseReasonLocked(now time.Time) string {
+	if s.manualPause {
+		return pauseReasonManual
+	}
+	if s.awayTimeout > 0 && now.Sub(s.lastActivity) > s.awayTimeout {
+		return pauseReasonAway
+	}
+	return ""
+}
+
+// markActiveLocked records that the player is present, resuming time if it
+// was paused because they were away. Caller must hold s.mu for writing.
+func (s *Server) markActiveLocked(now time.Time) {
+	s.lastActivity = now
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -320,6 +374,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .save-btn { padding: 8px 20px; border: 2px solid #667eea; border-radius: 20px; background: white; color: #667eea; font-weight: bold; cursor: pointer; }
         .save-btn:disabled { opacity: 0.6; cursor: default; }
         .save-status { font-size: 0.85em; color: #666; }
+        .save-row .save-btn { padding: 8px 14px; }
+        .pause-banner { text-align: center; margin: 10px 0; padding: 8px 12px; border-radius: 12px; background: #eef1ff; color: #4a4fa8; font-size: 0.9em; }
+        .saved-pets { text-align: left; margin-bottom: 25px; }
+        .saved-pets h2 { font-size: 1.1em; color: #555; margin-bottom: 10px; text-align: center; }
+        .saved-pet-list { list-style: none; }
+        .saved-pet-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; margin-bottom: 8px; border: 2px solid #eee; border-radius: 12px; }
+        .saved-pet-list li.active { border-color: #667eea; }
+        .saved-pet-info { min-width: 0; }
+        .saved-pet-name { font-weight: bold; color: #333; overflow-wrap: anywhere; }
+        .saved-pet-meta { font-size: 0.8em; color: #888; }
+        .back-btn { margin-top: 12px; background: none; border: none; color: #667eea; cursor: pointer; font-size: 0.95em; }
         .status-text { text-align: center; margin-top: 15px; color: #888; font-size: 0.9em; }
         .dead { filter: grayscale(100%); }
         .dead .pet-display { animation: none; }
@@ -363,7 +428,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         <!-- Create Pet View -->
         <div id="createView" class="create-form">
             <h1>Welcome to Gochi!</h1>
-            <p class="subtitle">Create your virtual pet companion</p>
+            <div class="saved-pets hidden" id="savedPets">
+                <h2>Your pets</h2>
+                <ul class="saved-pet-list" id="savedPetList"></ul>
+            </div>
+            <p class="subtitle">Create a new virtual pet companion</p>
             <div class="pet-display">🐣</div>
             <div class="form-group">
                 <label for="petNameInput">What will you name your pet?</label>
@@ -371,6 +440,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             </div>
             <button class="create-btn" id="createBtn" onclick="createPet()">Create My Pet!</button>
             <div class="error-msg hidden" id="errorMsg"></div>
+            <button class="back-btn hidden" id="backBtn" onclick="closeChooser()">Back to my pet</button>
         </div>
 
         <!-- Pet View -->
@@ -379,6 +449,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="pet-name" id="petName">Loading...</div>
             <div class="pet-display" id="petSprite">🐱</div>
             <div class="mood" id="mood">Mood: Happy</div>
+            <div class="pause-banner hidden" id="pauseBanner"></div>
 
             <div class="stats">
                 <div class="stat">
@@ -408,6 +479,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             <div class="save-row">
                 <button class="save-btn" id="saveBtn" onclick="savePet()">Save</button>
+                <button class="save-btn" id="pauseBtn" onclick="togglePause()">Pause</button>
+                <button class="save-btn" onclick="openChooser()">Switch Pet</button>
+            </div>
+            <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
             </div>
 
@@ -428,10 +503,137 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         let hasPet = false;
         let updateInterval = null;
+        let choosing = false;      // Pet list is open
+        let paused = false;
+        let manualPause = false;
+
+        // The player counts as present if they used the page in the last
+        // minute while it was visible. The server pauses time when they
+        // have been away for a while, so a tab left open does not count.
+        let lastInput = Date.now();
+        ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel', 'scroll'].forEach(type =>
+            window.addEventListener(type, () => { lastInput = Date.now(); }, {passive: true}));
+
+        function playerPresent() {
+            return !document.hidden && Date.now() - lastInput < 60000;
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) fetchStatus();
+        });
 
         function showCreateView() {
             document.getElementById('createView').classList.remove('hidden');
             document.getElementById('petView').classList.add('hidden');
+            document.getElementById('backBtn').classList.toggle('hidden', !hasPet);
+            loadSavedPets();
+        }
+
+        function openChooser() {
+            choosing = true;
+            showCreateView();
+        }
+
+        function closeChooser() {
+            choosing = false;
+            showPetView();
+            fetchStatus();
+        }
+
+        function formatAge(days) {
+            return days.toFixed(1) + ' days old';
+        }
+
+        function loadSavedPets() {
+            fetch('/api/saves')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('savedPets');
+                    const list = document.getElementById('savedPetList');
+                    list.replaceChildren();
+                    const pets = (data.success && data.data.pets) || [];
+                    container.classList.toggle('hidden', pets.length === 0);
+
+                    pets.forEach(pet => {
+                        const item = document.createElement('li');
+                        const isActive = hasPet && pet.slot === data.data.active_slot;
+                        if (isActive) item.classList.add('active');
+
+                        const info = document.createElement('div');
+                        info.className = 'saved-pet-info';
+                        const name = document.createElement('div');
+                        name.className = 'saved-pet-name';
+                        name.textContent = pet.name;
+                        const meta = document.createElement('div');
+                        meta.className = 'saved-pet-meta';
+                        meta.textContent = (pet.is_alive ? formatAge(pet.age) : 'Passed away') +
+                            ' · saved ' + new Date(pet.saved_at).toLocaleString();
+                        info.append(name, meta);
+
+                        const btn = document.createElement('button');
+                        btn.className = 'save-btn';
+                        btn.textContent = isActive ? 'Playing' : 'Load';
+                        btn.disabled = isActive;
+                        btn.onclick = () => loadPet(pet.slot, btn);
+
+                        item.append(info, btn);
+                        list.append(item);
+                    });
+                })
+                .catch(err => console.error('Saved pets error:', err));
+        }
+
+        function loadPet(slot, btn) {
+            hideError();
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+
+            fetch('/api/load', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({slot: slot})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    hasPet = true;
+                    choosing = false;
+                    showPetView();
+                    fetchStatus();
+                    startUpdates();
+                } else {
+                    showError(data.error || 'Could not load pet');
+                    loadSavedPets();
+                }
+            })
+            .catch(() => {
+                showError('Connection error. Please try again.');
+                loadSavedPets();
+            });
+        }
+
+        function togglePause() {
+            fetch('/api/pause', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({paused: !manualPause})
+            })
+            .then(r => r.json())
+            .then(() => fetchStatus())
+            .catch(console.error);
+        }
+
+        function updatePauseUI(status) {
+            paused = status.paused;
+            manualPause = status.pause_reason === 'manual';
+            const banner = document.getElementById('pauseBanner');
+            if (status.pause_reason === 'manual') {
+                banner.textContent = '⏸ Time is paused. Your pet is safe until you press Resume.';
+            } else if (status.pause_reason === 'away') {
+                banner.textContent = '⏸ Time paused while you were away.';
+            }
+            banner.classList.toggle('hidden', !paused);
+            document.getElementById('pauseBtn').textContent = manualPause ? 'Resume' : 'Pause';
         }
 
         function showPetView() {
@@ -474,6 +676,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             .then(data => {
                 if (data.success) {
                     hasPet = true;
+                    choosing = false;
+                    nameInput.value = '';
+                    btn.disabled = false;
+                    btn.textContent = 'Create My Pet!';
                     showPetView();
                     fetchStatus();
                     startUpdates();
@@ -511,18 +717,22 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 else if (status.happiness > 0.7) sprite = sprites.happy;
             }
             document.getElementById('petSprite').textContent = sprite;
+            updatePauseUI(status);
         }
 
         function fetchStatus() {
-            fetch('/api/status')
+            fetch('/api/status' + (playerPresent() ? '?active=1' : ''))
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
                         hasPet = true;
-                        showPetView();
-                        updateUI(data.data);
-                    } else {
+                        if (!choosing) {
+                            showPetView();
+                            updateUI(data.data);
+                        }
+                    } else if (hasPet || !choosing) {
                         hasPet = false;
+                        choosing = true;
                         showCreateView();
                     }
                 })
@@ -587,8 +797,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             }
         });
 
-        // Initial check for existing pet
+        // Initial check for existing pet; keep polling so the server knows
+        // whether the player is present
         fetchStatus();
+        startUpdates();
     </script>
 </body>
 </html>`
@@ -619,6 +831,9 @@ func (s *Server) saveNow() (bool, error) {
 		return false, nil
 	}
 
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
 	// Serialize under the lock so the pet is not updated mid-save; write
 	// the file after releasing it
 	s.mu.RLock()
@@ -626,16 +841,190 @@ func (s *Server) saveNow() (bool, error) {
 		s.mu.RUnlock()
 		return false, nil
 	}
+	slot := s.slot
 	petData, err := s.pet.Save()
 	s.mu.RUnlock()
 	if err != nil {
 		return false, err
 	}
 
-	if err := s.store.Save(petData); err != nil {
+	if err := s.store.Save(slot, petData); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// saveActiveLocked writes the active pet, if any, to its slot.
+// Caller must hold s.saveMu and s.mu.
+func (s *Server) saveActiveLocked() error {
+	if s.store == nil || s.pet == nil {
+		return nil
+	}
+	petData, err := s.pet.Save()
+	if err != nil {
+		return err
+	}
+	return s.store.Save(s.slot, petData)
+}
+
+// switchPet saves the active pet, then makes the pet returned by next the
+// active one. If the active pet cannot be saved, nothing changes, so a
+// pet is never lost by switching. If save is true the new pet is saved
+// immediately (for newly created pets).
+func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save bool) error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.saveActiveLocked(); err != nil {
+		return fmt.Errorf("could not save %s: %w", s.pet.Name, err)
+	}
+
+	pet, slot, err := next()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	s.pet, s.slot = pet, slot
+	s.lastUpdate = now
+	s.manualPause = false
+	s.markActiveLocked(now)
+
+	if save {
+		if err := s.saveActiveLocked(); err != nil {
+			log.Printf("Failed to save %s: %v", pet.Name, err)
+		}
+	}
+	return nil
+}
+
+// createPet saves the active pet and replaces it with a new one
+func (s *Server) createPet(name string, randomize bool) error {
+	if name == "" {
+		name = "Gochi"
+	}
+
+	err := s.switchPet(func() (*core.DigitalPet, string, error) {
+		pet := core.NewDigitalPet(name, "web_user")
+		if randomize {
+			pet = core.NewDigitalPetRandom(name, "web_user")
+		}
+		slot := sanitizeSlot(string(pet.ID))
+		if s.store != nil {
+			slot = s.store.NewSlot(pet)
+		}
+		return pet, slot, nil
+	}, true)
+	if err == nil {
+		log.Printf("Created new pet: %s", name)
+	}
+	return err
+}
+
+// handleListSaves handles GET /api/saves - lists saved pets
+func (s *Server) handleListSaves(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	pets := []savedPet{}
+	if s.store != nil {
+		var err error
+		if pets, err = s.store.List(); err != nil {
+			log.Printf("Listing saves failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not list saved pets"})
+			return
+		}
+	}
+
+	s.mu.RLock()
+	active := ""
+	if s.pet != nil {
+		active = s.slot
+	}
+	s.mu.RUnlock()
+
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"pets":        pets,
+		"active_slot": active,
+	}})
+}
+
+// handleLoad handles POST /api/load - saves the active pet and switches to a saved one
+func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	var req struct {
+		Slot string `json:"slot"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !ValidSlot(req.Slot) {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid save slot"})
+		return
+	}
+	if s.store == nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Saving is disabled"})
+		return
+	}
+
+	err := s.switchPet(func() (*core.DigitalPet, string, error) {
+		pet, path, warning, err := s.store.Load(req.Slot)
+		if err != nil {
+			return nil, "", err
+		}
+		log.Printf("Loaded %s from %s", pet.Name, path)
+		if warning != nil {
+			log.Printf("Warning: %v", warning)
+		}
+		return pet, req.Slot, nil
+	}, false)
+
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No saved pet in that slot"})
+	case err != nil:
+		log.Printf("Load failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not load pet"})
+	default:
+		s.mu.RLock()
+		data := s.getPetData()
+		s.mu.RUnlock()
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
+	}
+}
+
+// handlePause handles POST /api/pause - {"paused": true|false} stops or
+// resumes time for the active pet
+func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	var req struct {
+		Paused bool `json:"paused"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	s.mu.Lock()
+	now := time.Now()
+	s.manualPause = req.Paused
+	s.markActiveLocked(now)
+	reason := s.pauseReasonLocked(now)
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"paused":       reason != "",
+		"pause_reason": reason,
+	}})
 }
 
 // handleSave handles POST /api/save - saves the pet immediately
@@ -661,9 +1050,16 @@ func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// handleStatus handles GET /api/status. The page adds ?active=1 when the
+// player has used it recently, which counts as the player being present.
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	if r.URL.Query().Get("active") == "1" {
+		s.markActiveLocked(now)
+	}
 
 	if s.pet == nil {
 		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
@@ -684,7 +1080,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Hunger:     1.0 - s.pet.Biology.Vitals.Nutrition,
 		Wellbeing:  status.Wellbeing,
 		Personality: s.pet.GetPersonalityDescription(),
+		Slot:        s.slot,
 	}
+	petStatus.PauseReason = s.pauseReasonLocked(now)
+	petStatus.Paused = petStatus.PauseReason != ""
 
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: petStatus})
 }
@@ -730,6 +1129,7 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.markActiveLocked(time.Now())
 	s.pet.ProcessUserInteraction(interactionType, 1.0)
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]string{"message": "Interaction successful"}})
 }
@@ -749,6 +1149,11 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
+	if s.pet == nil {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
 	s.pet.Name = req.Name
 	s.mu.Unlock()
 
@@ -770,24 +1175,16 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		req.Name = "Gochi"
+	if err := s.createPet(req.Name, req.Randomize); err != nil {
+		log.Printf("Create failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
+		return
 	}
 
-	s.mu.Lock()
-	if req.Randomize {
-		s.pet = core.NewDigitalPetRandom(req.Name, "web_user")
-	} else {
-		s.pet = core.NewDigitalPet(req.Name, "web_user")
-	}
-	s.lastUpdate = time.Now()
-	s.mu.Unlock()
-
-	log.Printf("Created new pet: %s", req.Name)
-	if _, err := s.saveNow(); err != nil {
-		log.Printf("Failed to save new pet: %v", err)
-	}
-	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.getPetData()})
+	s.mu.RLock()
+	data := s.getPetData()
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
 }
 
 // handlePets handles /api/v1/pets - list and create
@@ -815,21 +1212,16 @@ func (s *Server) handlePets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if req.Name == "" {
-			req.Name = "Gochi"
+		if err := s.createPet(req.Name, req.Randomize); err != nil {
+			log.Printf("Create failed: %v", err)
+			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
+			return
 		}
 
-		s.mu.Lock()
-		if req.Randomize {
-			s.pet = core.NewDigitalPetRandom(req.Name, "web_user")
-		} else {
-			s.pet = core.NewDigitalPet(req.Name, "web_user")
-		}
-		s.lastUpdate = time.Now()
-		s.mu.Unlock()
-
-		log.Printf("Created new pet: %s", req.Name)
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.getPetData()})
+		s.mu.RLock()
+		data := s.getPetData()
+		s.mu.RUnlock()
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
 
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
@@ -919,6 +1311,7 @@ func (s *Server) handleInteractV1(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.markActiveLocked(time.Now())
 	s.pet.ProcessUserInteraction(interactionType, 1.0)
 
 	response := map[string]interface{}{

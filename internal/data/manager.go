@@ -358,7 +358,7 @@ func (dm *DataManager) createBackupLocked(filename string) error {
 	}
 
 	// Create backup with timestamp
-	timestamp := time.Now().Format("20060102_150405")
+	timestamp := time.Now().Format(backupTimestampFormat)
 	backupName := fmt.Sprintf("%s_%s.bak", strings.TrimSuffix(filename, ".json"), timestamp)
 	backupPath := filepath.Join(dm.BackupPath, backupName)
 
@@ -372,6 +372,25 @@ func (dm *DataManager) createBackupLocked(filename string) error {
 	return nil
 }
 
+// backupTimestampFormat is the timestamp in backup names: <save>_<timestamp>.bak
+const backupTimestampFormat = "20060102_150405"
+
+// isBackupOf reports whether name is a backup of the save named prefix.
+// The timestamp must match exactly, so backups of "pet" are not confused
+// with backups of another save such as "pet_123".
+func isBackupOf(name, prefix string) bool {
+	rest, ok := strings.CutPrefix(name, prefix+"_")
+	if !ok {
+		return false
+	}
+	timestamp, ok := strings.CutSuffix(rest, ".bak")
+	if !ok {
+		return false
+	}
+	_, err := time.Parse(backupTimestampFormat, timestamp)
+	return err == nil
+}
+
 // cleanupOldBackupsLocked removes old backups exceeding MaxBackups
 func (dm *DataManager) cleanupOldBackupsLocked(filename string) {
 	prefix := strings.TrimSuffix(filename, ".json")
@@ -383,7 +402,7 @@ func (dm *DataManager) cleanupOldBackupsLocked(filename string) {
 
 	var backups []os.DirEntry
 	for _, file := range files {
-		if strings.HasPrefix(file.Name(), prefix) && strings.HasSuffix(file.Name(), ".bak") {
+		if isBackupOf(file.Name(), prefix) {
 			backups = append(backups, file)
 		}
 	}
@@ -438,7 +457,7 @@ func (dm *DataManager) listBackupsLocked(filename string) ([]SaveFileInfo, error
 
 	var backups []SaveFileInfo
 	for _, file := range files {
-		if !strings.HasPrefix(file.Name(), prefix) || !strings.HasSuffix(file.Name(), ".bak") {
+		if !isBackupOf(file.Name(), prefix) {
 			continue
 		}
 

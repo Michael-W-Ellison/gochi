@@ -785,3 +785,59 @@ func TestSaveLeavesNoTemporaryFiles(t *testing.T) {
 		t.Errorf("Expected only pet.json in save directory, got %v", names)
 	}
 }
+
+func TestBackupsAreSeparatePerSave(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	// "pet" is a prefix of "pet_2"; their backups must not be mixed up
+	for _, name := range []string{"pet", "pet_2"} {
+		sd := NewSaveData("user", name)
+		sd.SetPetData(map[string]string{"name": name})
+		if err := dm.Save(sd, name); err != nil {
+			t.Fatal(err)
+		}
+		if err := dm.Save(sd, name); err != nil { // Creates a backup
+			t.Fatal(err)
+		}
+	}
+
+	for _, name := range []string{"pet", "pet_2"} {
+		backups, err := dm.ListBackups(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(backups) != 1 {
+			t.Errorf("Expected 1 backup for %q, got %d", name, len(backups))
+		}
+	}
+
+	// With "pet" corrupt, its fallback must be its own backup
+	os.WriteFile(dm.getSavePath("pet"), []byte("corrupt"), 0644)
+	loaded, _, err := dm.LoadLatest("pet")
+	if err != nil {
+		t.Fatalf("LoadLatest failed: %v", err)
+	}
+	var pet map[string]string
+	loaded.GetPetData(&pet)
+	if pet["name"] != "pet" {
+		t.Errorf("Fell back to another save's backup: %v", pet)
+	}
+}
+
+func TestIsBackupOf(t *testing.T) {
+	tests := []struct {
+		name, prefix string
+		want         bool
+	}{
+		{"pet_20261018_223851.bak", "pet", true},
+		{"pet_2_20261018_223851.bak", "pet", false},
+		{"pet_2_20261018_223851.bak", "pet_2", true},
+		{"pet_20261018_223851.json", "pet", false},
+		{"petx_20261018_223851.bak", "pet", false},
+	}
+	for _, tt := range tests {
+		if got := isBackupOf(tt.name, tt.prefix); got != tt.want {
+			t.Errorf("isBackupOf(%q, %q) = %v, want %v", tt.name, tt.prefix, got, tt.want)
+		}
+	}
+}
