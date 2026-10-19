@@ -142,6 +142,9 @@ func (s *Server) handleARSession(w http.ResponseWriter, r *http.Request) {
 		svc.ResumeSession()
 	case "stop":
 		svc.StopSession()
+		for id := range svc.GetSnapshot().PlacedPets {
+			svc.RemovePet(id) // The pet leaves the room with the session
+		}
 	default:
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown action"})
 		return

@@ -411,6 +411,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gochi - Virtual Pet</title>
+    <link rel="stylesheet" href="/static/css/ar.css">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -617,6 +618,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .create-btn:active { transform: translateY(0); }
         .create-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
         .error-msg { color: #ee5a5a; margin-top: 10px; font-size: 14px; }
+
+        /* AR view (ar.css); these are the design values it expects */
+        .ar-container {
+            --primary: #6c5ce7; --primary-light: #a29bfe; --success: #00b894; --warning: #fdcb6e; --danger: #d63031;
+            --gray-400: #ced4da; --gray-500: #adb5bd; --gray-900: #212529;
+            --font-size-xs: 0.75rem; --font-size-sm: 0.875rem; --font-size-md: 1rem; --font-size-xl: 1.5rem;
+            --spacing-xs: 0.25rem; --spacing-sm: 0.5rem; --spacing-md: 1rem; --spacing-lg: 1.5rem; --spacing-xl: 2rem;
+            --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 20px; --radius-full: 9999px;
+            --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+        }
+        /* While AR is open, messages show above the AR view */
+        body.ar-open .points-toast { position: fixed; left: 16px; right: 16px; top: 72px; z-index: 10001; margin: 0;
+            padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.92); }
+        body.ar-open .points-toast:empty { display: none; }
     </style>
 </head>
 <body>
@@ -661,6 +676,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn" onclick="startHideSeek()">🙈 Hide &amp; Seek</button>
                 <button class="activity-btn explore" onclick="explore()">🧭 Explore</button>
                 <button class="activity-btn" onclick="openBreeding()">💞 Breed</button>
+                <button class="activity-btn ar" onclick="openAR()" style="grid-column: span 2;">📷 See in your room (AR)</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -770,6 +786,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         </div>
     </div>
 
+    <script src="/static/js/ar.js"></script>
+    <script src="/static/js/ar-link.js"></script>
     <script>
         const sprites = {
             idle: '🐱',
@@ -1592,6 +1610,29 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     }
                 })
                 .catch(console.error);
+        }
+
+        // AR: places the pet in the room through the camera (or a drawn
+        // room on devices without AR); see web/static/js/ar-link.js
+        let arReady = false;
+        async function openAR() {
+            if (typeof GochiAR === 'undefined' || typeof GochiARLink === 'undefined') {
+                showPointsToast('AR could not be loaded.');
+                return;
+            }
+            if (!arReady) {
+                await GochiAR.init();
+                arReady = true;
+            }
+            document.body.classList.add('ar-open');
+            const started = await GochiARLink.start({
+                onMessage: text => showPointsToast(text),
+                onCare: result => { showResult(result); setTimeout(fetchStatus, 500); },
+                petSprite: () => document.getElementById('petSprite').textContent,
+                statusText: () => lastStatus ? lastStatus.name + ' ' + lastStatus.activity : '',
+                onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); }
+            });
+            if (!started) document.body.classList.remove('ar-open');
         }
 
         function openBreeding() {

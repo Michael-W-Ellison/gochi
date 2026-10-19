@@ -539,7 +539,8 @@ camera pose and light estimates. The active pet is placed on a surface and its a
 its behavior. Gestures on the pet are care: tap = petting, double tap = play, long press =
 feeding, swipe = throwing a ball (play), subject to the same validation as the care buttons.
 Exercise tracking records the player's walk; every 500 m counts towards the pet's exercise need
-as one play session (at most two per walk). A client using these endpoints is not yet built.
+as one play session (at most two per walk). The web page's AR view is such a client: with WebXR
+it finds surfaces by hit testing from the center of the view; without it, it shows a drawn room.
 
 5.3 Machine Learning Adaptation
 

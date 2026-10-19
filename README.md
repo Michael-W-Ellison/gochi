@@ -303,10 +303,21 @@ requests) and cloud sync answer with an error, because the server has no cloud s
 
 ## Augmented Reality
 
-The server keeps an AR scene for an AR client: a program that uses the device's camera to find
-floors and tables, such as a WebXR page or a phone app. The client reports what it sees, and the
-server places the active pet in the room and turns gestures into care. No such client is included
-yet: `web/static/js/ar.js` contains WebXR code but does not use these endpoints.
+Press **📷 See in your room (AR)** to see your pet through the camera. On a phone or tablet whose
+browser supports WebXR augmented reality (for example Chrome on Android), point the camera at the
+floor or a table until a surface is found, then tap to place your pet. On other devices the pet
+appears in a drawn room instead. In both:
+
+- tap the pet to pet it, or use the buttons to feed it or play with it; this is the same care as
+  the buttons on the main screen, with the same rules, reactions and Friendship Points;
+- tap elsewhere to send your pet there, or 👋 to call it over;
+- the top of the screen shows what your pet is doing, and its animation follows it;
+- 🏃 tracks a walk with your pet (only with WebXR, which can follow the device's position); when
+  you stop, the distance counts towards its **Exercise** need;
+- ✕ closes AR.
+
+The page (`web/static/js/ar.js`, connected through `web/static/js/ar-link.js`) uses these
+endpoints, and other AR clients can use them too:
 
 | Route | Description |
 |---|---|
@@ -318,7 +329,8 @@ yet: `web/static/js/ar.js` contains WebXR code but does not use these endpoints.
 | `POST /api/ar/gesture` | A gesture (`{"type": "tap", "position": {...}}`). On the pet, a tap pets it, a double tap plays, a long press feeds it and a swipe throws a ball |
 | `POST /api/ar/exercise` | `{"action": "start"}`, `{"action": "position", "position": {...}}` while walking, then `{"action": "stop"}` |
 
-Gestures follow the same rules as the care buttons. A walk counts towards the pet's **Exercise**
+Gestures follow the same rules as the care buttons. Stopping the session removes the pet from the
+scene. A walk counts towards the pet's **Exercise**
 need: every 500 m counts as much as one play session (at most two per walk) and uses a little
 energy. A sleeping, tired, hibernating or exploring pet can't go for a walk.
 

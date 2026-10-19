@@ -27,7 +27,10 @@ const GochiAR = (function() {
 
         // Exercise tracking
         stepLength: 0.7,  // meters per step estimate
-        caloriesPerStep: 0.04
+        caloriesPerStep: 0.04,
+
+        // Returns the text or HTML to show as the pet; null uses a drawn pet
+        petSprite: null
     };
 
     // ========================================================================
@@ -38,6 +41,7 @@ const GochiAR = (function() {
     let isActive = false;
     let xrSession = null;
     let xrRefSpace = null;
+    let xrHitTestSource = null;
     let gl = null;
     let renderer = null;
 
@@ -70,10 +74,30 @@ const GochiAR = (function() {
         onTrackingChange: null,
         onPlaneDetected: null,
         onPetPlaced: null,
-        onPetInteraction: null,
-        onExerciseUpdate: null,
+        onPetMoved: null,          // (position) after the pet is sent somewhere
+        onPetInteraction: null,    // (type, pet); may return a promise of false if the pet refused
+        onCameraMove: null,        // (transform) every WebXR frame
+        onExerciseStart: null,
+        onExercisePosition: null,  // (position) while tracking a walk
+        onExerciseUpdate: null,    // (result) when a walk ends
+        onMessage: null,           // (text, kind) messages for the player
         onError: null
     };
+
+    /**
+     * Show a message to the player
+     * @param {string} text
+     * @param {string} kind - success, warning or error
+     */
+    function notify(text, kind = 'success') {
+        if (callbacks.onMessage) {
+            callbacks.onMessage(text, kind);
+        } else if (typeof GochiUI !== 'undefined') {
+            GochiUI.toast[kind](text);
+        } else {
+            console.log('[AR] ' + text);
+        }
+    }
 
     // DOM Elements
     let arContainer = null;
@@ -316,6 +340,16 @@ const GochiAR = (function() {
         // Get reference space
         xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
 
+        // Find surfaces by casting a ray from the center of the view
+        if (xrSession.requestHitTestSource) {
+            try {
+                const viewerSpace = await xrSession.requestReferenceSpace('viewer');
+                xrHitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+            } catch (e) {
+                console.warn('[AR] Hit testing not available:', e);
+            }
+        }
+
         // Setup frame loop
         xrSession.requestAnimationFrame(onXRFrame);
 
@@ -371,6 +405,10 @@ const GochiAR = (function() {
         }
 
         // End XR session
+        if (xrHitTestSource) {
+            xrHitTestSource.cancel();
+            xrHitTestSource = null;
+        }
         if (xrSession) {
             await xrSession.end();
             xrSession = null;
@@ -407,6 +445,18 @@ const GochiAR = (function() {
         // Update camera position
         const position = pose.transform.position;
         cameraPosition = { x: position.x, y: position.y, z: position.z };
+        if (callbacks.onCameraMove) {
+            callbacks.onCameraMove(pose.transform);
+        }
+
+        // Track the surface in the center of the view
+        if (xrHitTestSource) {
+            const hits = frame.getHitTestResults(xrHitTestSource);
+            const hitPose = hits.length > 0 ? hits[0].getPose(xrRefSpace) : null;
+            if (hitPose) {
+                updateSurface(hitPose.transform.position);
+            }
+        }
 
         // Update exercise tracking
         if (isExerciseTracking) {
@@ -420,6 +470,32 @@ const GochiAR = (function() {
 
         // Render frame
         renderFrame(frame);
+    }
+
+    /**
+     * Record the surface found by hit testing as a horizontal plane. The
+     * plane is reported again only when it moves noticeably.
+     * @param {DOMPointReadOnly} point
+     */
+    function updateSurface(point) {
+        const center = { x: point.x, y: point.y, z: point.z };
+        const known = detectedPlanes.get('surface');
+        if (known) {
+            const dx = known.center.x - center.x;
+            const dy = known.center.y - center.y;
+            const dz = known.center.z - center.z;
+            if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 0.2) return;
+        }
+
+        const plane = { id: 'surface', type: 'horizontal', center, extent: { x: 1, y: 0, z: 1 } };
+        detectedPlanes.set(plane.id, plane);
+        if (!known) {
+            showPlaneIndicator();
+            updateStatus('Surface found - Tap to place pet');
+        }
+        if (callbacks.onPlaneDetected) {
+            callbacks.onPlaneDetected(plane);
+        }
     }
 
     /**
@@ -486,7 +562,7 @@ const GochiAR = (function() {
                 callbacks.onPetPlaced(placedPet);
             }
 
-            GochiUI.toast.success('Pet placed in AR!');
+            notify('Pet placed in AR!');
 
         } else {
             // Move pet to new position
@@ -510,7 +586,11 @@ const GochiAR = (function() {
 
         // Copy pet sprite from main view
         const mainPetSprite = document.getElementById('pet-sprite');
-        if (mainPetSprite) {
+        if (config.petSprite) {
+            // Sized like the drawn pet (200px) before the AR scale applies
+            petElement.innerHTML = '<div class="pet-sprite" style="font-size: 200px; line-height: 1;"></div>';
+            petElement.querySelector('.pet-sprite').textContent = config.petSprite();
+        } else if (mainPetSprite) {
             petElement.innerHTML = mainPetSprite.outerHTML;
         } else {
             // Fallback pet display
@@ -542,6 +622,10 @@ const GochiAR = (function() {
         placedPet.targetPosition = target;
         placedPet.isMoving = true;
         setPetAnimation('walking');
+
+        if (callbacks.onPetMoved) {
+            callbacks.onPetMoved(target);
+        }
 
         // Animate movement
         animatePetMovement();
@@ -624,23 +708,25 @@ const GochiAR = (function() {
      * Handle AR action button
      * @param {string} action
      */
-    function handleARAction(action) {
+    async function handleARAction(action) {
         if (!placedPet) {
-            GochiUI.toast.warning('Place your pet first!');
+            notify('Place your pet first!', 'warning');
             return;
         }
 
         switch (action) {
             case 'feed':
-                triggerPetInteraction('feed');
-                setPetAnimation('eating');
-                showAREffect('feed');
+                if (await triggerPetInteraction('feed')) {
+                    setPetAnimation('eating');
+                    showAREffect('feed');
+                }
                 break;
 
             case 'play':
-                triggerPetInteraction('play');
-                setPetAnimation('playing');
-                showAREffect('play');
+                if (await triggerPetInteraction('play')) {
+                    setPetAnimation('playing');
+                    showAREffect('play');
+                }
                 break;
 
             case 'call':
@@ -667,16 +753,18 @@ const GochiAR = (function() {
     /**
      * Trigger pet interaction
      * @param {string} type
+     * @returns {Promise<boolean>} Whether the pet accepted it
      */
-    function triggerPetInteraction(type) {
+    async function triggerPetInteraction(type) {
         if (callbacks.onPetInteraction) {
-            callbacks.onPetInteraction(type, placedPet);
+            return (await callbacks.onPetInteraction(type, placedPet)) !== false;
         }
 
-        // Also trigger main app interaction
+        // Without a handler, let the main app apply the interaction
         document.dispatchEvent(new CustomEvent('interaction', {
             detail: { action: type, source: 'ar' }
         }));
+        return true;
     }
 
     /**
@@ -807,7 +895,7 @@ const GochiAR = (function() {
      * @param {number} x
      * @param {number} y
      */
-    function handleTap(x, y) {
+    async function handleTap(x, y) {
         if (!placedPet) {
             // First tap places the pet
             placePetAt(x, y);
@@ -818,9 +906,10 @@ const GochiAR = (function() {
                 const rect = petElement.getBoundingClientRect();
                 if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
                     // Tap on pet - show affection
-                    triggerPetInteraction('pet');
-                    setPetAnimation('happy');
-                    showAREffect('pet');
+                    if (await triggerPetInteraction('pet')) {
+                        setPetAnimation('happy');
+                        showAREffect('pet');
+                    }
                 } else {
                     // Tap elsewhere - move pet
                     // In real AR, this would use hit testing
@@ -881,6 +970,10 @@ const GochiAR = (function() {
      * Start exercise mode
      */
     function startExerciseMode() {
+        if (!xrSession) {
+            notify('Walks can only be tracked on a device with AR.', 'warning');
+            return;
+        }
         isExerciseTracking = true;
         exerciseData = {
             startTime: Date.now(),
@@ -903,7 +996,10 @@ const GochiAR = (function() {
         // Start timer update
         updateExerciseDisplay();
 
-        GochiUI.toast.success('Exercise mode started! Walk around with your pet.');
+        if (callbacks.onExerciseStart) {
+            callbacks.onExerciseStart();
+        }
+        notify('Exercise mode started! Walk around with your pet.');
     }
 
     /**
@@ -932,12 +1028,13 @@ const GochiAR = (function() {
             calories: exerciseData.calories
         };
 
-        // Fire callback
+        // Fire callback; without one, show a summary
         if (callbacks.onExerciseUpdate) {
             callbacks.onExerciseUpdate(result);
+            return;
         }
+        if (typeof GochiUI === 'undefined') return;
 
-        // Show summary
         GochiUI.showModal({
             title: 'Exercise Complete!',
             content: `
@@ -959,6 +1056,10 @@ const GochiAR = (function() {
      */
     function updateExercisePosition(position) {
         if (!isExerciseTracking) return;
+
+        if (callbacks.onExercisePosition) {
+            callbacks.onExercisePosition(position);
+        }
 
         if (exerciseData.lastPosition) {
             const dx = position.x - exerciseData.lastPosition.x;
@@ -1038,7 +1139,7 @@ const GochiAR = (function() {
      */
     async function takeARPhoto() {
         if (!placedPet) {
-            GochiUI.toast.warning('Place your pet first!');
+            notify('Place your pet first!', 'warning');
             return;
         }
 
@@ -1049,7 +1150,7 @@ const GochiAR = (function() {
 
             // In real implementation, capture WebXR frame
             // For now, show a toast
-            GochiUI.toast.success('Photo saved!');
+            notify('Photo saved!');
 
             // Pet reacts to photo
             setPetAnimation('happy');
@@ -1057,7 +1158,7 @@ const GochiAR = (function() {
 
         } catch (error) {
             console.error('[AR] Photo failed:', error);
-            GochiUI.toast.error('Failed to take photo');
+            notify('Failed to take photo', 'error');
         }
     }
 
