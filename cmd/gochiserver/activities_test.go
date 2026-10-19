@@ -339,3 +339,76 @@ func TestRefusedCareThroughServer(t *testing.T) {
 		t.Errorf("Status should describe each care button: %v", tips)
 	}
 }
+
+// makeAdult makes the active pet old, healthy and happy enough to breed
+func makeAdult(server *Server) {
+	server.pet.Biology.Processes.Age = 10
+	server.pet.Biology.Vitals.Health = 1.0
+	server.pet.Biology.Vitals.Happiness = 0.9
+}
+
+func TestBreedingThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false, false); err != nil {
+		t.Fatal(err)
+	}
+	makeAdult(server)
+	partnerSlot := server.slot
+	if err := server.createPet("Pepper", false, false); err != nil {
+		t.Fatal(err)
+	}
+	makeAdult(server)
+
+	// Errors: a bad slot and breeding with itself
+	if rec := post(t, server.handleBreed, `{"partner_slot":"../x"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("A bad slot should be refused, got %d", rec.Code)
+	}
+	if rec := post(t, server.handleBreed, `{"partner_slot":"`+server.slot+`"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Breeding with itself should be refused, got %d", rec.Code)
+	}
+
+	// Breeding can fail by chance, so retry
+	var body string
+	for i := 0; i < 50; i++ {
+		rec := post(t, server.handleBreed, `{"partner_slot":"`+partnerSlot+`","name":"Pip"}`)
+		body = rec.Body.String()
+		if rec.Code == http.StatusOK {
+			break
+		}
+		if rec.Code != http.StatusConflict || !strings.Contains(body, "random chance") {
+			t.Fatalf("Breeding failed for a reason other than chance: %d %s", rec.Code, body)
+		}
+	}
+	if !strings.Contains(body, "Pip") {
+		t.Fatalf("Breeding never succeeded: %s", body)
+	}
+
+	saved, err := server.store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 3 {
+		t.Errorf("The baby should be saved in its own slot: %v", saved)
+	}
+	if server.pet.Name != "Pepper" {
+		t.Errorf("The active pet should stay active, got %s", server.pet.Name)
+	}
+
+	// Both parents are now in their cooldown
+	rec := httptest.NewRecorder()
+	server.handleBreedPartners(rec, httptest.NewRequest(http.MethodGet, "/api/breed/partners", nil))
+	var resp struct {
+		Data []breedingPartner `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	for _, partner := range resp.Data {
+		if partner.Name == "Biscuit" && partner.Reason == "" {
+			t.Errorf("Biscuit should be in its breeding cooldown: %+v", partner)
+		}
+	}
+	if len(resp.Data) != 2 {
+		t.Errorf("Partners should list the two other pets: %+v", resp.Data)
+	}
+}

@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
@@ -223,4 +225,136 @@ const recentAdventureDays = 5.0
 // speed of one game day per real minute
 func gameDaysToSeconds(days float64) int {
 	return int(days*60 + 0.5)
+}
+
+// breedingPartner describes another saved pet as a possible mate
+type breedingPartner struct {
+	Slot          string  `json:"slot"`
+	Name          string  `json:"name"`
+	Compatibility float64 `json:"compatibility"` // 0.0 to 1.0
+	Reason        string  `json:"reason"`        // Why they can't breed now, or ""
+}
+
+// handleBreedPartners handles GET /api/breed/partners - lists the other
+// saved pets with their compatibility with the active pet
+func (s *Server) handleBreedPartners(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	if s.store == nil {
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: []breedingPartner{}})
+		return
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+
+	saved, err := s.store.List()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not list saved pets"})
+		return
+	}
+	partners := []breedingPartner{}
+	for _, entry := range saved {
+		if entry.Slot == s.slot {
+			continue
+		}
+		partner, _, _, err := s.store.Load(entry.Slot)
+		if err != nil {
+			continue
+		}
+		compatibility, reason := core.BreedingCompatibility(s.pet, partner)
+		partners = append(partners, breedingPartner{
+			Slot: entry.Slot, Name: partner.Name, Compatibility: compatibility, Reason: reason,
+		})
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: partners})
+}
+
+// handleBreed handles POST /api/breed with {"partner_slot": slot, "name":
+// babyName}. A baby is saved in its own slot; the active pet stays active.
+func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	var req struct {
+		PartnerSlot string `json:"partner_slot"`
+		Name        string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !ValidSlot(req.PartnerSlot) {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid partner"})
+		return
+	}
+	if s.store == nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Saving is disabled"})
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = "Baby"
+	}
+
+	// Hold the save lock so the parents and baby are saved together
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	if req.PartnerSlot == s.slot {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: s.pet.Name + " can't breed with itself"})
+		return
+	}
+	s.markActiveLocked(time.Now())
+
+	partner, _, _, err := s.store.Load(req.PartnerSlot)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No saved pet in that slot"})
+		return
+	}
+
+	baby, err := core.Breed(s.pet, partner, name)
+	var breedingErr core.BreedingError
+	switch {
+	case errors.As(err, &breedingErr):
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false,
+			Error: s.pet.Name + " and " + partner.Name + " couldn't have a baby: " + breedingErr.Reason + "."})
+		return
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Something went wrong"})
+		return
+	}
+
+	babySlot := s.store.NewSlot(baby)
+	for _, save := range []struct {
+		slot string
+		pet  *core.DigitalPet
+	}{{req.PartnerSlot, partner}, {babySlot, baby}} {
+		data, err := save.pet.Save()
+		if err == nil {
+			err = s.store.Save(save.slot, data)
+		}
+		if err != nil {
+			log.Printf("Failed to save %s after breeding: %v", save.pet.Name, err)
+		}
+	}
+	if err := s.saveActiveLocked(); err != nil {
+		log.Printf("Failed to save %s after breeding: %v", s.pet.Name, err)
+	}
+
+	log.Printf("%s and %s had a baby: %s", s.pet.Name, partner.Name, baby.Name)
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"baby_name": baby.Name,
+		"baby_slot": babySlot,
+		"text":      s.pet.Name + " and " + partner.Name + " had a baby: " + baby.Name + "! Find " + baby.Name + " under Switch Pet.",
+	}})
 }

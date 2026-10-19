@@ -201,6 +201,19 @@ example "Energy −10% · Happiness +20% · Stress −5%". A stat that is alread
   Press **Call home early** to bring your pet back before the trip ends; it comes home with
   nothing from the trip. A pet that enjoys exploring starts exploring on its own.
 
+### Breeding
+
+Press **💞 Breed** to have a baby with one of your other saved pets. The panel lists each saved
+pet with how genetically compatible it is with your pet and, if they can't breed right now, why.
+Both pets must be at least 7 game days old, healthy (health at least 60%) and happy (happiness at
+least 50%), and at least 30% compatible; neither can be hibernating, exploring or have passed
+away. Breeding can still fail by chance; less compatible pairs fail more often.
+
+The baby is saved as a new pet (find it under **Switch Pet**); your current pet stays active. Its
+personality is inherited from both parents through their genes, with an occasional mutation, and
+the **About** panel shows its generation. After having a baby, each parent must wait 3 game days
+before breeding again.
+
 ### Friendship Points and the Shop
 
 Caring for a pet earns it Friendship Points: 5 points for each kind of care (including training

@@ -66,7 +66,8 @@ type PetStatus struct {
 	Souvenirs        []core.SouvenirCount   `json:"souvenirs"`
 	Needs            []core.NeedLevel       `json:"needs"` // Needs not shown as stat bars
 	Environment      core.EnvironmentStatus `json:"environment"`
-	CareTips         map[string]string      `json:"care_tips"`      // What each care button does
+	CareTips         map[string]string      `json:"care_tips"` // What each care button does
+	Generation       int                    `json:"generation"`
 	LastAdventure    *core.Adventure        `json:"last_adventure"` // Most recent trip, if it ended recently
 	Mood             string                 `json:"mood"`
 	Health           float64                `json:"health"`
@@ -181,6 +182,8 @@ func main() {
 	mux.HandleFunc("/api/hideseek/start", server.handleHideSeekStart)
 	mux.HandleFunc("/api/hideseek/guess", server.handleHideSeekGuess)
 	mux.HandleFunc("/api/explore", server.handleExplore)
+	mux.HandleFunc("/api/breed", server.handleBreed)
+	mux.HandleFunc("/api/breed/partners", server.handleBreedPartners)
 	mux.HandleFunc("/api/explore/recall", server.handleRecall)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 
@@ -448,7 +451,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .speech::after { content: ''; position: absolute; left: 50%; bottom: -8px; margin-left: -8px; border: 8px solid transparent; border-top-color: #fff3bf; border-bottom: 0; }
         @keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.9); } 50% { box-shadow: 0 0 0 6px rgba(255, 193, 7, 0); } }
         .requested { animation: nudge 1.2s ease-in-out infinite; outline: 3px solid #ffc107; }
-        .activities { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+        .activities { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
         .activity-btn { padding: 10px 6px; border: 2px solid #b197fc; border-radius: 12px; background: #f3f0ff; color: #5f3dc4; font-weight: 600; font-size: 0.9em; cursor: pointer; }
         .activity-btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .activity-panel { margin-top: 10px; padding: 12px; border-radius: 12px; background: #f8f9fa; border: 2px solid #e9ecef; }
@@ -607,6 +610,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn train" onclick="openTricks()">🎓 Train</button>
                 <button class="activity-btn" onclick="startHideSeek()">🙈 Hide &amp; Seek</button>
                 <button class="activity-btn explore" onclick="explore()">🧭 Explore</button>
+                <button class="activity-btn" onclick="openBreeding()">💞 Breed</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -675,6 +679,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutLikes"></div>
                 <div id="aboutDislikes"></div>
                 <div id="aboutTreasures"></div>
+                <div id="aboutGeneration"></div>
             </div>
 
             <div class="status-text" id="statusText">Age: 0 days | Wellbeing: 100%</div>
@@ -1172,6 +1177,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 (env.outdoor_safe ? '' : ' · risky for exploring') : '';
 
             document.getElementById('aboutPersonality').textContent = status.personality;
+            document.getElementById('aboutGeneration').textContent = 'Generation ' + (status.generation || 1);
             const setList = (id, label, items, none) => {
                 const el = document.getElementById(id);
                 el.replaceChildren();
@@ -1534,6 +1540,74 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     } else {
                         showPointsToast(data.error || 'Something went wrong');
                     }
+                })
+                .catch(console.error);
+        }
+
+        function openBreeding() {
+            panelMode = 'breeding';
+            fetch('/api/breed/partners')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        showPointsToast(data.error || 'Something went wrong');
+                        return;
+                    }
+                    renderBreeding(data.data);
+                })
+                .catch(console.error);
+        }
+
+        function renderBreeding(partners) {
+            const p = panel();
+            p.replaceChildren(panelHeader('Breed'));
+            const name = (lastStatus && lastStatus.name) || 'Your pet';
+
+            if (partners.length === 0) {
+                const none = document.createElement('div');
+                none.className = 'panel-text';
+                none.textContent = 'Create or load another pet first. ' + name + ' needs a partner from your saved pets.';
+                p.append(none);
+                p.classList.remove('hidden');
+                return;
+            }
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = 'babyNameInput';
+            input.maxLength = 20;
+            input.placeholder = "Baby's name";
+            input.style.cssText = 'width: 100%; padding: 8px 10px; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px;';
+            p.append(input);
+
+            partners.forEach(partner => {
+                const row = document.createElement('div');
+                row.className = 'trick-row';
+                const label = document.createElement('span');
+                label.className = 'trick-name';
+                label.textContent = partner.name;
+                const info = document.createElement('span');
+                info.style.cssText = 'flex: 1; font-size: 0.8em; color: #777;';
+                info.textContent = Math.round(partner.compatibility * 100) + '% compatible' +
+                    (partner.reason ? ' · ' + partner.reason : '');
+                const btn = document.createElement('button');
+                btn.className = 'save-btn';
+                btn.textContent = 'Breed';
+                btn.disabled = !!partner.reason;
+                btn.onclick = () => breedWith(partner.slot, btn);
+                row.append(label, info, btn);
+                p.append(row);
+            });
+            p.classList.remove('hidden');
+        }
+
+        function breedWith(slot, btn) {
+            btn.disabled = true;
+            postJSON('/api/breed', {partner_slot: slot, name: document.getElementById('babyNameInput').value})
+                .then(data => {
+                    showPointsToast(data.success ? data.data.text : (data.error || 'Something went wrong'));
+                    openBreeding();
+                    fetchStatus();
                 })
                 .catch(console.error);
         }
@@ -2138,6 +2212,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.Needs = s.pet.PsychologicalNeeds()
 	petStatus.Environment = s.pet.EnvironmentStatus()
 	petStatus.CareTips = careTips()
+	petStatus.Generation = s.pet.Generation()
 	petStatus.HibernationOn = s.pet.HibernationEnabled
 	petStatus.CauseOfDeath = s.pet.Biology.CauseOfDeath
 	petStatus.Tricks = s.pet.Tricks()

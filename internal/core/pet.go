@@ -12,6 +12,7 @@ import (
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
+	"github.com/Michael-W-Ellison/gochi/internal/genetics"
 	"github.com/Michael-W-Ellison/gochi/internal/interaction"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/internal/social"
@@ -25,21 +26,22 @@ type DigitalPet struct {
 	Name string      `json:"name"`
 
 	// Core Systems
-	Biology       *biology.BiologicalSystems   `json:"biology"`
-	Personality   *ai.PersonalityMatrix        `json:"personality"`
-	Memory        *ai.MemorySystem             `json:"memory"`
-	Emotions      *ai.EmotionState             `json:"emotions"`
-	Relationships *social.SocialRelationships  `json:"relationships"`
-	Needs         *simulation.NeedsManager     `json:"needs"`
-	Environment   *environment.Environment     `json:"environment"`
+	Biology       *biology.BiologicalSystems  `json:"biology"`
+	Personality   *ai.PersonalityMatrix       `json:"personality"`
+	Memory        *ai.MemorySystem            `json:"memory"`
+	Emotions      *ai.EmotionState            `json:"emotions"`
+	Relationships *social.SocialRelationships `json:"relationships"`
+	Needs         *simulation.NeedsManager    `json:"needs"`
+	Environment   *environment.Environment    `json:"environment"`
+	Genome        *genetics.Genome            `json:"genome"`
 
 	// Current State
 	CurrentBehavior types.BehaviorState `json:"current_behavior"`
 	Location        string              `json:"location"`
 
 	// Metadata
-	CreatedAt    time.Time `json:"created_at"`
-	LastUpdateAt time.Time `json:"last_update_at"`
+	CreatedAt    time.Time    `json:"created_at"`
+	LastUpdateAt time.Time    `json:"last_update_at"`
 	Owner        types.UserID `json:"owner"`
 
 	// Statistics
@@ -71,7 +73,8 @@ type DigitalPet struct {
 	Souvenirs         []string           `json:"souvenirs"`
 	LastAdventure     *Adventure         `json:"last_adventure"`
 	LastGameReward    time.Time          `json:"last_game_reward"`
-	Injured           bool               `json:"injured"` // Hurt while exploring; healed by medical care
+	Injured           bool               `json:"injured"`       // Hurt while exploring; healed by medical care
+	LastBredAge       float64            `json:"last_bred_age"` // Age at the last breeding (0 if never)
 	game              *hideAndSeek       // Game in progress (not saved)
 
 	// mu guards concurrent updates, interactions and reads of pet state
@@ -83,30 +86,34 @@ func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 	now := time.Now()
 	id := types.PetID(fmt.Sprintf("pet_%d_%s", now.Unix(), name))
 
-	return &DigitalPet{
-		ID:              id,
-		Name:            name,
-		Biology:         biology.NewBiologicalSystems(),
-		Personality:     ai.NewPersonalityMatrix(),
-		Memory:          ai.NewMemorySystem(100),
-		Emotions:        ai.NewEmotionState(),
-		Relationships:   social.NewSocialRelationships(20),
-		Needs:           simulation.NewNeedsManager(),
-		Environment:     environment.NewEnvironment(),
-		CurrentBehavior: types.BehaviorIdle,
-		Location:        "home",
-		CreatedAt:       now,
-		LastUpdateAt:    now,
-		Owner:           owner,
+	pet := &DigitalPet{
+		ID:                id,
+		Name:              name,
+		Biology:           biology.NewBiologicalSystems(),
+		Personality:       ai.NewPersonalityMatrix(),
+		Memory:            ai.NewMemorySystem(100),
+		Emotions:          ai.NewEmotionState(),
+		Relationships:     social.NewSocialRelationships(20),
+		Needs:             simulation.NewNeedsManager(),
+		Environment:       environment.NewEnvironment(),
+		CurrentBehavior:   types.BehaviorIdle,
+		Location:          "home",
+		CreatedAt:         now,
+		LastUpdateAt:      now,
+		Owner:             owner,
 		TotalInteractions: 0,
 		TotalPlayTime:     0,
 	}
+	pet.ensureGenomeLocked()
+	return pet
 }
 
 // NewDigitalPetRandom creates a pet with randomized personality
 func NewDigitalPetRandom(name string, owner types.UserID) *DigitalPet {
 	pet := NewDigitalPet(name, owner)
 	pet.Personality = ai.NewPersonalityMatrixRandom()
+	pet.Genome = nil
+	pet.ensureGenomeLocked() // Match the genome to the new personality
 	return pet
 }
 
@@ -486,19 +493,19 @@ func (p *DigitalPet) GetCurrentStatus() PetStatus {
 	defer p.mu.Unlock()
 
 	return PetStatus{
-		PetID:            p.ID,
-		Name:             p.Name,
-		IsAlive:          p.Biology.IsAlive,
-		Hibernating:      p.Hibernating,
-		Age:              p.Biology.GetAgeInDays(),
-		Health:           p.Biology.Vitals.Health,
-		Energy:           p.Biology.Vitals.Energy,
-		Happiness:        p.Biology.Vitals.Happiness,
-		Wellbeing:        p.Biology.Vitals.GetOverallWellbeing(),
-		CurrentBehavior:  p.CurrentBehavior,
-		MoodDescription:  p.Emotions.GetMoodDescription(),
+		PetID:             p.ID,
+		Name:              p.Name,
+		IsAlive:           p.Biology.IsAlive,
+		Hibernating:       p.Hibernating,
+		Age:               p.Biology.GetAgeInDays(),
+		Health:            p.Biology.Vitals.Health,
+		Energy:            p.Biology.Vitals.Energy,
+		Happiness:         p.Biology.Vitals.Happiness,
+		Wellbeing:         p.Biology.Vitals.GetOverallWellbeing(),
+		CurrentBehavior:   p.CurrentBehavior,
+		MoodDescription:   p.Emotions.GetMoodDescription(),
 		StatusDescription: p.Biology.GetStatus(),
-		CriticalNeeds:    p.Biology.Vitals.GetCriticalStats(0.3),
+		CriticalNeeds:     p.Biology.Vitals.GetCriticalStats(0.3),
 	}
 }
 
