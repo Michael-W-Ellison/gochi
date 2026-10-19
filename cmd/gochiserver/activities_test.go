@@ -473,10 +473,25 @@ func TestStatusShowsPersonalityChanges(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		v := server.pet.Biology.Vitals
 		v.Energy, v.Fatigue, v.Stress = 1, 0, 0
+		server.pet.RecentCare = nil // As if the care were spread out over time
 		server.pet.Interact(types.InteractionPlaying, 1.0)
 	}
 	changes, _ := statusOf(t, server)["personality_changes"].([]interface{})
 	if !slices.Contains(changes, interface{}("more playful")) {
 		t.Errorf("Status should say how the pet has changed: %v", changes)
+	}
+}
+
+func TestRepeatedCareIsReported(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for i := 0; i < 3; i++ {
+		body = post(t, server.handleInteract, `{"action":"pet"}`).Body.String()
+	}
+	if !strings.Contains(body, "Biscuit has had plenty of this just now") {
+		t.Errorf("Repeated care should be reported: %s", body)
 	}
 }

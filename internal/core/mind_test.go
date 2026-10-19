@@ -1,8 +1,11 @@
 package core
 
 import (
+	"math"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -107,9 +110,11 @@ func TestCareRewardsCurrentBehavior(t *testing.T) {
 }
 
 func TestPersonalityChangesWithCare(t *testing.T) {
+	clock := useClock(t, time.Date(2026, 10, 19, 9, 0, 0, 0, time.Local))
 	pet := NewDigitalPet("Biscuit", "user123")
 	start := *pet.Personality.Traits
 	for i := 0; i < 40; i++ {
+		*clock = clock.Add(time.Hour) // Care spread out over time
 		setCalmHealthyState(pet)
 		pet.Interact(types.InteractionPlaying, 1.0)
 	}
@@ -122,6 +127,7 @@ func TestPersonalityChangesWithCare(t *testing.T) {
 
 	scolded := NewDigitalPet("Mochi", "user123")
 	for i := 0; i < 20; i++ {
+		*clock = clock.Add(time.Hour)
 		setCalmHealthyState(scolded)
 		scolded.Interact(types.InteractionDiscipline, 1.0)
 	}
@@ -178,5 +184,60 @@ func TestMindSurvivesSaveLoad(t *testing.T) {
 	}
 	if changes := loaded.PersonalityChanges(); !slices.Contains(changes, "more playful") {
 		t.Errorf("The personality baseline should be saved: %v", changes)
+	}
+}
+
+func TestRepeatedCareDiminishes(t *testing.T) {
+	clock := useClock(t, time.Date(2026, 10, 19, 9, 0, 0, 0, time.Local))
+	pet := NewDigitalPet("Biscuit", "user123")
+
+	// The nth repeat in a row counts 1/n
+	for i, want := range []float64{1, 0.5, 1.0 / 3} {
+		if got := pet.repeatWeightLocked(types.InteractionPetting); math.Abs(got-want) > 1e-9 {
+			t.Errorf("Repeat %d: weight %f, want %f", i+1, got, want)
+		}
+	}
+	// Other kinds of care are counted separately
+	if got := pet.repeatWeightLocked(types.InteractionPlaying); got != 1 {
+		t.Errorf("A different kind of care should count fully, got %f", got)
+	}
+	// Repeats fade with time: after one half-life, three repeats count as 1.5
+	*clock = clock.Add(repeatHalfLife)
+	if got := pet.repeatWeightLocked(types.InteractionPetting); math.Abs(got-1/2.5) > 1e-9 {
+		t.Errorf("After a half-life, weight %f, want %f", got, 1/2.5)
+	}
+	*clock = clock.Add(time.Hour)
+	if got := pet.repeatWeightLocked(types.InteractionPetting); got < 0.99 {
+		t.Errorf("Care long after should count fully again, got %f", got)
+	}
+}
+
+func TestSpamClickingChangesPersonalityLess(t *testing.T) {
+	clock := useClock(t, time.Date(2026, 10, 19, 9, 0, 0, 0, time.Local))
+	spaced, spammed := NewDigitalPet("Biscuit", "user123"), NewDigitalPet("Mochi", "user123")
+	var last InteractionResult
+	for i := 0; i < 40; i++ { // Clicks a second apart
+		*clock = clock.Add(time.Second)
+		setCalmHealthyState(spammed)
+		last = spammed.Interact(types.InteractionPetting, 1.0)
+	}
+	for i := 0; i < 40; i++ { // Care an hour apart
+		*clock = clock.Add(time.Hour)
+		setCalmHealthyState(spaced)
+		spaced.Interact(types.InteractionPetting, 1.0)
+	}
+
+	start := NewDigitalPet("Start", "user123").Personality.Traits.Affectionate
+	spacedGain := spaced.Personality.Traits.Affectionate - start
+	spammedGain := spammed.Personality.Traits.Affectionate - start
+	t.Logf("Affection gained: 40 rapid pettings %.4f, 40 spread out %.4f", spammedGain, spacedGain)
+	if spammedGain <= 0 || spammedGain > spacedGain/4 {
+		t.Errorf("40 rapid pettings should change a pet far less than 40 spread out: %f vs %f", spammedGain, spacedGain)
+	}
+	if !strings.Contains(last.Repeated, "won't change how Mochi grows") {
+		t.Errorf("The player should be told repeated care no longer counts: %q", last.Repeated)
+	}
+	if spammed.Biology.Vitals.Happiness < 0.8 {
+		t.Error("Repeated care should still make the pet happy")
 	}
 }

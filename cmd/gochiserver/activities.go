@@ -24,6 +24,7 @@ func (s *Server) interactionData(result core.InteractionResult) map[string]inter
 		"reaction":          result.Reaction,
 		"reaction_text":     result.ReactionText,
 		"lesson":            result.Lesson,
+		"repeated":          result.Repeated,
 	}
 }
 

@@ -135,6 +135,10 @@ type InteractionResult struct {
 	// What this care teaches about looking after a real pet
 	Lesson string
 
+	// Set when the same care was repeated so often just now that it
+	// barely counts towards the pet's learning and personality
+	Repeated string
+
 	// How the pet reacted, which scales the interaction's benefits by
 	// ReactionMultiplier (see reactionLocked)
 	Reaction           ReactionLevel

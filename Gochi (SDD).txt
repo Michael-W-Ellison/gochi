@@ -318,6 +318,13 @@ neglect raise independence and neuroticism and lower loyalty over time. The trai
 change are kept as a baseline, and the player is shown traits that have moved 0.05 or more from
 it. Babies inherit genes, not their parents' acquired changes.
 
+Repeated care: the same kind of care given in quick succession counts less towards personality
+change and reinforcement learning. Each kind of care keeps a count of recent repeats that halves
+every 3 real minutes; care is weighted 1 / (1 + count), so the nth repeat in a row counts 1/n. The
+weight scales the trait changes and the learning reward but not the care's effect on vital stats.
+Below a weight of 0.5 the result tells the player that more of it right away won't change how the
+pet grows.
+
 Memories: the long-term store holds up to 5,000 memories. Long-term memories fade at a rate
 scaled by importance; at the default time scale a full-strength memory lasts about 17 hours
 (trivial), 2 weeks (minor), 4 weeks (moderate), 8 weeks (significant) or 6 months (major) of real

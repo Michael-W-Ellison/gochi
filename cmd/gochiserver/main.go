@@ -568,6 +568,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .guide-topic.relevant { border-color: #fab005; background: #fff9db; }
         .guide-topic p { margin: 6px 0 2px; color: #444; font-size: 0.92em; line-height: 1.4; }
         .points-toast .lesson { color: #1864ab; }
+        .points-toast .repeated { color: #868e96; font-size: 0.95em; }
         .needs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
         .need { text-align: center; font-size: 0.7em; color: #666; }
         .need-bar { height: 6px; margin-top: 3px; background: #e9ecef; border-radius: 3px; overflow: hidden; }
@@ -1592,6 +1593,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if (boost) lines.push([boost.icon + ' ' + boost.name + ': ' + boost.description, 'boost']);
             if (result.bonus_points > 0) lines.push(['+' + result.bonus_points + ' game bonus!', '']);
             if (result.lesson) lines.push(['💡 ' + result.lesson, 'lesson']);
+            if (result.repeated) lines.push([result.repeated, 'repeated']);
             if ('points_earned' in result) {
                 lines.push(result.points_earned > 0 ?
                     ['+' + result.points_earned + ' Friendship Points!', ''] :

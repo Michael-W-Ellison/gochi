@@ -237,6 +237,11 @@ The lessons and guide give general care advice. For a real pet, follow your vete
   make it more anxious, and a pet left lonely or neglected becomes more independent, more anxious
   and less attached. Each experience changes it only a little, so changes show after many
   experiences (for example, about 30 enjoyed play sessions to become noticeably more playful).
+  The same care repeated in quick succession counts less each time towards personality and
+  learning (the second in a row counts half, the third a third, and so on, recovering over a few
+  minutes), so 40 quick clicks change a pet about as much as 4 or 5 visits spread out. Repeated
+  care still feeds, waters and cheers up your pet as usual; after a few repeats the page says that
+  more of it right away won't change how your pet grows.
   Personality changes are not passed on to babies, which inherit their parents' genes.
 - **Reactions**: each pet reacts in its own way. A hungry pet gobbles up its food while a full one
   barely eats; an affectionate pet loves being petted while an independent one wants space; a pet

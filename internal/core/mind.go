@@ -2,6 +2,7 @@ package core
 
 import (
 	"math"
+	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/internal/biology"
@@ -140,27 +141,73 @@ func (p *DigitalPet) evolveLocked(experiences ...ai.ExperienceData) {
 // evolveFromCareLocked changes the pet's personality from care it was
 // given: enjoyed care develops matching traits and, given consistently,
 // makes the pet calmer and more attached; scolding and unwelcome care
-// make it more anxious. Caller must hold p.mu.
-func (p *DigitalPet) evolveFromCareLocked(interactionType types.InteractionType, valence float64) {
+// make it more anxious. weight (0.0 to 1.0) scales the change, lower for
+// care repeated in quick succession. Caller must hold p.mu.
+func (p *DigitalPet) evolveFromCareLocked(interactionType types.InteractionType, valence, weight float64) {
 	if interactionType == types.InteractionDiscipline {
-		p.evolveLocked(ai.ExperienceData{TraitAffected: "neuroticism", Intensity: 0.3},
-			ai.ExperienceData{TraitAffected: "agreeableness", Intensity: -0.2})
+		p.evolveLocked(ai.ExperienceData{TraitAffected: "neuroticism", Intensity: 0.3 * weight},
+			ai.ExperienceData{TraitAffected: "agreeableness", Intensity: -0.2 * weight})
 		return
 	}
 	if valence <= 0 {
-		p.evolveLocked(ai.ExperienceData{TraitAffected: "neuroticism", Intensity: 0.05})
+		p.evolveLocked(ai.ExperienceData{TraitAffected: "neuroticism", Intensity: 0.05 * weight})
 		return
 	}
 
 	var experiences []ai.ExperienceData
 	for _, e := range careExperiences[interactionType] {
-		e.Intensity *= valence
+		e.Intensity *= valence * weight
 		experiences = append(experiences, e)
 	}
 	experiences = append(experiences,
-		ai.ExperienceData{TraitAffected: "neuroticism", Intensity: -0.05 * valence},
-		ai.ExperienceData{TraitAffected: "loyalty", Intensity: 0.05 * valence})
+		ai.ExperienceData{TraitAffected: "neuroticism", Intensity: -0.05 * valence * weight},
+		ai.ExperienceData{TraitAffected: "loyalty", Intensity: 0.05 * valence * weight})
 	p.evolveLocked(experiences...)
+}
+
+// Repeated care. The same kind of care given again and again in quick
+// succession matters less each time to how the pet learns and grows: the
+// nth repeat counts 1/n as much. Recent repeats fade with a half-life of
+// repeatHalfLife (real time, like reward cooldowns), so care spread out
+// over time keeps its full effect. The care's other benefits (food,
+// water, happiness) are not reduced.
+
+const (
+	// repeatHalfLife is how long it takes a run of repeated care to count
+	// half as much
+	repeatHalfLife = 3 * time.Minute
+
+	// diminishedWeight is the weight below which the player is told that
+	// more of the same care won't change the pet just now
+	diminishedWeight = 0.5
+)
+
+// RecentCare counts how much of one kind of care the pet has had lately
+type RecentCare struct {
+	Count float64   `json:"count"` // Recent repeats, fading over time
+	At    time.Time `json:"at"`    // When it was last counted
+}
+
+// repeatWeightLocked returns how much a kind of care counts towards
+// learning and personality now (1.0 the first time, less when repeated
+// in quick succession) and records it. Caller must hold p.mu.
+func (p *DigitalPet) repeatWeightLocked(interactionType types.InteractionType) float64 {
+	t := now()
+	if p.RecentCare == nil {
+		p.RecentCare = make(map[types.InteractionType]*RecentCare)
+	}
+	recent := p.RecentCare[interactionType]
+	if recent == nil {
+		recent = &RecentCare{}
+		p.RecentCare[interactionType] = recent
+	}
+
+	count := recent.Count
+	if elapsed := t.Sub(recent.At); elapsed > 0 {
+		count *= math.Pow(0.5, elapsed.Seconds()/repeatHalfLife.Seconds())
+	}
+	recent.Count, recent.At = count+1, t
+	return 1 / (1 + count)
 }
 
 // evolveFromHardshipLocked makes the pet more anxious after a frightening

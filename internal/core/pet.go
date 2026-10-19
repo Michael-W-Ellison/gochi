@@ -89,8 +89,9 @@ type DigitalPet struct {
 	// What the pet has learned about how its owner responds to its
 	// behaviors (reinforcement learning), and the state machine that
 	// chooses its behavior (built when needed, not saved)
-	Learning *ai.LearningSystem `json:"learning"`
-	behavior *ai.BehaviorStateMachine
+	Learning   *ai.LearningSystem                    `json:"learning"`
+	RecentCare map[types.InteractionType]*RecentCare `json:"recent_care"` // Repeated care, which counts less
+	behavior   *ai.BehaviorStateMachine
 
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
@@ -361,8 +362,13 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	// personality slowly changes with how it is treated (cleaning the
 	// living area doesn't involve the pet)
 	if interactionType != types.InteractionCleaning {
-		p.learnFromResponseLocked(behaviorBefore, contextBefore, valence)
-		p.evolveFromCareLocked(interactionType, valence)
+		weight := p.repeatWeightLocked(interactionType)
+		p.learnFromResponseLocked(behaviorBefore, contextBefore, valence*weight)
+		p.evolveFromCareLocked(interactionType, valence, weight)
+		if weight < diminishedWeight {
+			result.Repeated = fmt.Sprintf("%s has had plenty of this just now; more right away won't change how %s grows.",
+				p.Name, p.Name)
+		}
 	}
 
 	p.meetNeedsLocked(interactionType, intensity)
