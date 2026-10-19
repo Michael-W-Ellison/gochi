@@ -195,3 +195,27 @@ func TestRefusedTrainingTeachesNothing(t *testing.T) {
 		t.Error("Refused training should not improve the trick")
 	}
 }
+
+func TestWalkMeetsExerciseNeed(t *testing.T) {
+	pet := NewDigitalPet("Biscuit", "user123")
+	setCalmHealthyState(pet)
+	pet.Update(2)
+	exercise := needOf(pet, types.NeedExercise)
+	energy := pet.Biology.Vitals.Energy
+
+	sessions, err := pet.Walk(250)
+	if err != nil || sessions != 0.5 {
+		t.Fatalf("A 250 m walk should count as half a play session, got %f, %v", sessions, err)
+	}
+	if needOf(pet, types.NeedExercise) <= exercise || pet.Biology.Vitals.Energy >= energy {
+		t.Error("A walk should meet the exercise need and use energy")
+	}
+	if sessions, _ := pet.Walk(10000); sessions != maxWalkSessions {
+		t.Errorf("A long walk should be capped at %f sessions, got %f", maxWalkSessions, sessions)
+	}
+
+	pet.CurrentBehavior = types.BehaviorSleeping
+	if _, err := pet.Walk(500); !errors.Is(err, ErrSleeping) {
+		t.Errorf("A sleeping pet can't walk, got %v", err)
+	}
+}

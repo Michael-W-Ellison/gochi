@@ -114,3 +114,36 @@ func (p *DigitalPet) PsychologicalNeeds() []NeedLevel {
 	}
 	return levels
 }
+
+// metersPerWalkSession is how far the player must walk with the pet (for
+// example, tracked by AR) to meet its exercise need as much as one play
+// session does
+const metersPerWalkSession = 500.0
+
+// maxWalkSessions caps how much one walk counts
+const maxWalkSessions = 2.0
+
+// walkEnergyCost is the energy one walk session uses
+const walkEnergyCost = 0.05
+
+// Walk records a walk with the player and returns how much it counted, in
+// play sessions of exercise. Returns the same errors as other activities
+// if the pet can't go.
+func (p *DigitalPet) Walk(meters float64) (float64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.checkActiveLocked(); err != nil {
+		return 0, err
+	}
+	sessions := min(max(meters, 0)/metersPerWalkSession, maxWalkSessions)
+	if sessions == 0 {
+		return 0, nil
+	}
+
+	p.ensureNeedsLocked()
+	p.Needs.SatisfyNeed(types.NeedExercise, sessions, p.Biology.GetAgeInDays())
+	p.Biology.Vitals.Energy = max(p.Biology.Vitals.Energy-walkEnergyCost*sessions, 0)
+	p.syncPhysicalNeedsLocked()
+	return sessions, nil
+}

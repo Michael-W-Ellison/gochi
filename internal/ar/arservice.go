@@ -960,6 +960,12 @@ func (s *ARService) StopExerciseTracking() ExerciseResult {
 	return s.exerciseTracker.StopTracking()
 }
 
+// UpdateExercisePosition records the player's position for exercise
+// tracking
+func (s *ARService) UpdateExercisePosition(position Vector3) {
+	s.exerciseTracker.UpdatePosition(position)
+}
+
 // GetExerciseStats returns current exercise stats
 func (s *ARService) GetExerciseStats() ExerciseResult {
 	return s.exerciseTracker.GetExerciseStats()
@@ -967,6 +973,8 @@ func (s *ARService) GetExerciseStats() ExerciseResult {
 
 // IsExerciseTracking returns whether exercise tracking is active
 func (s *ARService) IsExerciseTracking() bool {
+	s.exerciseTracker.mu.RLock()
+	defer s.exerciseTracker.mu.RUnlock()
 	return s.exerciseTracker.IsTracking
 }
 

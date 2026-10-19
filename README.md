@@ -58,7 +58,7 @@ gochi/
 │   └── ar/             # Augmented reality support
 ├── pkg/
 │   └── types/          # Shared type definitions
-├── api/                # REST API package (not yet used by the server)
+├── api/                # REST API package (served at /api/v1 with -api-token)
 ├── configs/            # Configuration files
 ├── web/                # Web UI assets
 ├── test/               # Integration tests
@@ -102,6 +102,7 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | `-data-dir` | `~/.gochi` | Directory for saved pets (`saves/`) and backups (`backups/`) |
 | `-autosave` | `1m` | How often the active pet is saved automatically; `0` turns autosave off |
 | `-away-pause` | `2m` | Pause time once the player has been away this long; `0` turns the away pause off |
+| `-api-token` | (none) | Turn on the REST API at `/api/v1` for requests carrying this token (see [REST API](#rest-api)) |
 | `-time-scale` | `game` | Game speed: `game` (one game day per real minute), `24x` (one game day per real hour), `4x` (one game day per six real hours) or `realtime` |
 
 Durations use Go syntax, such as `30s`, `5m` or `1h`.
@@ -274,6 +275,49 @@ make lint
 # Run in development mode with live reload
 make dev
 ```
+
+## REST API
+
+Other programs can use the REST API from the `api` package when the server is started with
+`-api-token`, for example `./bin/gochi -api-token my-secret`. Requests to `/api/v1/...` must send
+the header `Authorization: Bearer my-secret`; `/health` and `/ready` need no token. Without
+`-api-token` these routes are off.
+
+| Route | Description |
+|---|---|
+| `GET /api/v1/pets` | All saved pets |
+| `POST /api/v1/pets` | Create a pet (`{"name": "...", "randomize_traits": true}`); it is saved without becoming the active pet |
+| `GET /api/v1/pets/{id}`, `GET /api/v1/pets/{id}/status` | One pet |
+| `PUT /api/v1/pets/{id}` | Rename a pet (`{"name": "..."}`) |
+| `POST /api/v1/pets/{id}/interactions` | Care for a pet (`{"type": "feed", "intensity": 1}`; types: feed, drink, pet, play, train, groom, medical, reward, discipline) |
+| `POST /api/v1/pets/{id}/interactions/feed`, `.../play` | Shortcuts for feeding and playing |
+| `GET /api/v1/social/friends?pet_id=...` | A pet's friends |
+
+Care through the API follows the game's rules: a pet that turns something down answers with
+status 409 and the reason. Pets can't be deleted through the API (403), because deleting asks for
+the confirmations described above. Social features that need other players (nearby pets, friend
+requests) and cloud sync answer with an error, because the server has no cloud service.
+
+## Augmented Reality
+
+The server keeps an AR scene for an AR client: a program that uses the device's camera to find
+floors and tables, such as a WebXR page or a phone app. The client reports what it sees, and the
+server places the active pet in the room and turns gestures into care. No such client is included
+yet: `web/static/js/ar.js` contains WebXR code but does not use these endpoints.
+
+| Route | Description |
+|---|---|
+| `GET /api/ar` | The scene: session state, surfaces, the placed pet (with its current behavior) and walk tracking |
+| `POST /api/ar/session` | `{"action": "start"}`, `"pause"`, `"resume"` or `"stop"` |
+| `POST /api/ar/plane` | Report a surface (`{"plane": {"id": "floor", "type": "horizontal", "center": {...}, "extent": {...}}}`) or `{"remove": "floor"}` |
+| `POST /api/ar/camera` | Report the camera's `{"transform": {...}}` and an optional `{"light": {...}}` estimate |
+| `POST /api/ar/place` | Place the active pet at `{"position": {...}}`, or in the middle of the largest floor or table |
+| `POST /api/ar/gesture` | A gesture (`{"type": "tap", "position": {...}}`). On the pet, a tap pets it, a double tap plays, a long press feeds it and a swipe throws a ball |
+| `POST /api/ar/exercise` | `{"action": "start"}`, `{"action": "position", "position": {...}}` while walking, then `{"action": "stop"}` |
+
+Gestures follow the same rules as the care buttons. A walk counts towards the pet's **Exercise**
+need: every 500 m counts as much as one play session (at most two per walk) and uses a little
+energy. A sleeping, tired, hibernating or exploring pet can't go for a walk.
 
 ## Configuration
 

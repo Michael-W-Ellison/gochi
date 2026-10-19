@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/ar"
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -35,6 +36,12 @@ type Server struct {
 	manualPause  bool          // Paused with the Pause button
 	lastActivity time.Time     // Last time the player was present
 	awayTimeout  time.Duration // Pause after this long without the player (0 disables)
+
+	// Augmented reality state, for AR clients. Never held together with
+	// mu.
+	arMu      sync.Mutex
+	arService *ar.ARService // Created on first use
+	arTouches []arTouch     // Pet interactions from the gesture being processed
 }
 
 // Pause reasons reported by /api/status
@@ -96,6 +103,7 @@ func main() {
 	autosaveInterval := flag.Duration("autosave", time.Minute, "how often to save the pet automatically (0 disables)")
 	awayTimeout := flag.Duration("away-pause", 2*time.Minute, "pause time when the player has been away this long (0 disables)")
 	addr := flag.String("addr", ":8080", "address to listen on")
+	apiToken := flag.String("api-token", "", "enable the REST API at /api/v1 for requests with this bearer token")
 	scaleName := flag.String("time-scale", "game", "game speed: game (1 game day per real minute), 24x, 4x or realtime")
 	flag.Parse()
 
@@ -158,10 +166,14 @@ func main() {
 	// Setup routes
 	mux := http.NewServeMux()
 
-	// API v1 routes (for the frontend JS)
-	mux.HandleFunc("/api/v1/pets", server.handlePets)
-	mux.HandleFunc("/api/v1/pets/", server.handlePetByID)
-	mux.HandleFunc("/api/v1/interactions/", server.handleInteractV1)
+	// The REST API from the api package, for other clients
+	if *apiToken != "" {
+		apiRoutes := server.apiHandler(*apiToken)
+		for _, pattern := range []string{"/api/v1", "/api/v1/", "/health", "/ready"} {
+			mux.Handle(pattern, apiRoutes)
+		}
+		log.Printf("REST API enabled at /api/v1")
+	}
 
 	// Simple API routes
 	mux.HandleFunc("/api/status", server.handleStatus)
@@ -186,6 +198,13 @@ func main() {
 	mux.HandleFunc("/api/breed/partners", server.handleBreedPartners)
 	mux.HandleFunc("/api/explore/recall", server.handleRecall)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
+	mux.HandleFunc("/api/ar", server.handleARState)
+	mux.HandleFunc("/api/ar/session", server.handleARSession)
+	mux.HandleFunc("/api/ar/plane", server.handleARPlane)
+	mux.HandleFunc("/api/ar/camera", server.handleARCamera)
+	mux.HandleFunc("/api/ar/place", server.handleARPlace)
+	mux.HandleFunc("/api/ar/gesture", server.handleARGesture)
+	mux.HandleFunc("/api/ar/exercise", server.handleARExercise)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -1807,9 +1826,9 @@ func (s *Server) createPet(name string, randomize, hibernation bool) error {
 	}
 
 	err := s.switchPet(func() (*core.DigitalPet, string, error) {
-		pet := core.NewDigitalPet(name, "web_user")
+		pet := core.NewDigitalPet(name, localOwner)
 		if randomize {
-			pet = core.NewDigitalPetRandom(name, "web_user")
+			pet = core.NewDigitalPetRandom(name, localOwner)
 		}
 		pet.HibernationEnabled = hibernation
 		slot := sanitizeSlot(string(pet.ID))
@@ -2353,149 +2372,6 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	data := s.getPetData()
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
-}
-
-// handlePets handles /api/v1/pets - list and create
-func (s *Server) handlePets(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		// List pets
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-
-		if s.pet == nil {
-			writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: []interface{}{}})
-			return
-		}
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: []interface{}{s.getPetData()}})
-
-	case http.MethodPost:
-		// Create pet
-		var req struct {
-			Name      string `json:"name"`
-			Randomize bool   `json:"randomize"`
-			// Hibernate instead of dying from neglect (off by default)
-			Hibernation bool `json:"hibernation"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
-			return
-		}
-
-		if err := s.createPet(req.Name, req.Randomize, req.Hibernation); err != nil {
-			log.Printf("Create failed: %v", err)
-			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
-			return
-		}
-
-		s.mu.RLock()
-		data := s.getPetData()
-		s.mu.RUnlock()
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
-
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
-	}
-}
-
-// handlePetByID handles /api/v1/pets/{id}/* routes
-func (s *Server) handlePetByID(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.pet == nil {
-		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
-		return
-	}
-
-	// Parse the path to find what's being requested
-	path := r.URL.Path
-
-	if strings.HasSuffix(path, "/status") {
-		// Get pet status
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.getPetData()})
-	} else if strings.HasSuffix(path, "/vitals") {
-		// Get vitals
-		vitals := map[string]float64{
-			"health":      s.pet.Biology.Vitals.Health,
-			"energy":      s.pet.Biology.Vitals.Energy,
-			"happiness":   s.pet.Biology.Vitals.Happiness,
-			"nutrition":   s.pet.Biology.Vitals.Nutrition,
-			"hydration":   s.pet.Biology.Vitals.Hydration,
-			"cleanliness": s.pet.Biology.Vitals.Cleanliness,
-		}
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: vitals})
-	} else if strings.HasSuffix(path, "/emotions") {
-		// Get emotions
-		emotions := map[string]interface{}{
-			"mood":       s.pet.Emotions.GetMoodDescription(),
-			"mood_score": s.pet.Emotions.GetMoodScore(),
-		}
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: emotions})
-	} else {
-		// Get full pet data
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.getPetData()})
-	}
-}
-
-// handleInteractV1 handles /api/v1/interactions/* routes
-func (s *Server) handleInteractV1(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.pet == nil || !s.pet.IsAlive() {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: s.unavailableMessageLocked()})
-		return
-	}
-	if s.pet.IsHibernating() {
-		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: s.pet.Name + " is hibernating. Revive it first."})
-		return
-	}
-
-	// Get action from path
-	path := r.URL.Path
-	var interactionType types.InteractionType
-	var actionName string
-
-	if strings.Contains(path, "/feed") {
-		interactionType = types.InteractionFeeding
-		actionName = "fed"
-	} else if strings.Contains(path, "/drink") {
-		interactionType = types.InteractionDrinking
-		actionName = "given a drink by"
-	} else if strings.Contains(path, "/pet") {
-		interactionType = types.InteractionPetting
-		actionName = "petted"
-	} else if strings.Contains(path, "/play") {
-		interactionType = types.InteractionPlaying
-		actionName = "played with"
-	} else if strings.Contains(path, "/groom") {
-		interactionType = types.InteractionGrooming
-		actionName = "groomed"
-	} else if strings.Contains(path, "/train") {
-		interactionType = types.InteractionTraining
-		actionName = "trained"
-	} else if strings.Contains(path, "/medical") {
-		interactionType = types.InteractionMedicalCare
-		actionName = "gave medical care to"
-	} else {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown interaction"})
-		return
-	}
-
-	s.markActiveLocked(time.Now())
-	s.pet.ProcessUserInteraction(interactionType, 1.0)
-
-	response := map[string]interface{}{
-		"message":      "Interaction successful",
-		"pet_reaction": s.pet.Name + " enjoyed being " + actionName + "!",
-	}
-	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: response})
 }
 
 func (s *Server) getPetData() map[string]interface{} {
