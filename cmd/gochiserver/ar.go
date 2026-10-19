@@ -32,15 +32,16 @@ var arCare = map[ar.InteractionType]types.InteractionType{
 // arBehaviors maps pet behaviors to the AR package's behavior names,
 // which choose the pet's animation
 var arBehaviors = map[types.BehaviorState]string{
-	types.BehaviorIdle:        "idle",
-	types.BehaviorSleeping:    "sleeping",
-	types.BehaviorEating:      "eating",
-	types.BehaviorPlaying:     "playing",
-	types.BehaviorExploring:   "walking",
-	types.BehaviorExercising:  "running",
-	types.BehaviorHappy:       "happy",
-	types.BehaviorExcited:     "excited",
-	types.BehaviorHibernating: "sleeping",
+	types.BehaviorIdle:          "idle",
+	types.BehaviorSleeping:      "sleeping",
+	types.BehaviorEating:        "eating",
+	types.BehaviorPlaying:       "playing",
+	types.BehaviorExploring:     "walking",
+	types.BehaviorInvestigating: "walking",
+	types.BehaviorExercising:    "running",
+	types.BehaviorHappy:         "happy",
+	types.BehaviorExcited:       "excited",
+	types.BehaviorHibernating:   "sleeping",
 }
 
 // arServiceLocked returns the AR service, creating it on first use.

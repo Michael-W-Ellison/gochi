@@ -2208,7 +2208,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Age:         status.Age,
 		IsAlive:     status.IsAlive,
 		Behavior:    s.pet.CurrentBehavior.String(),
-		Activity:    core.ActivityDescription(s.pet.CurrentBehavior),
+		Activity:    s.pet.Activity(),
 		Request:     s.pet.CurrentRequest(),
 		Mood:        s.pet.Emotions.GetMoodDescription(),
 		Health:      s.pet.Biology.Vitals.Health,

@@ -14,8 +14,9 @@ var activityDescriptions = map[types.BehaviorState]string{
 	types.BehaviorIdle:              "is relaxing",
 	types.BehaviorSleeping:          "is sleeping",
 	types.BehaviorEating:            "is looking for food",
-	types.BehaviorPlaying:           "is playing",
-	types.BehaviorExploring:         "is exploring",
+	types.BehaviorPlaying:           "is playing by itself",
+	types.BehaviorExploring:         "is out exploring",
+	types.BehaviorInvestigating:     "is sniffing around the house",
 	types.BehaviorSocialInteraction: "wants your attention",
 	types.BehaviorGrooming:          "is grooming itself",
 	types.BehaviorExercising:        "is exercising",
@@ -33,6 +34,26 @@ func ActivityDescription(behavior types.BehaviorState) string {
 		return description
 	}
 	return "is relaxing"
+}
+
+// Activity describes what the pet is doing right now, to follow its name
+// ("Biscuit is out exploring"). Trips, games and hibernation take
+// precedence over the pet's behavior.
+func (p *DigitalPet) Activity() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	switch {
+	case !p.Biology.IsAlive:
+		return "has passed away"
+	case p.Hibernating:
+		return ActivityDescription(types.BehaviorHibernating)
+	case p.isExploringLocked():
+		return ActivityDescription(types.BehaviorExploring)
+	case p.game != nil:
+		return "is hiding somewhere"
+	}
+	return ActivityDescription(p.CurrentBehavior)
 }
 
 // careNames name each kind of care as something a pet can like or dislike

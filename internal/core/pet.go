@@ -471,8 +471,8 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 				learnedBehaviorWeight*(learned(types.InteractionPetting)+learned(types.InteractionDiscipline)),
 		},
 		{
-			// Enjoying exploring trips makes a pet more adventurous
-			types.BehaviorExploring,
+			// Enjoying exploring trips makes a pet more curious at home
+			types.BehaviorInvestigating,
 			p.Personality.GetTraitInfluence("explore") + learnedBehaviorWeight*learned(types.InteractionEnvironmentalEnrichment),
 		},
 	}

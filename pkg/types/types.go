@@ -43,6 +43,7 @@ const (
 	BehaviorHappy
 	BehaviorExcited
 	BehaviorHibernating
+	BehaviorInvestigating // Sniffing around at home (a trip is BehaviorExploring)
 )
 
 // String returns the string representation of BehaviorState
@@ -51,6 +52,7 @@ func (bs BehaviorState) String() string {
 		"Idle", "Sleeping", "Eating", "Playing", "Exploring",
 		"Social Interaction", "Grooming", "Exercising",
 		"Sick", "Distressed", "Happy", "Excited", "Hibernating",
+		"Investigating",
 	}[bs]
 }
 

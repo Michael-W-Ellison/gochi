@@ -169,8 +169,9 @@ example "Energy −10% · Happiness +20% · Stress −5%". A stat that is alread
 ### Getting to Know Your Pet
 
 - **What it is doing**: the line under the picture says what your pet is doing, such as
-  "Biscuit is playing" or "Biscuit wants your attention". What a pet chooses to do depends on its
-  personality and on what it has learned it enjoys.
+  "Biscuit is playing by itself", "Biscuit wants your attention", "Biscuit is out exploring"
+  (only during a trip) or "Biscuit is hiding somewhere" (during hide and seek). What a pet
+  chooses to do depends on its personality and on what it has learned it enjoys.
 - **Requests**: your pet asks for what it needs in a speech bubble (a drink, food, grooming,
   attention or play), the matching button is highlighted, and the browser tab title shows 💬.
   A pet left alone for a while asks for the kind of attention it likes best.
@@ -200,7 +201,8 @@ example "Energy −10% · Happiness +20% · Stress −5%". A stat that is alread
     **Heal**. Adaptable pets get hurt less often. A badly hurt pet can die, or hibernates if gentle mode is on.
 
   Press **Call home early** to bring your pet back before the trip ends; it comes home with
-  nothing from the trip. A pet that enjoys exploring starts exploring on its own.
+  nothing from the trip. A pet that enjoys exploring sniffs around the house on its own; it only
+  goes on a trip when you press **Explore**.
 
 ### Breeding
 

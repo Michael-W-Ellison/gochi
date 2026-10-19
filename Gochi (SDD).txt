@@ -222,7 +222,8 @@ cppclass BehaviorStateMachine {
     enum BehaviorState {
         IDLE, SLEEPING, EATING, PLAYING, EXPLORING,
         SOCIAL_INTERACTION, GROOMING, EXERCISING,
-        SICK, DISTRESSED, HAPPY, EXCITED, HIBERNATING
+        SICK, DISTRESSED, HAPPY, EXCITED, HIBERNATING,
+        INVESTIGATING       // Curious at home; EXPLORING is a trip
     };
     
     struct StateTransition {
@@ -238,8 +239,10 @@ cppclass BehaviorStateMachine {
     void forceState(BehaviorState newState);
 };
 
-The state shown to the player as an activity line (for example "Biscuit is playing") is chosen
-from the pet's personality and from what it has learned it enjoys (section 3.3.2).
+The state shown to the player as an activity line (for example "Biscuit is playing by itself") is
+chosen from the pet's personality and from what it has learned it enjoys (section 3.3.2). A
+hibernating pet, a trip ("is out exploring") and a game of hide and seek ("is hiding somewhere")
+take precedence over the behavior state.
 3.3.2 Learning System
 cppclass LearningSystem {
     struct ExperienceRecord {
@@ -423,7 +426,8 @@ pet's collection, including a rare crystal found more often by curious pets. An 
 health 0.25, happiness 0.15 and energy 0.15, adds stress 0.2 and fear, and is remembered, making
 the pet warier of exploring. An injured pet asks to be healed and cannot explore until it is.
 A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
-cared for while away, and a pet that enjoys exploring may set out on its own.
+cared for while away. A pet that enjoys exploring investigates at home on its own (the
+INVESTIGATING state); only the player starts a trip.
 
 3.9 Requests, Reactions and Preferences
 cppstruct PetRequest {

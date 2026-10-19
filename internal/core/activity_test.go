@@ -7,7 +7,7 @@ import (
 )
 
 func TestEveryBehaviorHasActivityDescription(t *testing.T) {
-	for b := types.BehaviorIdle; b <= types.BehaviorHibernating; b++ {
+	for b := types.BehaviorIdle; b <= types.BehaviorInvestigating; b++ {
 		if _, ok := activityDescriptions[b]; !ok {
 			t.Errorf("No activity description for %s", b)
 		}
@@ -22,8 +22,53 @@ func TestLearnedBehaviorIsDescribed(t *testing.T) {
 	}
 	pet.updateBehavior()
 
-	if got := ActivityDescription(pet.CurrentBehavior); got != "is playing" {
+	if got := ActivityDescription(pet.CurrentBehavior); got != "is playing by itself" {
 		t.Errorf("A pet that learned to love play should be described as playing, got %q", got)
+	}
+}
+
+func TestActivityLines(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(p *DigitalPet)
+		want  string
+	}{
+		{"content", func(p *DigitalPet) { p.updateBehavior() }, "is relaxing"},
+		{"tired", func(p *DigitalPet) { p.Biology.Vitals.Energy = 0.2; p.updateBehavior() }, "is sleeping"},
+		{"sick", func(p *DigitalPet) { p.Biology.Vitals.Health = 0.2; p.updateBehavior() }, "is feeling sick"},
+		{"hungry", func(p *DigitalPet) {
+			p.Biology.Vitals.Nutrition = 0.2
+			p.Emotions.Joy, p.Emotions.Contentment = 0, 0
+			p.updateBehavior()
+		}, "is looking for food"},
+		{"on a trip", func(p *DigitalPet) {
+			if err := p.SendExploring(); err != nil {
+				panic(err)
+			}
+		}, "is out exploring"},
+		{"hiding", func(p *DigitalPet) {
+			if err := p.StartHideAndSeek(); err != nil {
+				panic(err)
+			}
+		}, "is hiding somewhere"},
+		{"hibernating", func(p *DigitalPet) {
+			p.HibernationEnabled = true
+			p.Biology.Vitals.Hydration = 0.05
+			p.updateBehavior()
+		}, "is hibernating"},
+		{"dead", func(p *DigitalPet) {
+			p.Biology.Vitals.Hydration = 0
+			p.Biology.CheckDeathConditions()
+		}, "has passed away"},
+		{"curious at home", func(p *DigitalPet) { p.CurrentBehavior = types.BehaviorInvestigating }, "is sniffing around the house"},
+	}
+	for _, tt := range tests {
+		pet := NewDigitalPet("Biscuit", "user123")
+		setCalmHealthyState(pet)
+		tt.setup(pet)
+		if got := pet.Activity(); got != tt.want {
+			t.Errorf("%s: Activity() = %q, want %q (behavior %s)", tt.name, got, tt.want, pet.CurrentBehavior)
+		}
 	}
 }
 

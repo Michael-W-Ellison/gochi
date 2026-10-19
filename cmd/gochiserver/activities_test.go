@@ -122,7 +122,7 @@ func TestExploreThroughServer(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "out exploring") {
 		t.Errorf("Feeding while exploring: status %d, body %s", rec.Code, rec.Body.String())
 	}
-	if s := statusOf(t, server); s["exploring"] != true || s["activity"] != "is exploring" {
+	if s := statusOf(t, server); s["exploring"] != true || s["activity"] != "is out exploring" {
 		t.Errorf("Status should show the trip: %+v", s)
 	}
 
