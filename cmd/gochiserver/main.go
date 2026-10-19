@@ -55,6 +55,7 @@ type PetStatus struct {
 	Age         float64 `json:"age"`
 	IsAlive     bool    `json:"is_alive"`
 	Behavior    string  `json:"behavior"`
+	Activity    string  `json:"activity"` // What the pet is doing, e.g. "is playing"
 	Mood        string  `json:"mood"`
 	Health      float64 `json:"health"`
 	Energy      float64 `json:"energy"`
@@ -383,6 +384,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .action-btn.groom { background: #74b9ff; color: white; }
         .action-btn.drink { background: #4dabf7; color: white; }
         .actions .action-btn:last-child:nth-child(odd) { grid-column: span 2; }
+        .activity { text-align: center; color: #555; font-size: 1.05em; margin-top: -8px; margin-bottom: 4px; }
         .friendship { text-align: center; color: #d6336c; font-weight: 600; margin-top: -12px; margin-bottom: 6px; }
         .belongings { text-align: center; font-size: 1.6em; min-height: 1.2em; letter-spacing: 4px; }
         .points-toast { text-align: center; min-height: 1.3em; margin-top: 10px; font-size: 0.9em; color: #d6336c; }
@@ -494,6 +496,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="belongings" id="belongings"></div>
             <div class="effects hidden" id="effects"></div>
             <div class="pet-display" id="petSprite">🐱</div>
+            <div class="activity" id="activity"></div>
             <div class="mood" id="mood">Mood: Happy</div>
             <div class="pause-banner hidden" id="pauseBanner"></div>
             <div class="points-toast" id="pointsToast"></div>
@@ -589,6 +592,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             playing: '😸',
             sleeping: '😴',
             sick: '🤒',
+            exploring: '🐈',
+            social: '😻',
             hibernating: '💤',
             dead: '😿'
         };
@@ -998,6 +1003,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         function updateUI(status) {
             document.getElementById('petName').textContent = status.name;
+            document.getElementById('activity').textContent =
+                status.is_alive ? status.name + ' ' + status.activity : status.name + ' has passed away';
             document.getElementById('healthBar').style.width = (status.health * 100) + '%';
             document.getElementById('energyBar').style.width = (status.energy * 100) + '%';
             document.getElementById('happinessBar').style.width = (status.happiness * 100) + '%';
@@ -1041,6 +1048,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 if (status.hibernating) sprite = sprites.hibernating;
                 else if (status.behavior === 'Sleeping') sprite = sprites.sleeping;
                 else if (status.behavior === 'Sick') sprite = sprites.sick;
+                else if (status.behavior === 'Playing') sprite = sprites.playing;
+                else if (status.behavior === 'Exploring') sprite = sprites.exploring;
+                else if (status.behavior === 'Social Interaction') sprite = sprites.social;
+                else if (status.behavior === 'Eating') sprite = sprites.eating;
                 else if (status.happiness > 0.7) sprite = sprites.happy;
             }
             document.getElementById('petSprite').textContent = sprite;
@@ -1601,6 +1612,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Age:         status.Age,
 		IsAlive:     status.IsAlive,
 		Behavior:    s.pet.CurrentBehavior.String(),
+		Activity:    core.ActivityDescription(s.pet.CurrentBehavior),
 		Mood:        s.pet.Emotions.GetMoodDescription(),
 		Health:      s.pet.Biology.Vitals.Health,
 		Energy:      s.pet.Biology.Vitals.Energy,
