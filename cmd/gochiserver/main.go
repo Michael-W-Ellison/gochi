@@ -17,18 +17,19 @@ import (
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
+	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 // Server holds the server state
 type Server struct {
-	saveMu     sync.Mutex // Orders saves and pet switches; acquire before mu
-	mu         sync.RWMutex
-	pet        *core.DigitalPet // The active pet; only its time passes
-	slot       string           // Save slot of the active pet
-	webDir     string
-	lastUpdate time.Time
-	store      *petStore // nil disables saving
+	saveMu sync.Mutex // Orders saves and pet switches; acquire before mu
+	mu     sync.RWMutex
+	pet    *core.DigitalPet // The active pet; only its time passes
+	slot   string           // Save slot of the active pet
+	webDir string
+	clock  *simulation.TimeManager // Game clock; its scale sets the game's speed
+	store  *petStore               // nil disables saving
 
 	// Time stops while the game is paused, so the pet cannot decline
 	manualPause  bool          // Paused with the Pause button
@@ -63,6 +64,7 @@ type PetStatus struct {
 	ExploringSeconds int                  `json:"exploring_seconds"` // Real seconds until home
 	HideAndSeek      bool                 `json:"hide_and_seek"`     // A game is in progress
 	Souvenirs        []core.SouvenirCount `json:"souvenirs"`
+	Needs            []core.NeedLevel     `json:"needs"`          // Needs not shown as stat bars
 	LastAdventure    *core.Adventure      `json:"last_adventure"` // Most recent trip, if it ended recently
 	Mood             string               `json:"mood"`
 	Health           float64              `json:"health"`
@@ -91,7 +93,13 @@ func main() {
 	autosaveInterval := flag.Duration("autosave", time.Minute, "how often to save the pet automatically (0 disables)")
 	awayTimeout := flag.Duration("away-pause", 2*time.Minute, "pause time when the player has been away this long (0 disables)")
 	addr := flag.String("addr", ":8080", "address to listen on")
+	scaleName := flag.String("time-scale", "game", "game speed: game (1 game day per real minute), 24x, 4x or realtime")
 	flag.Parse()
+
+	timeScale, ok := timeScales[*scaleName]
+	if !ok {
+		log.Fatalf("Unknown -time-scale %q (use game, 24x, 4x or realtime)", *scaleName)
+	}
 
 	// Find web directory
 	webDir := findWebDir()
@@ -108,7 +116,7 @@ func main() {
 	// Create server
 	server := &Server{
 		webDir:       webDir,
-		lastUpdate:   time.Now(),
+		clock:        simulation.NewTimeManager(timeScale),
 		store:        store,
 		lastActivity: time.Now(),
 		awayTimeout:  *awayTimeout,
@@ -269,17 +277,27 @@ func (s *Server) tick(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.pet == nil || !s.pet.IsAlive() || s.pauseReasonLocked(now) != "" {
-		// No time passes; resuming continues from now
-		s.lastUpdate = now
+	// No time passes while paused; resuming continues from now
+	paused := s.pet == nil || !s.pet.IsAlive() || s.pauseReasonLocked(now) != ""
+	s.clock.SetPaused(paused, now)
+	gameSeconds := s.clock.UpdateAt(now)
+	if paused {
 		return
 	}
 
-	deltaTime := now.Sub(s.lastUpdate).Seconds()
-	s.lastUpdate = now
-	// Convert real seconds to game time; the simulation treats one unit as
-	// one game day, so one real minute is one game day
-	s.pet.Update(deltaTime / 60.0)
+	// The pet's simulation counts time in game days
+	s.pet.Update(gameSeconds / secondsPerGameDay)
+}
+
+// secondsPerGameDay converts the clock's game seconds to game days
+const secondsPerGameDay = 24 * 60 * 60
+
+// timeScales are the -time-scale choices
+var timeScales = map[string]types.TimeScale{
+	"game":     types.TimeScaleGame,
+	"24x":      types.TimeScaleAccelerated24X,
+	"4x":       types.TimeScaleAccelerated4X,
+	"realtime": types.TimeScaleRealTime,
 }
 
 // pauseReasonLocked returns why time is paused, or "" if it is running.
@@ -432,6 +450,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .adventure-banner button { display: block; margin: 8px auto 0; }
         .setting { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0; font-size: 0.85em; color: #555; text-align: left; cursor: pointer; }
         .setting input { margin-top: 2px; }
+        .needs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
+        .need { text-align: center; font-size: 0.7em; color: #666; }
+        .need-bar { height: 6px; margin-top: 3px; background: #e9ecef; border-radius: 3px; overflow: hidden; }
+        .need-fill { height: 100%; background: #20c997; }
+        .need-fill.low { background: #fab005; }
+        .need-fill.critical { background: #fa5252; }
         .about { margin-top: 16px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; font-size: 0.85em; color: #555; }
         .about div + div { margin-top: 4px; }
         .about-label { font-weight: 600; color: #333; }
@@ -557,9 +581,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="mood" id="mood">Mood: Happy</div>
             <div class="pause-banner hidden" id="pauseBanner"></div>
             <div class="activities">
-                <button class="activity-btn" onclick="openTricks()">🎓 Train</button>
+                <button class="activity-btn train" onclick="openTricks()">🎓 Train</button>
                 <button class="activity-btn" onclick="startHideSeek()">🙈 Hide &amp; Seek</button>
-                <button class="activity-btn" onclick="explore()">🧭 Explore</button>
+                <button class="activity-btn explore" onclick="explore()">🧭 Explore</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -598,6 +622,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     <div class="stat-bar"><div class="stat-fill water" id="waterBar" style="width: 100%"></div></div>
                 </div>
             </div>
+            <div class="needs" id="needs"></div>
 
             <div class="actions">
                 <button class="action-btn feed" onclick="interact('feed')">Feed</button>
@@ -1104,7 +1129,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if (request) {
                 const target = request.action === 'revive' ?
                     document.getElementById('reviveBtn') :
-                    document.querySelector('.action-btn.' + request.action);
+                    document.querySelector('.action-btn.' + request.action + ', .activity-btn.' + request.action);
                 if (target) target.classList.add('requested');
             }
             document.title = request ? '💬 ' + status.name + ' needs you - Gochi' : status.name + ' - Gochi';
@@ -1136,6 +1161,24 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('happinessBar').style.width = (status.happiness * 100) + '%';
             document.getElementById('hungerBar').style.width = (status.hunger * 100) + '%';
             document.getElementById('waterBar').style.width = (status.water * 100) + '%';
+            const needLabels = {'Exercise': 'Exercise', 'Social': 'Company', 'Mental Stimulation': 'Learning',
+                'Affection': 'Affection', 'Exploration': 'Adventure'};
+            const needs = document.getElementById('needs');
+            needs.replaceChildren();
+            (status.needs || []).forEach(n => {
+                const cell = document.createElement('div');
+                cell.className = 'need';
+                cell.title = n.need + ': ' + Math.round(n.level * 100) + '%';
+                cell.textContent = needLabels[n.need] || n.need;
+                const bar = document.createElement('div');
+                bar.className = 'need-bar';
+                const fill = document.createElement('div');
+                fill.className = 'need-fill' + (n.level < 0.2 ? ' critical' : n.level < 0.4 ? ' low' : '');
+                fill.style.width = Math.round(n.level * 100) + '%';
+                bar.append(fill);
+                cell.append(bar);
+                needs.append(cell);
+            });
             document.getElementById('friendship').textContent = formatPoints(status.friendship_points);
             const belongings = document.getElementById('belongings');
             belongings.replaceChildren();
@@ -1638,7 +1681,7 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 
 	now := time.Now()
 	s.pet, s.slot = pet, slot
-	s.lastUpdate = now
+	s.clock.SetPaused(true, now) // The new pet's time starts from now
 	s.manualPause = false
 	s.markActiveLocked(now)
 
@@ -2059,6 +2102,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if petStatus.Items == nil {
 		petStatus.Items = []core.ShopItem{}
 	}
+	petStatus.Needs = s.pet.PsychologicalNeeds()
 	petStatus.HibernationOn = s.pet.HibernationEnabled
 	petStatus.CauseOfDeath = s.pet.Biology.CauseOfDeath
 	petStatus.Tricks = s.pet.Tricks()

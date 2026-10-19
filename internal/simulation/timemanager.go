@@ -56,17 +56,24 @@ func NewTimeManager(timeScale types.TimeScale) *TimeManager {
 
 // Update processes time advancement and returns delta time in game seconds
 func (tm *TimeManager) Update() float64 {
+	return tm.UpdateAt(time.Now())
+}
+
+// UpdateAt advances simulation time to the real time now and returns the
+// delta in game seconds. While paused, the real time passes without
+// advancing the simulation.
+func (tm *TimeManager) UpdateAt(now time.Time) float64 {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
 	if tm.IsPaused {
+		tm.LastUpdateRealTime = now
 		tm.LastDeltaTime = 0.0
 		return 0.0
 	}
 
 	// Calculate real time elapsed since last update
-	now := time.Now()
-	realDelta := now.Sub(tm.LastUpdateRealTime).Seconds()
+	realDelta := max(now.Sub(tm.LastUpdateRealTime).Seconds(), 0)
 	tm.LastUpdateRealTime = now
 
 	// Calculate total real time elapsed
@@ -149,6 +156,18 @@ func (tm *TimeManager) Resume() {
 		// Reset last update time to prevent large delta jump
 		tm.LastUpdateRealTime = time.Now()
 	}
+}
+
+// SetPaused pauses or resumes the simulation as of the real time now
+func (tm *TimeManager) SetPaused(paused bool, now time.Time) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	if tm.IsPaused && !paused {
+		// Resume from now so the paused period is not simulated
+		tm.LastUpdateRealTime = now
+	}
+	tm.IsPaused = paused
 }
 
 // TogglePause toggles pause state
@@ -298,6 +317,8 @@ func (tm *TimeManager) getMultiplierForScale(scale types.TimeScale) float64 {
 		return 4.0
 	case types.TimeScaleAccelerated24X:
 		return 24.0
+	case types.TimeScaleGame:
+		return 1440.0
 	case types.TimeScalePaused:
 		return 0.0
 	default:

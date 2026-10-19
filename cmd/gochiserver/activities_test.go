@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Michael-W-Ellison/gochi/internal/simulation"
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 func statusOf(t *testing.T, server *Server) map[string]interface{} {
@@ -270,5 +273,40 @@ func TestStatusShowsCauseOfDeath(t *testing.T) {
 	s := statusOf(t, server)
 	if s["is_alive"] != false || s["cause_of_death"] == nil || s["cause_of_death"] == "" {
 		t.Errorf("A neglected pet should die with a cause: %+v", s)
+	}
+}
+
+func TestTimeScaleSetsGameSpeed(t *testing.T) {
+	ages := map[types.TimeScale]float64{}
+	for _, scale := range []types.TimeScale{types.TimeScaleGame, types.TimeScaleAccelerated24X} {
+		server := newTestServer(t)
+		server.awayTimeout = 0
+		server.clock = simulation.NewTimeManager(scale)
+		if err := server.createPet("Biscuit", false, false); err != nil {
+			t.Fatal(err)
+		}
+		age := server.pet.GetAge()
+		start := time.Now()
+		server.tick(start)
+		server.tick(start.Add(time.Minute))
+		ages[scale] = server.pet.GetAge() - age
+	}
+
+	if got := ages[types.TimeScaleGame]; got < 0.99 || got > 1.01 {
+		t.Errorf("Game scale: one real minute should be one game day, got %f", got)
+	}
+	if got := ages[types.TimeScaleAccelerated24X]; got < 0.016 || got > 0.017 {
+		t.Errorf("24x scale: one real minute should be 24 game minutes (%f days), got %f", 24.0/1440, got)
+	}
+}
+
+func TestStatusShowsNeeds(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false, false); err != nil {
+		t.Fatal(err)
+	}
+	needs, ok := statusOf(t, server)["needs"].([]interface{})
+	if !ok || len(needs) != 5 {
+		t.Errorf("Status should list five needs: %v", needs)
 	}
 }

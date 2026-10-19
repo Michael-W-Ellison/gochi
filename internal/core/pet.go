@@ -10,6 +10,7 @@ import (
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/internal/biology"
+	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/internal/social"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -26,6 +27,7 @@ type DigitalPet struct {
 	Memory        *ai.MemorySystem             `json:"memory"`
 	Emotions      *ai.EmotionState             `json:"emotions"`
 	Relationships *social.SocialRelationships  `json:"relationships"`
+	Needs         *simulation.NeedsManager     `json:"needs"`
 
 	// Current State
 	CurrentBehavior types.BehaviorState `json:"current_behavior"`
@@ -85,6 +87,7 @@ func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 		Memory:          ai.NewMemorySystem(100),
 		Emotions:        ai.NewEmotionState(),
 		Relationships:   social.NewSocialRelationships(20),
+		Needs:           simulation.NewNeedsManager(),
 		CurrentBehavior: types.BehaviorIdle,
 		Location:        "home",
 		CreatedAt:       now,
@@ -158,6 +161,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		p.TotalPlayTime += deltaTime / 60.0
 		return
 	}
+
+	// Needs build up over time
+	p.updateNeedsLocked(deltaTime)
 
 	// Come home from exploring once the trip's time has passed
 	if p.isExploringLocked() && p.Biology.GetAgeInDays() >= p.ExploringUntilAge {
@@ -294,6 +300,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	valence := stimulus.Valence()
 	p.Memory.RecordInteractionFull(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion, valence, math.Abs(valence))
 
+	p.meetNeedsLocked(interactionType, intensity)
 	result.PointsEarned = p.awardCareLocked(interactionType)
 
 	// Update behavior

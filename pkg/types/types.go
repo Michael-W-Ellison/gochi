@@ -16,12 +16,13 @@ const (
 	TimeScaleAccelerated4X
 	TimeScaleAccelerated24X
 	TimeScalePaused
+	TimeScaleGame // One game day per real minute (the game's default pace)
 )
 
 // String returns the string representation of TimeScale
 func (ts TimeScale) String() string {
 	return [...]string{
-		"RealTime", "Accelerated4X", "Accelerated24X", "Paused",
+		"RealTime", "Accelerated4X", "Accelerated24X", "Paused", "Game",
 	}[ts]
 }
 

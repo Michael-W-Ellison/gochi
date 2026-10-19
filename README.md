@@ -102,6 +102,7 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | `-data-dir` | `~/.gochi` | Directory for saved pets (`saves/`) and backups (`backups/`) |
 | `-autosave` | `1m` | How often the active pet is saved automatically; `0` turns autosave off |
 | `-away-pause` | `2m` | Pause time once the player has been away this long; `0` turns the away pause off |
+| `-time-scale` | `game` | Game speed: `game` (one game day per real minute), `24x` (one game day per real hour), `4x` (one game day per six real hours) or `realtime` |
 
 Durations use Go syntax, such as `30s`, `5m` or `1h`.
 
@@ -141,7 +142,12 @@ Only the active pet's time passes; pets that are not loaded wait in their save f
 ### Caring for Your Pet
 
 Use **Feed**, **Drink**, **Pet**, **Play**, **Groom** and **Heal** to look after your pet. The bars show its
-health, energy, happiness, hunger and water. After each action the page shows what changed, for
+health, energy, happiness, hunger and water.
+
+Below the bars, five smaller bars show needs that build up over time: **Exercise** (met by play,
+hide and seek and exploring), **Company** and **Affection** (petting, grooming, treats and
+training), **Learning** (training and play) and **Adventure** (exploring). A pet asks for help when
+a need runs low, and needs left completely unmet make it unhappy. After each action the page shows what changed, for
 example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
 
 ### Getting to Know Your Pet

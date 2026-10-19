@@ -98,7 +98,7 @@ func (p *DigitalPet) PersonalityDescription() string {
 
 // PetRequest is something the pet is asking its owner for
 type PetRequest struct {
-	Action  string `json:"action"` // Page action that fulfils it: feed, drink, groom, pet, play or revive
+	Action  string `json:"action"` // Page action that fulfils it: feed, drink, groom, pet, play, medic, train, explore or revive
 	Icon    string `json:"icon"`
 	Message string `json:"message"`
 }
@@ -150,12 +150,25 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	}
 
 	alone := p.Biology.GetAgeInDays()-p.LastInteractionAge > lonelyAfter
-	if alone || p.Emotions.Loneliness > 0.6 {
+	if alone || p.Emotions.Loneliness > 0.6 ||
+		p.needWarningLocked(types.NeedAffection) || p.needWarningLocked(types.NeedSocial) {
 		// Ask for whichever kind of attention the pet has learned to like more
 		if v.Energy > 0.4 && p.Memory.GetLearnedAffinity(types.InteractionPlaying) > p.Memory.GetLearnedAffinity(types.InteractionPetting) {
 			return &PetRequest{"play", "🎾", p.Name + " misses you and wants to play!"}
 		}
 		return &PetRequest{"pet", "💕", p.Name + " misses you and wants to be petted."}
+	}
+
+	// Needs the pet's stats do not show
+	if p.needWarningLocked(types.NeedExercise) && v.Energy > 0.4 {
+		return &PetRequest{"play", "🎾", p.Name + " has energy to burn and wants to play!"}
+	}
+	if p.needWarningLocked(types.NeedMentalStimulation) && v.Energy > minTrainingEnergy {
+		return &PetRequest{"train", "🎓", p.Name + " is bored and wants to learn something new."}
+	}
+	if p.needWarningLocked(types.NeedExploration) && !p.Injured &&
+		v.Energy >= minExploreLevel && v.Hydration >= minExploreLevel && v.Nutrition >= minExploreLevel {
+		return &PetRequest{"explore", "🧭", p.Name + " is curious about the world and wants to go exploring!"}
 	}
 
 	if v.Happiness < 0.45 && v.Energy > 0.5 {

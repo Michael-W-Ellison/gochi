@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
+	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -40,7 +41,7 @@ func newTestServer(t *testing.T) *Server {
 	now := time.Now()
 	return &Server{
 		store:        newTestStore(t),
-		lastUpdate:   now,
+		clock:        simulation.NewTimeManager(types.TimeScaleGame),
 		lastActivity: now,
 		awayTimeout:  2 * time.Minute,
 	}
