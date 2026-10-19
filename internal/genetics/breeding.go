@@ -9,12 +9,12 @@ import (
 
 // BreedingRequirements defines minimum requirements for breeding
 type BreedingRequirements struct {
-	MinAge            float64 // Minimum age in days
-	MaxAge            float64 // Maximum age in days
-	MinHealth         float64 // Minimum health (0.0 to 1.0)
-	MinHappiness      float64 // Minimum happiness (0.0 to 1.0)
-	CooldownDays      float64 // Days between breeding attempts
-	MinCompatibility  float64 // Minimum compatibility score
+	MinAge           float64 // Minimum age in days
+	MaxAge           float64 // Maximum age in days
+	MinHealth        float64 // Minimum health (0.0 to 1.0)
+	MinHappiness     float64 // Minimum happiness (0.0 to 1.0)
+	CooldownDays     float64 // Days between breeding attempts
+	MinCompatibility float64 // Minimum compatibility score
 }
 
 // DefaultBreedingRequirements returns standard breeding requirements
@@ -41,27 +41,27 @@ type BreedingPair struct {
 
 // BreedingResult contains the outcome of a breeding attempt
 type BreedingResult struct {
-	Success          bool
-	OffspringGenome  *Genome
-	Mutations        []Mutation
-	InheritedTraits  map[TraitType]string // Which parent each trait came from
+	Success            bool
+	OffspringGenome    *Genome
+	Mutations          []Mutation
+	InheritedTraits    map[TraitType]string // Which parent each trait came from
 	CompatibilityScore float64
-	FailureReason    string
+	FailureReason      string
 }
 
 // GeneticSystem manages all genetic and breeding operations
 type GeneticSystem struct {
-	MutationRate     float64
-	CrossoverPoints  int
-	Requirements     BreedingRequirements
-	BreedingHistory  []BreedingResult
+	MutationRate    float64
+	CrossoverPoints int
+	Requirements    BreedingRequirements
+	BreedingHistory []BreedingResult
 }
 
 // NewGeneticSystem creates a new genetic system with default settings
 func NewGeneticSystem() *GeneticSystem {
 	return &GeneticSystem{
-		MutationRate:    0.05,  // 5% base mutation rate
-		CrossoverPoints: 3,     // Number of crossover points in chromosome
+		MutationRate:    0.05, // 5% base mutation rate
+		CrossoverPoints: 3,    // Number of crossover points in chromosome
 		Requirements:    DefaultBreedingRequirements(),
 		BreedingHistory: make([]BreedingResult, 0),
 	}
@@ -341,11 +341,11 @@ func (gs *GeneticSystem) GetBreedingStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_attempts":     totalAttempts,
-		"successful":         successfulBreedings,
-		"success_rate":       float64(successfulBreedings) / float64(max(totalAttempts, 1)),
-		"total_mutations":    totalMutations,
-		"avg_compatibility":  avgCompatibility,
+		"total_attempts":    totalAttempts,
+		"successful":        successfulBreedings,
+		"success_rate":      float64(successfulBreedings) / float64(max(totalAttempts, 1)),
+		"total_mutations":   totalMutations,
+		"avg_compatibility": avgCompatibility,
 	}
 }
 

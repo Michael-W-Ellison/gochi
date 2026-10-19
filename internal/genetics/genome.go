@@ -12,11 +12,11 @@ type TraitType string
 
 const (
 	// Physical traits
-	TraitSize       TraitType = "size"
-	TraitSpeed      TraitType = "speed"
-	TraitStrength   TraitType = "strength"
-	TraitEndurance  TraitType = "endurance"
-	TraitLongevity  TraitType = "longevity"
+	TraitSize      TraitType = "size"
+	TraitSpeed     TraitType = "speed"
+	TraitStrength  TraitType = "strength"
+	TraitEndurance TraitType = "endurance"
+	TraitLongevity TraitType = "longevity"
 
 	// Appearance traits
 	TraitColorPrimary   TraitType = "color_primary"
@@ -25,28 +25,28 @@ const (
 	TraitEyeColor       TraitType = "eye_color"
 
 	// Behavioral predispositions (genetic basis for personality)
-	TraitBasePlayfulness    TraitType = "base_playfulness"
-	TraitBaseIntelligence   TraitType = "base_intelligence"
-	TraitBaseAggression     TraitType = "base_aggression"
-	TraitBaseSociability    TraitType = "base_sociability"
-	TraitBaseAnxiety        TraitType = "base_anxiety"
-	TraitBaseEnergy         TraitType = "base_energy"
-	TraitBaseCuriosity      TraitType = "base_curiosity"
-	TraitBaseAffection      TraitType = "base_affection"
+	TraitBasePlayfulness  TraitType = "base_playfulness"
+	TraitBaseIntelligence TraitType = "base_intelligence"
+	TraitBaseAggression   TraitType = "base_aggression"
+	TraitBaseSociability  TraitType = "base_sociability"
+	TraitBaseAnxiety      TraitType = "base_anxiety"
+	TraitBaseEnergy       TraitType = "base_energy"
+	TraitBaseCuriosity    TraitType = "base_curiosity"
+	TraitBaseAffection    TraitType = "base_affection"
 
 	// Health traits
-	TraitImmuneStrength    TraitType = "immune_strength"
-	TraitMetabolicRate     TraitType = "metabolic_rate"
+	TraitImmuneStrength        TraitType = "immune_strength"
+	TraitMetabolicRate         TraitType = "metabolic_rate"
 	TraitDiseaseSusceptibility TraitType = "disease_susceptibility"
 )
 
 // GeneAllele represents a single gene's allele information
 type GeneAllele struct {
-	Value      float64 `json:"value"`       // The expressed value (0.0 to 1.0)
-	Dominant   float64 `json:"dominant"`    // Dominant allele value
-	Recessive  float64 `json:"recessive"`   // Recessive allele value
-	Dominance  float64 `json:"dominance"`   // How dominant the dominant allele is (0.0 to 1.0)
-	Expression float64 `json:"expression"`  // How strongly this gene is expressed
+	Value      float64 `json:"value"`      // The expressed value (0.0 to 1.0)
+	Dominant   float64 `json:"dominant"`   // Dominant allele value
+	Recessive  float64 `json:"recessive"`  // Recessive allele value
+	Dominance  float64 `json:"dominance"`  // How dominant the dominant allele is (0.0 to 1.0)
+	Expression float64 `json:"expression"` // How strongly this gene is expressed
 }
 
 // NewGeneAllele creates a new gene allele with random values

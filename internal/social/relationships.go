@@ -16,32 +16,32 @@ type SharedExperience struct {
 
 // Relationship represents the bond between two pets
 type Relationship struct {
-	PetID            types.PetID
-	Type             types.RelationshipType
-	BondStrength     float64 // 0.0 to 1.0
-	Trust            float64 // 0.0 to 1.0
-	Affection        float64 // 0.0 to 1.0
-	Rivalry          float64 // 0.0 to 1.0 (conflict level)
-	History          []SharedExperience
-	LastInteraction  time.Time
+	PetID             types.PetID
+	Type              types.RelationshipType
+	BondStrength      float64 // 0.0 to 1.0
+	Trust             float64 // 0.0 to 1.0
+	Affection         float64 // 0.0 to 1.0
+	Rivalry           float64 // 0.0 to 1.0 (conflict level)
+	History           []SharedExperience
+	LastInteraction   time.Time
 	TotalInteractions int
-	FirstMet         time.Time
+	FirstMet          time.Time
 }
 
 // NewRelationship creates a new relationship with neutral starting values
 func NewRelationship(petID types.PetID, relType types.RelationshipType) *Relationship {
 	now := time.Now()
 	return &Relationship{
-		PetID:            petID,
-		Type:             relType,
-		BondStrength:     0.3,
-		Trust:            0.5,
-		Affection:        0.3,
-		Rivalry:          0.1,
-		History:          make([]SharedExperience, 0),
-		LastInteraction:  now,
+		PetID:             petID,
+		Type:              relType,
+		BondStrength:      0.3,
+		Trust:             0.5,
+		Affection:         0.3,
+		Rivalry:           0.1,
+		History:           make([]SharedExperience, 0),
+		LastInteraction:   now,
 		TotalInteractions: 0,
-		FirstMet:         now,
+		FirstMet:          now,
 	}
 }
 
@@ -159,14 +159,14 @@ func (r *Relationship) GetDescription() string {
 
 // SocialRelationships manages all of a pet's relationships
 type SocialRelationships struct {
-	Relationships map[types.PetID]*Relationship
+	Relationships    map[types.PetID]*Relationship
 	MaxRelationships int
 }
 
 // NewSocialRelationships creates a new social relationship manager
 func NewSocialRelationships(maxRelationships int) *SocialRelationships {
 	return &SocialRelationships{
-		Relationships: make(map[types.PetID]*Relationship),
+		Relationships:    make(map[types.PetID]*Relationship),
 		MaxRelationships: maxRelationships,
 	}
 }

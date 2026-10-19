@@ -161,7 +161,7 @@ func TestApplyEmotionalStimulus(t *testing.T) {
 	e.Volatility = 1.0 // Max volatility for predictable results
 
 	stimulus := EmotionalStimulus{
-		JoyDelta:    0.2,
+		JoyDelta:     0.2,
 		SadnessDelta: -0.1,
 	}
 
@@ -250,9 +250,9 @@ func TestGetMoodDescription(t *testing.T) {
 	e := NewEmotionState()
 
 	tests := []struct {
-		joy        float64
-		sadness    float64
-		expected   string
+		joy      float64
+		sadness  float64
+		expected string
 	}{
 		{1.0, 0.0, "very happy"},
 		{0.7, 0.1, "happy"},

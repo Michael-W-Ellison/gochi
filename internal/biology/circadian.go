@@ -29,21 +29,21 @@ type CircadianRhythm struct {
 	mu sync.RWMutex
 
 	// Current state
-	CurrentPhase      CircadianPhase
-	TimeInPhase       float64 // Game hours in current phase
-	TotalSleepTime    float64 // Total sleep accumulated today (hours)
-	LastSleepTime     float64 // Game time when last went to sleep
-	LastWakeTime      float64 // Game time when last woke up
+	CurrentPhase   CircadianPhase
+	TimeInPhase    float64 // Game hours in current phase
+	TotalSleepTime float64 // Total sleep accumulated today (hours)
+	LastSleepTime  float64 // Game time when last went to sleep
+	LastWakeTime   float64 // Game time when last woke up
 
 	// Sleep cycle tracking
-	SleepCycleCount   int     // Number of complete sleep cycles
-	CurrentCycleTime  float64 // Time in current sleep cycle (minutes)
-	SleepQuality      float64 // Quality of current/last sleep (0.0-1.0)
+	SleepCycleCount  int     // Number of complete sleep cycles
+	CurrentCycleTime float64 // Time in current sleep cycle (minutes)
+	SleepQuality     float64 // Quality of current/last sleep (0.0-1.0)
 
 	// Sleep debt and pressure
-	SleepDebt         float64 // Accumulated sleep debt (hours)
-	SleepPressure     float64 // Drive to sleep (0.0-1.0)
-	HomeostaticDrive  float64 // Biological sleep drive (0.0-1.0)
+	SleepDebt        float64 // Accumulated sleep debt (hours)
+	SleepPressure    float64 // Drive to sleep (0.0-1.0)
+	HomeostaticDrive float64 // Biological sleep drive (0.0-1.0)
 
 	// Circadian settings
 	OptimalSleepStart float64 // Optimal time to sleep (hour, 0-24)
@@ -52,29 +52,29 @@ type CircadianRhythm struct {
 	SleepCycleLength  float64 // Length of one sleep cycle (minutes)
 
 	// Statistics
-	TotalLifetimeSleep float64 // Total hours slept over lifetime
-	SleepCyclesCompleted int   // Total sleep cycles completed
+	TotalLifetimeSleep   float64 // Total hours slept over lifetime
+	SleepCyclesCompleted int     // Total sleep cycles completed
 }
 
 // NewCircadianRhythm creates a new circadian rhythm system
 func NewCircadianRhythm() *CircadianRhythm {
 	return &CircadianRhythm{
-		CurrentPhase:       PhaseAwake,
-		TimeInPhase:        0,
-		TotalSleepTime:     0,
-		LastSleepTime:      0,
-		LastWakeTime:       0,
-		SleepCycleCount:    0,
-		CurrentCycleTime:   0,
-		SleepQuality:       1.0,
-		SleepDebt:          0,
-		SleepPressure:      0,
-		HomeostaticDrive:   0,
-		OptimalSleepStart:  22.0, // 10 PM
-		OptimalSleepEnd:    6.0,  // 6 AM
-		SleepDuration:      8.0,  // 8 hours
-		SleepCycleLength:   90.0, // 90 minutes per cycle
-		TotalLifetimeSleep: 0,
+		CurrentPhase:         PhaseAwake,
+		TimeInPhase:          0,
+		TotalSleepTime:       0,
+		LastSleepTime:        0,
+		LastWakeTime:         0,
+		SleepCycleCount:      0,
+		CurrentCycleTime:     0,
+		SleepQuality:         1.0,
+		SleepDebt:            0,
+		SleepPressure:        0,
+		HomeostaticDrive:     0,
+		OptimalSleepStart:    22.0, // 10 PM
+		OptimalSleepEnd:      6.0,  // 6 AM
+		SleepDuration:        8.0,  // 8 hours
+		SleepCycleLength:     90.0, // 90 minutes per cycle
+		TotalLifetimeSleep:   0,
 		SleepCyclesCompleted: 0,
 	}
 }
@@ -223,7 +223,7 @@ func (cr *CircadianRhythm) updateWakingPhase(deltaTime float64) {
 	if cr.TimeInPhase > 0.1 { // ~6 minutes
 		cr.calculateSleepQuality()
 		cr.transitionToPhase(PhaseAwake)
-		cr.LastWakeTime = 0 // Would be set by external system
+		cr.LastWakeTime = 0   // Would be set by external system
 		cr.TotalSleepTime = 0 // Reset daily sleep counter
 		cr.SleepCycleCount = 0
 	}
@@ -369,27 +369,27 @@ func (cr *CircadianRhythm) GetStats() CircadianStats {
 	isAsleep := cr.CurrentPhase == PhaseAsleep || cr.CurrentPhase == PhaseDeepSleep || cr.CurrentPhase == PhaseREMSleep
 
 	return CircadianStats{
-		CurrentPhase:        cr.CurrentPhase,
-		TimeInPhase:         cr.TimeInPhase,
-		SleepPressure:       cr.SleepPressure,
-		SleepDebt:           cr.SleepDebt,
-		SleepQuality:        cr.SleepQuality,
-		TotalSleepToday:     cr.TotalSleepTime,
+		CurrentPhase:         cr.CurrentPhase,
+		TimeInPhase:          cr.TimeInPhase,
+		SleepPressure:        cr.SleepPressure,
+		SleepDebt:            cr.SleepDebt,
+		SleepQuality:         cr.SleepQuality,
+		TotalSleepToday:      cr.TotalSleepTime,
 		SleepCyclesCompleted: cr.SleepCyclesCompleted,
-		IsAsleep:            isAsleep,
+		IsAsleep:             isAsleep,
 	}
 }
 
 // CircadianStats contains statistics about circadian rhythm
 type CircadianStats struct {
-	CurrentPhase        CircadianPhase
-	TimeInPhase         float64
-	SleepPressure       float64
-	SleepDebt           float64
-	SleepQuality        float64
-	TotalSleepToday     float64
+	CurrentPhase         CircadianPhase
+	TimeInPhase          float64
+	SleepPressure        float64
+	SleepDebt            float64
+	SleepQuality         float64
+	TotalSleepToday      float64
 	SleepCyclesCompleted int
-	IsAsleep            bool
+	IsAsleep             bool
 }
 
 // SetOptimalSleepWindow sets the preferred sleep time

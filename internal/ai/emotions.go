@@ -10,14 +10,14 @@ import (
 // EmotionState represents the multi-dimensional emotional state of a pet
 type EmotionState struct {
 	// Primary emotions (0.0 to 1.0)
-	Joy        float64 `json:"joy"`        // Happiness, contentment
-	Sadness    float64 `json:"sadness"`    // Unhappiness, depression
-	Anger      float64 `json:"anger"`      // Frustration, irritation
-	Fear       float64 `json:"fear"`       // Anxiety, worry
-	Excitement float64 `json:"excitement"` // Enthusiasm, anticipation
+	Joy         float64 `json:"joy"`         // Happiness, contentment
+	Sadness     float64 `json:"sadness"`     // Unhappiness, depression
+	Anger       float64 `json:"anger"`       // Frustration, irritation
+	Fear        float64 `json:"fear"`        // Anxiety, worry
+	Excitement  float64 `json:"excitement"`  // Enthusiasm, anticipation
 	Contentment float64 `json:"contentment"` // Peaceful satisfaction
-	Affection  float64 `json:"affection"`  // Love, attachment
-	Loneliness float64 `json:"loneliness"` // Feeling isolated
+	Affection   float64 `json:"affection"`   // Love, attachment
+	Loneliness  float64 `json:"loneliness"`  // Feeling isolated
 
 	// Current dominant emotion
 	DominantEmotion string `json:"dominant_emotion"`
@@ -189,14 +189,14 @@ func (e *EmotionState) GetMoodDescription() string {
 // updateDominantEmotion determines which emotion is strongest
 func (e *EmotionState) updateDominantEmotion() {
 	emotions := map[string]float64{
-		"joyful":    e.Joy,
-		"sad":       e.Sadness,
-		"angry":     e.Anger,
-		"fearful":   e.Fear,
-		"excited":   e.Excitement,
-		"content":   e.Contentment,
+		"joyful":       e.Joy,
+		"sad":          e.Sadness,
+		"angry":        e.Anger,
+		"fearful":      e.Fear,
+		"excited":      e.Excitement,
+		"content":      e.Contentment,
 		"affectionate": e.Affection,
-		"lonely":    e.Loneliness,
+		"lonely":       e.Loneliness,
 	}
 
 	maxEmotion := "content"

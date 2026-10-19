@@ -33,21 +33,21 @@ func (w WeatherType) String() string {
 // WeatherConditions represents current weather state
 type WeatherConditions struct {
 	Type        WeatherType `json:"type"`
-	Temperature float64     `json:"temperature"`  // In Celsius
-	Humidity    float64     `json:"humidity"`     // 0.0 to 1.0
-	WindSpeed   float64     `json:"wind_speed"`   // In km/h
-	Visibility  float64     `json:"visibility"`   // 0.0 to 1.0
-	UVIndex     float64     `json:"uv_index"`     // 0 to 11+
-	Comfort     float64     `json:"comfort"`      // Overall comfort level 0.0 to 1.0
+	Temperature float64     `json:"temperature"` // In Celsius
+	Humidity    float64     `json:"humidity"`    // 0.0 to 1.0
+	WindSpeed   float64     `json:"wind_speed"`  // In km/h
+	Visibility  float64     `json:"visibility"`  // 0.0 to 1.0
+	UVIndex     float64     `json:"uv_index"`    // 0 to 11+
+	Comfort     float64     `json:"comfort"`     // Overall comfort level 0.0 to 1.0
 }
 
 // WeatherSystem manages weather simulation
 type WeatherSystem struct {
-	Current          WeatherConditions `json:"current"`
+	Current          WeatherConditions  `json:"current"`
 	TransitionTarget *WeatherConditions `json:"transition_target,omitempty"`
-	TransitionRate   float64           `json:"transition_rate"`
-	LastUpdate       time.Time         `json:"last_update"`
-	HoursSinceCheck  float64           `json:"hours_since_check"` // Game hours since the last chance to change
+	TransitionRate   float64            `json:"transition_rate"`
+	LastUpdate       time.Time          `json:"last_update"`
+	HoursSinceCheck  float64            `json:"hours_since_check"` // Game hours since the last chance to change
 
 	// Configuration
 	BaseTemperature  float64 `json:"base_temperature"`
@@ -234,12 +234,12 @@ func (ws *WeatherSystem) selectNextWeather(season Season) WeatherType {
 		}
 	case SeasonWinter:
 		probabilities = map[WeatherType]float64{
-			WeatherClear:        0.15,
-			WeatherCloudy:       0.2,
-			WeatherSnowy:        0.3,
-			WeatherCold:         0.2,
-			WeatherWindy:        0.1,
-			WeatherFoggy:        0.05,
+			WeatherClear:  0.15,
+			WeatherCloudy: 0.2,
+			WeatherSnowy:  0.3,
+			WeatherCold:   0.2,
+			WeatherWindy:  0.1,
+			WeatherFoggy:  0.05,
 		}
 	}
 

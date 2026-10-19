@@ -14,12 +14,12 @@ type LearningSystem struct {
 	mu sync.RWMutex
 
 	// Q-Learning parameters
-	QTable            map[StateActionPair]float64 // Q-values for state-action pairs
-	LearningRate      float64                     // Alpha: how much new info overrides old (0-1)
-	DiscountFactor    float64                     // Gamma: importance of future rewards (0-1)
-	ExplorationRate   float64                     // Epsilon: exploration vs exploitation (0-1)
-	ExplorationDecay  float64                     // Rate at which exploration decreases
-	MinExplorationRate float64                    // Minimum exploration rate
+	QTable             map[StateActionPair]float64 // Q-values for state-action pairs
+	LearningRate       float64                     // Alpha: how much new info overrides old (0-1)
+	DiscountFactor     float64                     // Gamma: importance of future rewards (0-1)
+	ExplorationRate    float64                     // Epsilon: exploration vs exploitation (0-1)
+	ExplorationDecay   float64                     // Rate at which exploration decreases
+	MinExplorationRate float64                     // Minimum exploration rate
 
 	// Experience tracking
 	ExperienceBuffer  []Experience // Replay buffer for learning
@@ -29,7 +29,7 @@ type LearningSystem struct {
 	FailedActions     int          // Count of negatively rewarded actions
 
 	// Learning statistics
-	AverageReward     float64       // Moving average of rewards
+	AverageReward     float64                                     // Moving average of rewards
 	BestAction        map[types.BehaviorState]types.BehaviorState // Best learned action for each state
 	ActionPreferences map[types.BehaviorState][]ActionPreference  // Learned preferences per state
 
@@ -47,11 +47,11 @@ type StateActionPair struct {
 
 // Experience represents a single learning experience
 type Experience struct {
-	State      types.BehaviorState
-	Action     types.BehaviorState
-	Reward     float64
-	NextState  types.BehaviorState
-	Timestamp  time.Time
+	State     types.BehaviorState
+	Action    types.BehaviorState
+	Reward    float64
+	NextState types.BehaviorState
+	Timestamp time.Time
 }
 
 // ActionPreference represents learned preference for an action in a state
@@ -66,11 +66,11 @@ type ActionPreference struct {
 func NewLearningSystem() *LearningSystem {
 	return &LearningSystem{
 		QTable:             make(map[StateActionPair]float64),
-		LearningRate:       0.1,  // Standard Q-learning rate
-		DiscountFactor:     0.9,  // Value future rewards highly
-		ExplorationRate:    1.0,  // Start with full exploration
+		LearningRate:       0.1,   // Standard Q-learning rate
+		DiscountFactor:     0.9,   // Value future rewards highly
+		ExplorationRate:    1.0,   // Start with full exploration
 		ExplorationDecay:   0.995, // Gradual decay
-		MinExplorationRate: 0.05, // Always keep some exploration
+		MinExplorationRate: 0.05,  // Always keep some exploration
 		ExperienceBuffer:   make([]Experience, 0, 1000),
 		BufferSize:         1000,
 		BestAction:         make(map[types.BehaviorState]types.BehaviorState),
@@ -359,14 +359,14 @@ func (ls *LearningSystem) GetStats() LearningStats {
 	}
 
 	return LearningStats{
-		TotalExperiences:   ls.TotalExperiences,
-		SuccessfulActions:  ls.SuccessfulActions,
-		FailedActions:      ls.FailedActions,
-		AverageReward:      ls.AverageReward,
-		ExplorationRate:    ls.ExplorationRate,
-		QTableSize:         len(ls.QTable),
+		TotalExperiences:     ls.TotalExperiences,
+		SuccessfulActions:    ls.SuccessfulActions,
+		FailedActions:        ls.FailedActions,
+		AverageReward:        ls.AverageReward,
+		ExplorationRate:      ls.ExplorationRate,
+		QTableSize:           len(ls.QTable),
 		ExperienceBufferSize: len(ls.ExperienceBuffer),
-		SuccessRate:        successRate,
+		SuccessRate:          successRate,
 	}
 }
 

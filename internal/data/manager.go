@@ -16,9 +16,9 @@ type DataManager struct {
 	mu sync.RWMutex
 
 	// Paths
-	SavePath    string
-	BackupPath  string
-	CachePath   string
+	SavePath   string
+	BackupPath string
+	CachePath  string
 
 	// Configuration
 	EncryptionEnabled bool
@@ -27,9 +27,9 @@ type DataManager struct {
 	AutoBackup        bool
 
 	// State
-	CurrentSave  *SaveData
-	LastError    error
-	IsDirty      bool
+	CurrentSave *SaveData
+	LastError   error
+	IsDirty     bool
 }
 
 // DataManagerConfig contains configuration for DataManager
@@ -345,10 +345,10 @@ func (dm *DataManager) ListSaves() ([]SaveFileInfo, error) {
 		}
 
 		saves = append(saves, SaveFileInfo{
-			Filename:    file.Name(),
-			Path:        filepath.Join(dm.SavePath, file.Name()),
-			Size:        info.Size(),
-			ModifiedAt:  info.ModTime(),
+			Filename:   file.Name(),
+			Path:       filepath.Join(dm.SavePath, file.Name()),
+			Size:       info.Size(),
+			ModifiedAt: info.ModTime(),
 		})
 	}
 

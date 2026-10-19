@@ -30,10 +30,10 @@ func (l LocationType) String() string {
 
 // LocationFeatures describes what a location offers
 type LocationFeatures struct {
-	HasWater         bool    `json:"has_water"`
-	HasShelter       bool    `json:"has_shelter"`
-	HasFood          bool    `json:"has_food"`
-	HasToys          bool    `json:"has_toys"`
+	HasWater          bool    `json:"has_water"`
+	HasShelter        bool    `json:"has_shelter"`
+	HasFood           bool    `json:"has_food"`
+	HasToys           bool    `json:"has_toys"`
 	SocialOpportunity float64 `json:"social_opportunity"` // 0.0 to 1.0
 	ExplorationValue  float64 `json:"exploration_value"`  // 0.0 to 1.0
 	DangerLevel       float64 `json:"danger_level"`       // 0.0 to 1.0
@@ -52,15 +52,15 @@ type LocationEffects struct {
 
 // Location represents a place where the pet can be
 type Location struct {
-	Type         LocationType    `json:"type"`
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	Features     LocationFeatures `json:"features"`
-	Effects      LocationEffects  `json:"effects"`
-	Climate      ClimateType     `json:"climate"`
-	Unlocked     bool            `json:"unlocked"`
-	VisitCount   int             `json:"visit_count"`
-	TimeSpent    float64         `json:"time_spent"` // Total hours spent
+	Type        LocationType     `json:"type"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Features    LocationFeatures `json:"features"`
+	Effects     LocationEffects  `json:"effects"`
+	Climate     ClimateType      `json:"climate"`
+	Unlocked    bool             `json:"unlocked"`
+	VisitCount  int              `json:"visit_count"`
+	TimeSpent   float64          `json:"time_spent"` // Total hours spent
 }
 
 // ClimateType represents the climate of a location
@@ -92,8 +92,8 @@ type LocationManager struct {
 // TravelRecord tracks visits to locations
 type TravelRecord struct {
 	LocationName string  `json:"location_name"`
-	ArrivalTime  float64 `json:"arrival_time"`  // Game time
-	Duration     float64 `json:"duration"`      // Hours spent
+	ArrivalTime  float64 `json:"arrival_time"` // Game time
+	Duration     float64 `json:"duration"`     // Hours spent
 }
 
 // NewLocationManager creates a new location manager with default locations

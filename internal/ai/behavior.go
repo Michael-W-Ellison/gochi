@@ -38,9 +38,9 @@ type BehaviorStateMachine struct {
 
 // StateTransitionRecord records a state change for history
 type StateTransitionRecord struct {
-	FromState   types.BehaviorState
-	ToState     types.BehaviorState
-	Timestamp   time.Time
+	FromState       types.BehaviorState
+	ToState         types.BehaviorState
+	Timestamp       time.Time
 	TimeInPrevState time.Duration
 }
 

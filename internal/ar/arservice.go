@@ -29,11 +29,11 @@ const (
 type ARTrackingMode string
 
 const (
-	ARTrackingModeWorld       ARTrackingMode = "world"        // Full 6DOF tracking
-	ARTrackingModeOrientation ARTrackingMode = "orientation"  // 3DOF orientation only
-	ARTrackingModeFace        ARTrackingMode = "face"         // Face tracking
-	ARTrackingModeImage       ARTrackingMode = "image"        // Image/marker tracking
-	ARTrackingModeNone        ARTrackingMode = "none"         // 2D overlay mode
+	ARTrackingModeWorld       ARTrackingMode = "world"       // Full 6DOF tracking
+	ARTrackingModeOrientation ARTrackingMode = "orientation" // 3DOF orientation only
+	ARTrackingModeFace        ARTrackingMode = "face"        // Face tracking
+	ARTrackingModeImage       ARTrackingMode = "image"       // Image/marker tracking
+	ARTrackingModeNone        ARTrackingMode = "none"        // 2D overlay mode
 )
 
 // PlaneType represents detected plane types
@@ -184,12 +184,12 @@ type ARObject struct {
 // ARPet represents a pet placed in AR space
 type ARPet struct {
 	ARObject
-	PetID        types.PetID `json:"pet_id"`
-	Behavior     string      `json:"behavior"`
-	TargetPoint  *Vector3    `json:"target_point,omitempty"`
-	MovementSpeed float64    `json:"movement_speed"`
-	IsMoving     bool        `json:"is_moving"`
-	LookAtCamera bool        `json:"look_at_camera"`
+	PetID         types.PetID `json:"pet_id"`
+	Behavior      string      `json:"behavior"`
+	TargetPoint   *Vector3    `json:"target_point,omitempty"`
+	MovementSpeed float64     `json:"movement_speed"`
+	IsMoving      bool        `json:"is_moving"`
+	LookAtCamera  bool        `json:"look_at_camera"`
 }
 
 // Gesture represents a detected gesture
@@ -253,8 +253,8 @@ func DefaultARSessionConfig() *ARSessionConfig {
 
 // ARService manages AR sessions and interactions
 type ARService struct {
-	Config         *ARSessionConfig
-	State          ARSessionState
+	Config          *ARSessionConfig
+	State           ARSessionState
 	TrackingQuality float64 // 0.0 to 1.0
 
 	// Tracked objects
@@ -267,12 +267,12 @@ type ARService struct {
 	LightEstimate   *LightEstimate
 
 	// Callbacks
-	OnPlaneDetected      func(*DetectedPlane)
-	OnPlaneUpdated       func(*DetectedPlane)
-	OnPlaneRemoved       func(string)
+	OnPlaneDetected       func(*DetectedPlane)
+	OnPlaneUpdated        func(*DetectedPlane)
+	OnPlaneRemoved        func(string)
 	OnTrackingStateChange func(ARSessionState)
-	OnGesture            func(*Gesture)
-	OnPetInteraction     func(types.PetID, InteractionType, interface{})
+	OnGesture             func(*Gesture)
+	OnPetInteraction      func(types.PetID, InteractionType, interface{})
 
 	// Internal
 	mu              sync.RWMutex
@@ -283,9 +283,9 @@ type ARService struct {
 
 // LightEstimate represents estimated lighting conditions
 type LightEstimate struct {
-	AmbientIntensity   float64   `json:"ambient_intensity"`
-	AmbientColorTemp   float64   `json:"ambient_color_temp"`
-	PrimaryLightDir    Vector3   `json:"primary_light_direction"`
+	AmbientIntensity      float64 `json:"ambient_intensity"`
+	AmbientColorTemp      float64 `json:"ambient_color_temp"`
+	PrimaryLightDir       Vector3 `json:"primary_light_direction"`
 	PrimaryLightIntensity float64 `json:"primary_light_intensity"`
 }
 
@@ -543,8 +543,8 @@ func (s *ARService) PlacePet(petID types.PetID, position Vector3, planeID string
 
 	arPet := &ARPet{
 		ARObject: ARObject{
-			ID:        fmt.Sprintf("ar_pet_%s", petID),
-			Type:      "pet",
+			ID:   fmt.Sprintf("ar_pet_%s", petID),
+			Type: "pet",
 			Transform: Transform{
 				Position: position,
 				Rotation: QuaternionIdentity(),
@@ -664,16 +664,16 @@ func (s *ARService) SetPetBehavior(petID types.PetID, behavior string) error {
 
 	// Map behavior to animation
 	animationMap := map[string]string{
-		"idle":      "idle",
-		"happy":     "happy",
-		"excited":   "excited",
-		"sleeping":  "sleep",
-		"eating":    "eat",
-		"playing":   "play",
-		"walking":   "walk",
-		"running":   "run",
-		"sitting":   "sit",
-		"begging":   "beg",
+		"idle":     "idle",
+		"happy":    "happy",
+		"excited":  "excited",
+		"sleeping": "sleep",
+		"eating":   "eat",
+		"playing":  "play",
+		"walking":  "walk",
+		"running":  "run",
+		"sitting":  "sit",
+		"begging":  "beg",
 	}
 
 	if anim, ok := animationMap[behavior]; ok {
@@ -833,15 +833,15 @@ func (s *ARService) GetLightEstimate() *LightEstimate {
 
 // ExerciseTracker tracks user exercise through AR
 type ExerciseTracker struct {
-	IsTracking       bool
-	StartTime        time.Time
-	TotalDistance    float64 // meters
-	TotalSteps       int
-	CaloriesBurned   float64
-	LastPosition     *Vector3
-	Positions        []Vector3
-	StepThreshold    float64
-	mu               sync.RWMutex
+	IsTracking     bool
+	StartTime      time.Time
+	TotalDistance  float64 // meters
+	TotalSteps     int
+	CaloriesBurned float64
+	LastPosition   *Vector3
+	Positions      []Vector3
+	StepThreshold  float64
+	mu             sync.RWMutex
 }
 
 // NewExerciseTracker creates a new exercise tracker
@@ -984,13 +984,13 @@ func (s *ARService) IsExerciseTracking() bool {
 
 // ARSnapshot represents a snapshot of the AR state
 type ARSnapshot struct {
-	SessionState    ARSessionState        `json:"session_state"`
-	TrackingQuality float64               `json:"tracking_quality"`
-	CameraTransform Transform             `json:"camera_transform"`
-	DetectedPlanes  []*DetectedPlane      `json:"detected_planes"`
+	SessionState    ARSessionState         `json:"session_state"`
+	TrackingQuality float64                `json:"tracking_quality"`
+	CameraTransform Transform              `json:"camera_transform"`
+	DetectedPlanes  []*DetectedPlane       `json:"detected_planes"`
 	PlacedPets      map[types.PetID]*ARPet `json:"placed_pets"`
-	LightEstimate   *LightEstimate        `json:"light_estimate,omitempty"`
-	Timestamp       time.Time             `json:"timestamp"`
+	LightEstimate   *LightEstimate         `json:"light_estimate,omitempty"`
+	Timestamp       time.Time              `json:"timestamp"`
 }
 
 // GetSnapshot returns a snapshot of the current AR state

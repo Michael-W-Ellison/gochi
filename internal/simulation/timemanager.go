@@ -12,11 +12,11 @@ type TimeManager struct {
 	mu sync.RWMutex
 
 	// Time tracking
-	RealStartTime       time.Time     // When the simulation started in real time
-	SimulationStartTime time.Time     // Simulation epoch (game time zero)
-	CurrentSimTime      time.Time     // Current simulation time
-	LastUpdateRealTime  time.Time     // Last real-world update time
-	TotalSimulatedDays  float64       // Total game days elapsed
+	RealStartTime       time.Time // When the simulation started in real time
+	SimulationStartTime time.Time // Simulation epoch (game time zero)
+	CurrentSimTime      time.Time // Current simulation time
+	LastUpdateRealTime  time.Time // Last real-world update time
+	TotalSimulatedDays  float64   // Total game days elapsed
 
 	// Time scale settings
 	CurrentTimeScale    types.TimeScale // Current time scaling mode
@@ -24,8 +24,8 @@ type TimeManager struct {
 	IsPaused            bool            // Whether time is paused
 
 	// Delta time tracking
-	LastDeltaTime       float64 // Last frame's delta time in game seconds
-	AccumulatedTime     float64 // Accumulated time for fixed timesteps
+	LastDeltaTime   float64 // Last frame's delta time in game seconds
+	AccumulatedTime float64 // Accumulated time for fixed timesteps
 
 	// Statistics
 	TotalRealTimeElapsed time.Duration // Total real time since start
@@ -37,17 +37,17 @@ func NewTimeManager(timeScale types.TimeScale) *TimeManager {
 	now := time.Now()
 
 	tm := &TimeManager{
-		RealStartTime:       now,
-		SimulationStartTime: now,
-		CurrentSimTime:      now,
-		LastUpdateRealTime:  now,
-		TotalSimulatedDays:  0.0,
-		CurrentTimeScale:    timeScale,
-		IsPaused:            false,
-		LastDeltaTime:       0.0,
-		AccumulatedTime:     0.0,
+		RealStartTime:        now,
+		SimulationStartTime:  now,
+		CurrentSimTime:       now,
+		LastUpdateRealTime:   now,
+		TotalSimulatedDays:   0.0,
+		CurrentTimeScale:     timeScale,
+		IsPaused:             false,
+		LastDeltaTime:        0.0,
+		AccumulatedTime:      0.0,
 		TotalRealTimeElapsed: 0,
-		TickCount:           0,
+		TickCount:            0,
 	}
 
 	tm.TimeScaleMultiplier = tm.getMultiplierForScale(timeScale)

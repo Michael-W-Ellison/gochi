@@ -209,22 +209,22 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // APIDoc represents API documentation
 type APIDoc struct {
-	Title       string          `json:"title"`
-	Version     string          `json:"version"`
-	Description string          `json:"description"`
-	BaseURL     string          `json:"base_url"`
-	Endpoints   []EndpointDoc   `json:"endpoints"`
+	Title       string        `json:"title"`
+	Version     string        `json:"version"`
+	Description string        `json:"description"`
+	BaseURL     string        `json:"base_url"`
+	Endpoints   []EndpointDoc `json:"endpoints"`
 }
 
 // EndpointDoc represents documentation for a single endpoint
 type EndpointDoc struct {
-	Method       string            `json:"method"`
-	Path         string            `json:"path"`
-	Description  string            `json:"description"`
-	RequiresAuth bool              `json:"requires_auth"`
-	Parameters   []ParameterDoc    `json:"parameters,omitempty"`
-	RequestBody  *RequestBodyDoc   `json:"request_body,omitempty"`
-	Responses    []ResponseDoc     `json:"responses"`
+	Method       string          `json:"method"`
+	Path         string          `json:"path"`
+	Description  string          `json:"description"`
+	RequiresAuth bool            `json:"requires_auth"`
+	Parameters   []ParameterDoc  `json:"parameters,omitempty"`
+	RequestBody  *RequestBodyDoc `json:"request_body,omitempty"`
+	Responses    []ResponseDoc   `json:"responses"`
 }
 
 // ParameterDoc represents a parameter in API documentation

@@ -8,13 +8,13 @@ import (
 // VitalStats represents the core vital statistics of a digital pet.
 // All values range from 0.0 (critical/depleted) to 1.0 (optimal/full).
 type VitalStats struct {
-	Health     float64 `json:"health"`     // Overall health status
-	Energy     float64 `json:"energy"`     // Current energy level
-	Hydration  float64 `json:"hydration"`  // Water level
-	Nutrition  float64 `json:"nutrition"`  // Food/nutrient level
-	Happiness  float64 `json:"happiness"`  // Emotional well-being
-	Stress     float64 `json:"stress"`     // Stress level (higher is worse)
-	Fatigue    float64 `json:"fatigue"`    // Tiredness level (higher is worse)
+	Health      float64 `json:"health"`      // Overall health status
+	Energy      float64 `json:"energy"`      // Current energy level
+	Hydration   float64 `json:"hydration"`   // Water level
+	Nutrition   float64 `json:"nutrition"`   // Food/nutrient level
+	Happiness   float64 `json:"happiness"`   // Emotional well-being
+	Stress      float64 `json:"stress"`      // Stress level (higher is worse)
+	Fatigue     float64 `json:"fatigue"`     // Tiredness level (higher is worse)
 	Cleanliness float64 `json:"cleanliness"` // Hygiene level
 }
 
@@ -124,11 +124,11 @@ func NewPhysiologicalProcesses() *PhysiologicalProcesses {
 
 // BiologicalSystems manages all biological simulation aspects of a pet
 type BiologicalSystems struct {
-	Vitals      *VitalStats
-	Processes   *PhysiologicalProcesses
-	BirthTime   time.Time
-	LastUpdate  time.Time
-	IsAlive     bool
+	Vitals       *VitalStats
+	Processes    *PhysiologicalProcesses
+	BirthTime    time.Time
+	LastUpdate   time.Time
+	IsAlive      bool
 	CauseOfDeath string
 
 	// DecayMultipliers scale how fast needs build up (set by the pet's

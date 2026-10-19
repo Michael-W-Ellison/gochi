@@ -21,22 +21,22 @@ type SaveData struct {
 	SaveCount    int       `json:"save_count"`
 
 	// User information
-	UserID       string           `json:"user_id"`
-	Username     string           `json:"username"`
-	Preferences  UserPreferences  `json:"preferences"`
+	UserID      string          `json:"user_id"`
+	Username    string          `json:"username"`
+	Preferences UserPreferences `json:"preferences"`
 
 	// Pet data (stored as raw JSON to avoid circular dependencies)
-	PetData      json.RawMessage  `json:"pet_data"`
+	PetData json.RawMessage `json:"pet_data"`
 
 	// Game state
-	CareHistory  []HistoryEntry   `json:"care_history"`
-	Achievements []Achievement    `json:"achievements"`
+	CareHistory  []HistoryEntry    `json:"care_history"`
+	Achievements []Achievement     `json:"achievements"`
 	Unlocks      UnlockableContent `json:"unlocks"`
-	Statistics   GameStatistics   `json:"statistics"`
+	Statistics   GameStatistics    `json:"statistics"`
 
 	// Sync information
-	SyncStatus   SyncStatus       `json:"sync_status"`
-	Checksum     string           `json:"checksum"`
+	SyncStatus SyncStatus `json:"sync_status"`
+	Checksum   string     `json:"checksum"`
 }
 
 // UserPreferences stores user settings
@@ -76,38 +76,38 @@ type HistoryEntry struct {
 
 // Achievement represents an unlocked achievement
 type Achievement struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	UnlockedAt   time.Time `json:"unlocked_at"`
-	Rarity       string    `json:"rarity"` // common, rare, epic, legendary
-	Points       int       `json:"points"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	UnlockedAt  time.Time `json:"unlocked_at"`
+	Rarity      string    `json:"rarity"` // common, rare, epic, legendary
+	Points      int       `json:"points"`
 }
 
 // UnlockableContent tracks unlocked features
 type UnlockableContent struct {
-	Locations     []string `json:"locations"`
-	Accessories   []string `json:"accessories"`
-	Foods         []string `json:"foods"`
-	Toys          []string `json:"toys"`
-	Backgrounds   []string `json:"backgrounds"`
-	PetVariants   []string `json:"pet_variants"`
+	Locations   []string `json:"locations"`
+	Accessories []string `json:"accessories"`
+	Foods       []string `json:"foods"`
+	Toys        []string `json:"toys"`
+	Backgrounds []string `json:"backgrounds"`
+	PetVariants []string `json:"pet_variants"`
 }
 
 // GameStatistics tracks overall game stats
 type GameStatistics struct {
-	TotalPlayTime      float64   `json:"total_play_time"`      // hours
+	TotalPlayTime      float64   `json:"total_play_time"` // hours
 	PetsCreated        int       `json:"pets_created"`
 	PetsLost           int       `json:"pets_lost"`
 	TotalInteractions  int       `json:"total_interactions"`
-	LongestLifespan    float64   `json:"longest_lifespan"`     // days
+	LongestLifespan    float64   `json:"longest_lifespan"` // days
 	HighestHappiness   float64   `json:"highest_happiness"`
 	FoodFed            int       `json:"food_fed"`
 	GamesPlayed        int       `json:"games_played"`
 	AchievementsEarned int       `json:"achievements_earned"`
 	FirstPlayDate      time.Time `json:"first_play_date"`
-	CurrentStreak      int       `json:"current_streak"`       // days
-	LongestStreak      int       `json:"longest_streak"`       // days
+	CurrentStreak      int       `json:"current_streak"` // days
+	LongestStreak      int       `json:"longest_streak"` // days
 }
 
 // SyncStatus tracks cloud synchronization state
@@ -290,11 +290,11 @@ func (sd *SaveData) UpdateStatistics(playTime float64, interactions int) {
 func (sd *SaveData) CalculateChecksum() string {
 	// Create a copy without the checksum field
 	data, err := json.Marshal(struct {
-		Version     string          `json:"version"`
-		SaveID      string          `json:"save_id"`
-		UserID      string          `json:"user_id"`
-		PetData     json.RawMessage `json:"pet_data"`
-		SaveCount   int             `json:"save_count"`
+		Version   string          `json:"version"`
+		SaveID    string          `json:"save_id"`
+		UserID    string          `json:"user_id"`
+		PetData   json.RawMessage `json:"pet_data"`
+		SaveCount int             `json:"save_count"`
 	}{
 		Version:   sd.Version,
 		SaveID:    sd.SaveID,
