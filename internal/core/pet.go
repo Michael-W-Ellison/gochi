@@ -220,11 +220,16 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
 	before := *p.Biology.Vitals
 
-	// Belongings such as toys and brushes make care more effective
+	// How much the pet enjoys this, from what it has learned, its
+	// personality and its needs, scales the benefits
 	result := InteractionResult{Applied: true}
-	boost := 1.0
+	result.Reaction, result.ReactionMultiplier = p.reactionLocked(interactionType)
+	result.ReactionText = reactionText(interactionType, result.Reaction, p.Name)
+	boost := result.ReactionMultiplier
+
+	// Belongings such as toys and brushes make care more effective
 	if item, ok := p.careBoostLocked(interactionType); ok {
-		boost = item.Effect
+		boost *= item.Effect
 		result.BoostedBy = &item
 	}
 
@@ -251,20 +256,20 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 }
 
 // applyInteractionEffects modifies vital stats based on interaction type.
-// boost (from items) multiplies the benefits of play and grooming but not
-// their costs, such as the energy play uses.
+// boost (from the pet's reaction and its items) multiplies the benefits of
+// an interaction but not its costs, such as the energy play uses.
 func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionType, intensity, boost float64) {
 	vitals := p.Biology.Vitals
 
 	switch interactionType {
 	case types.InteractionFeeding:
-		vitals.Nutrition += 0.3 * intensity
-		vitals.Energy += 0.1 * intensity
-		vitals.Happiness += 0.05 * intensity
+		vitals.Nutrition += 0.3 * intensity * boost
+		vitals.Energy += 0.1 * intensity * boost
+		vitals.Happiness += 0.05 * intensity * boost
 
 	case types.InteractionPetting:
-		vitals.Happiness += 0.15 * intensity
-		vitals.Stress -= 0.1 * intensity
+		vitals.Happiness += 0.15 * intensity * boost
+		vitals.Stress -= 0.1 * intensity * boost
 
 	case types.InteractionPlaying:
 		vitals.Happiness += 0.2 * intensity * boost
@@ -272,19 +277,19 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Stress -= 0.05 * intensity * boost
 
 	case types.InteractionDrinking:
-		vitals.Hydration += 0.4 * intensity
-		vitals.Happiness += 0.02 * intensity
+		vitals.Hydration += 0.4 * intensity * boost
+		vitals.Happiness += 0.02 * intensity * boost
 
 	case types.InteractionGrooming:
 		vitals.Cleanliness += 0.3 * intensity * boost
 		vitals.Happiness += 0.05 * intensity * boost
 
 	case types.InteractionMedicalCare:
-		vitals.Health += 0.2 * intensity
+		vitals.Health += 0.2 * intensity * boost
 		vitals.Stress += 0.05 * intensity // Medical care can be stressful
 
 	case types.InteractionRewards:
-		vitals.Happiness += 0.25 * intensity
+		vitals.Happiness += 0.25 * intensity * boost
 
 	case types.InteractionDiscipline:
 		vitals.Stress += 0.15 * intensity

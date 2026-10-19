@@ -399,6 +399,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .belongings { text-align: center; font-size: 1.6em; min-height: 1.2em; letter-spacing: 4px; }
         .points-toast { text-align: center; min-height: 1.3em; margin-top: 10px; font-size: 0.9em; color: #d6336c; }
         .points-toast .changes { color: #444; font-weight: 600; }
+        .points-toast .reaction { color: #333; font-size: 1.05em; }
         .points-toast .boost { color: #2b8a3e; }
         .effects { margin: 6px auto 0; font-size: 0.8em; color: #2b8a3e; text-align: center; }
         .effects-title { color: #777; font-weight: 600; }
@@ -1152,6 +1153,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             .then(data => {
                 if (data.success) {
                     const lines = [];
+                    if (data.data.reaction_text) lines.push([data.data.reaction_text, 'reaction']);
+                    const face = {delighted: '😻', reluctant: '😾'}[data.data.reaction];
+                    if (face) sprite.textContent = face;
                     const changes = data.data.changes || [];
                     if (changes.length > 0) lines.push([formatChanges(changes), 'changes']);
                     const boost = data.data.boosted_by;
@@ -1742,6 +1746,8 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 		"friendship_points": s.pet.FriendshipPoints,
 		"changes":           result.Changes,
 		"boosted_by":        result.BoostedBy,
+		"reaction":          result.Reaction,
+		"reaction_text":     result.ReactionText,
 	}})
 }
 

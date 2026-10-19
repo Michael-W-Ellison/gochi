@@ -686,3 +686,17 @@ func TestStatusShowsRequest(t *testing.T) {
 		t.Errorf("A thirsty pet should ask for a drink: %s", body)
 	}
 }
+
+func TestInteractReportsReaction(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+	server.pet.Biology.Vitals.Nutrition = 0.1
+
+	rec := post(t, server.handleInteract, `{"action":"feed"}`)
+	body := rec.Body.String()
+	if !strings.Contains(body, `"reaction":"delighted"`) || !strings.Contains(body, `"reaction_text":"Biscuit gobbles up every bite!"`) {
+		t.Errorf("Response should include the reaction: %s", body)
+	}
+}

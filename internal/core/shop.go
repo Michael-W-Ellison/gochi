@@ -123,6 +123,12 @@ type InteractionResult struct {
 	PointsEarned int          // Friendship Points earned by this interaction
 	Changes      []StatChange // How the pet's stats changed
 	BoostedBy    *ShopItem    // Item that made this interaction more effective, if any
+
+	// How the pet reacted, which scales the interaction's benefits by
+	// ReactionMultiplier (see reactionLocked)
+	Reaction           ReactionLevel
+	ReactionText       string
+	ReactionMultiplier float64
 }
 
 // StatChange is the change in one of the pet's stats (-1.0 to 1.0)

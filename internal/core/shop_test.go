@@ -22,10 +22,12 @@ func TestDrinkRestoresHydration(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 	pet.Biology.Vitals.Hydration = 0.3
 
-	pet.ProcessUserInteraction(types.InteractionDrinking, 1.0)
+	r := pet.Interact(types.InteractionDrinking, 1.0)
 
-	if got := pet.Biology.Vitals.Hydration; math.Abs(got-0.7) > 1e-9 {
-		t.Errorf("Hydration after drinking = %f, want 0.7", got)
+	// A drink restores 0.4, scaled by how much the pet enjoys it
+	want := 0.3 + 0.4*r.ReactionMultiplier
+	if got := pet.Biology.Vitals.Hydration; math.Abs(got-want) > 1e-9 {
+		t.Errorf("Hydration after drinking = %f, want %f", got, want)
 	}
 }
 
@@ -233,7 +235,9 @@ func TestInteractionReportsStatChanges(t *testing.T) {
 
 	r := pet.Interact(types.InteractionPlaying, 1.0)
 
-	want := map[string]float64{"Happiness": 0.2, "Energy": -0.1, "Stress": -0.05}
+	// Benefits scale with the pet's reaction; the energy cost does not
+	m := r.ReactionMultiplier
+	want := map[string]float64{"Happiness": 0.2 * m, "Energy": -0.1, "Stress": -0.05 * m}
 	for stat, delta := range want {
 		got, ok := changeOf(r.Changes, stat)
 		if !ok || math.Abs(got-delta) > 1e-9 {
@@ -254,9 +258,11 @@ func TestHungerChangeIsReportedAsShown(t *testing.T) {
 
 	r := pet.Interact(types.InteractionFeeding, 1.0)
 
-	// Feeding raises nutrition by 0.3, so the Hunger bar drops by 0.3
-	if got, _ := changeOf(r.Changes, "Hunger"); math.Abs(got+0.3) > 1e-9 {
-		t.Errorf("Hunger change = %f, want -0.3", got)
+	// Feeding raises nutrition by 0.3 (scaled by the reaction), so the
+	// Hunger bar drops by the same amount
+	want := -0.3 * r.ReactionMultiplier
+	if got, _ := changeOf(r.Changes, "Hunger"); math.Abs(got-want) > 1e-9 {
+		t.Errorf("Hunger change = %f, want %f", got, want)
 	}
 }
 
@@ -272,8 +278,9 @@ func TestInteractionReportsBoostingItem(t *testing.T) {
 	if r.BoostedBy == nil || r.BoostedBy.ID != "puzzle_ball" {
 		t.Fatalf("Play should report the best toy as the boost, got %+v", r.BoostedBy)
 	}
-	if got, _ := changeOf(r.Changes, "Happiness"); math.Abs(got-0.3) > 1e-9 {
-		t.Errorf("Boosted happiness change = %f, want 0.3", got)
+	want := 0.2 * 1.5 * r.ReactionMultiplier
+	if got, _ := changeOf(r.Changes, "Happiness"); math.Abs(got-want) > 1e-9 {
+		t.Errorf("Boosted happiness change = %f, want %f", got, want)
 	}
 	// A better toy makes play more fun, not more tiring
 	if got, _ := changeOf(r.Changes, "Energy"); math.Abs(got+0.1) > 1e-9 {
