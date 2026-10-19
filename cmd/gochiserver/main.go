@@ -99,18 +99,15 @@ type PetStatus struct {
 }
 
 func main() {
-	dataDir := flag.String("data-dir", "", "directory for saves and backups (default ~/.gochi)")
-	autosaveInterval := flag.Duration("autosave", time.Minute, "how often to save the pet automatically (0 disables)")
-	awayTimeout := flag.Duration("away-pause", 2*time.Minute, "pause time when the player has been away this long (0 disables)")
-	addr := flag.String("addr", ":8080", "address to listen on")
-	apiToken := flag.String("api-token", "", "enable the REST API at /api/v1 for requests with this bearer token")
-	scaleName := flag.String("time-scale", "game", "game speed: game (1 game day per real minute), 24x, 4x or realtime")
+	defaults := defaultConfig()
+	configPath := flag.String("config", "", "settings file (default configs/config.yaml in the project directory, if present)")
+	dataDir := flag.String("data-dir", defaults.Server.DataDir, "directory for saves and backups (default ~/.gochi)")
+	autosaveInterval := flag.Duration("autosave", defaults.Simulation.Autosave, "how often to save the pet automatically (0 disables)")
+	awayTimeout := flag.Duration("away-pause", defaults.Simulation.AwayPause, "pause time when the player has been away this long (0 disables)")
+	addr := flag.String("addr", defaults.Server.Addr, "address to listen on")
+	apiToken := flag.String("api-token", defaults.Server.APIToken, "enable the REST API at /api/v1 for requests with this bearer token")
+	scaleName := flag.String("time-scale", defaults.Simulation.TimeScale, "game speed: game (1 game day per real minute), 24x, 4x or realtime")
 	flag.Parse()
-
-	timeScale, ok := timeScales[*scaleName]
-	if !ok {
-		log.Fatalf("Unknown -time-scale %q (use game, 24x, 4x or realtime)", *scaleName)
-	}
 
 	// Find web directory
 	webDir := findWebDir()
@@ -119,7 +116,41 @@ func main() {
 	}
 	log.Printf("Serving web content from: %s", webDir)
 
-	store, err := newPetStore(*dataDir)
+	// Settings: defaults, then the config file, then command-line options
+	config := defaults
+	if *configPath == "" {
+		*configPath = defaultConfigPath(webDir)
+	}
+	if *configPath != "" {
+		var err error
+		if config, err = loadConfig(*configPath); err != nil {
+			log.Fatalf("Could not read settings: %v", err)
+		}
+		log.Printf("Settings from %s", *configPath)
+	}
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "data-dir":
+			config.Server.DataDir = *dataDir
+		case "autosave":
+			config.Simulation.Autosave = *autosaveInterval
+		case "away-pause":
+			config.Simulation.AwayPause = *awayTimeout
+		case "addr":
+			config.Server.Addr = *addr
+		case "api-token":
+			config.Server.APIToken = *apiToken
+		case "time-scale":
+			config.Simulation.TimeScale = *scaleName
+		}
+	})
+	if err := config.validate(); err != nil {
+		log.Fatalf("Invalid settings: %v", err)
+	}
+	timeScale := timeScales[config.Simulation.TimeScale]
+	log.Printf("Game speed: %s", config.Simulation.TimeScale)
+
+	store, err := newPetStore(config.Server.DataDir)
 	if err != nil {
 		log.Fatalf("Could not set up save directory: %v", err)
 	}
@@ -130,7 +161,7 @@ func main() {
 		clock:        simulation.NewTimeManager(timeScale),
 		store:        store,
 		lastActivity: time.Now(),
-		awayTimeout:  *awayTimeout,
+		awayTimeout:  config.Simulation.AwayPause,
 	}
 
 	// Restore the most recently saved pet. Time does not pass while the
@@ -149,8 +180,8 @@ func main() {
 		log.Printf("Warning: could not restore a saved pet: %v", err)
 		log.Printf("Starting without a pet; the save files have been left in place in %s", store.SaveDir())
 	}
-	if *awayTimeout > 0 {
-		log.Printf("Time pauses after %s without the player", *awayTimeout)
+	if config.Simulation.AwayPause > 0 {
+		log.Printf("Time pauses after %s without the player", config.Simulation.AwayPause)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -158,17 +189,17 @@ func main() {
 
 	// Start background update and autosave loops
 	go server.updateLoop()
-	if *autosaveInterval > 0 {
-		go server.autosaveLoop(ctx, *autosaveInterval)
-		log.Printf("Autosaving every %s", *autosaveInterval)
+	if config.Simulation.Autosave > 0 {
+		go server.autosaveLoop(ctx, config.Simulation.Autosave)
+		log.Printf("Autosaving every %s", config.Simulation.Autosave)
 	}
 
 	// Setup routes
 	mux := http.NewServeMux()
 
 	// The REST API from the api package, for other clients
-	if *apiToken != "" {
-		apiRoutes := server.apiHandler(*apiToken)
+	if config.Server.APIToken != "" {
+		apiRoutes := server.apiHandler(config.Server.APIToken)
 		for _, pattern := range []string{"/api/v1", "/api/v1/", "/health", "/ready"} {
 			mux.Handle(pattern, apiRoutes)
 		}
@@ -219,13 +250,13 @@ func main() {
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	httpServer := &http.Server{Addr: *addr, Handler: mux}
+	httpServer := &http.Server{Addr: config.Server.Addr, Handler: mux}
 	serverErr := make(chan error, 1)
 	go func() {
 		serverErr <- httpServer.ListenAndServe()
 	}()
-	log.Printf("Starting Gochi server at http://localhost%s", *addr)
-	log.Printf("Open your browser to http://localhost%s to play! Press Ctrl+C to save and exit.", *addr)
+	log.Printf("Starting Gochi server at http://localhost%s", config.Server.Addr)
+	log.Printf("Open your browser to http://localhost%s to play! Press Ctrl+C to save and exit.", config.Server.Addr)
 
 	select {
 	case err := <-serverErr:

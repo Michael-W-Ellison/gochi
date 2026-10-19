@@ -98,6 +98,7 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 
 | Option | Default | Description |
 |---|---|---|
+| `-config` | `configs/config.yaml` | Settings file (see [Configuration](#configuration)); the default is used only if it exists |
 | `-addr` | `:8080` | Address and port the web server listens on |
 | `-data-dir` | `~/.gochi` | Directory for saved pets (`saves/`) and backups (`backups/`) |
 | `-autosave` | `1m` | How often the active pet is saved automatically; `0` turns autosave off |
@@ -323,9 +324,22 @@ energy. A sleeping, tired, hibernating or exploring pet can't go for a walk.
 
 ## Configuration
 
-The server is configured with the command-line options above. `configs/config.yaml` describes
-planned settings (simulation parameters, performance targets, biological parameters, AI settings
-and social features) but is not read by the server yet.
+At startup the server reads `configs/config.yaml` from the project directory (the one holding
+`web/`), or the file given with `-config`. The file holds the same settings as the command-line
+options:
+
+| Setting | Option | Default |
+|---|---|---|
+| `server.addr` | `-addr` | `":8080"` |
+| `server.data_dir` | `-data-dir` | `""` (`~/.gochi`); a relative path is relative to the file |
+| `server.api_token` | `-api-token` | `""` (REST API off) |
+| `simulation.time_scale` | `-time-scale` | `"game"` |
+| `simulation.autosave` | `-autosave` | `1m` |
+| `simulation.away_pause` | `-away-pause` | `2m` |
+
+A command-line option overrides the file, and a setting the file leaves out keeps its default.
+The server stops with an error if the file has a setting it doesn't know or an invalid value, so
+a misspelled setting is never silently ignored. The included file holds the defaults.
 
 ## Documentation
 
