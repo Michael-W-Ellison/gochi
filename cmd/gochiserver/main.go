@@ -622,13 +622,13 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
     <div class="container hidden" id="shopView">
         <div class="shop-header">
-            <h1>Shop</h1>
+            <h1 id="shopTitle">Shop</h1>
             <div class="friendship" id="shopPoints"></div>
         </div>
         <div id="shopList"></div>
         <div class="shop-msg" id="shopMsg"></div>
         <div style="text-align: center;">
-            <button class="back-btn" onclick="closeShop()">Back to my pet</button>
+            <button class="back-btn" id="shopBackBtn" onclick="closeShop()">Back to my pet</button>
         </div>
     </div>
 
@@ -878,7 +878,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             manualPause = status.pause_reason === 'manual';
             const banner = document.getElementById('pauseBanner');
             if (status.pause_reason === 'manual') {
-                banner.textContent = '⏸ Time is paused. Your pet is safe until you press Resume.';
+                banner.textContent = '⏸ Time is paused. ' + status.name + ' is safe until you press Resume.';
             } else if (status.pause_reason === 'away') {
                 banner.textContent = '⏸ Time paused while you were away.';
             }
@@ -1085,7 +1085,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     document.querySelector('.action-btn.' + request.action);
                 if (target) target.classList.add('requested');
             }
-            document.title = request ? '💬 ' + status.name + ' needs you - Gochi' : 'Gochi - Virtual Pet';
+            document.title = request ? '💬 ' + status.name + ' needs you - Gochi' : status.name + ' - Gochi';
+            const backLabel = 'Back to ' + status.name;
+            document.getElementById('backBtn').textContent = backLabel;
+            document.getElementById('shopBackBtn').textContent = backLabel;
+            document.getElementById('shopTitle').textContent = 'Shop for ' + status.name;
 
             document.getElementById('aboutPersonality').textContent = status.personality;
             const setList = (id, label, items, none) => {
@@ -1230,7 +1234,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if ('points_earned' in result) {
                 lines.push(result.points_earned > 0 ?
                     ['+' + result.points_earned + ' Friendship Points!', ''] :
-                    ['This kind of care earns points again in a few minutes.', '']);
+                    [(lastStatus ? lastStatus.name : 'Your pet') + ' earned points for this recently. Try again in a few minutes.', '']);
             }
             showPointsToast(lines);
         }
@@ -1775,6 +1779,7 @@ func (s *Server) handleBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markActiveLocked(time.Now())
+	name := s.pet.Name
 	err := s.pet.BuyItem(req.Item)
 	data := s.shopDataLocked()
 	s.mu.Unlock()
@@ -1783,11 +1788,11 @@ func (s *Server) handleBuy(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, core.ErrUnknownItem):
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown item"})
 	case errors.Is(err, core.ErrAlreadyOwned):
-		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: "Your pet already has this"})
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: name + " already has this"})
 	case errors.Is(err, core.ErrNotEnoughPoints):
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Not enough Friendship Points"})
 	case err != nil:
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "This pet cannot use items"})
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: name + " can't use items right now"})
 	default:
 		if _, err := s.saveNow(); err != nil {
 			log.Printf("Failed to save after purchase: %v", err)
@@ -2033,7 +2038,7 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	if s.pet == nil || !s.pet.IsAlive() {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Pet is not available"})
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: s.unavailableMessageLocked()})
 		return
 	}
 	if s.pet.IsHibernating() {
@@ -2216,7 +2221,7 @@ func (s *Server) handleInteractV1(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	if s.pet == nil || !s.pet.IsAlive() {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Pet is not available"})
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: s.unavailableMessageLocked()})
 		return
 	}
 	if s.pet.IsHibernating() {
@@ -2291,7 +2296,7 @@ func (s *Server) getPetData() map[string]interface{} {
 			"mood":       s.pet.Emotions.GetMoodDescription(),
 			"mood_score": s.pet.Emotions.GetMoodScore(),
 		},
-		"personality": s.pet.GetPersonalityDescription(),
+		"personality": s.pet.PersonalityDescription(),
 	}
 }
 

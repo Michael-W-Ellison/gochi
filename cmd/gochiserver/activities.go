@@ -28,8 +28,10 @@ func (s *Server) interactionData(result core.InteractionResult) map[string]inter
 func writeActivityError(w http.ResponseWriter, name string, err error) {
 	status, message := http.StatusConflict, ""
 	switch {
-	case errors.Is(err, core.ErrPetNotAvailable):
+	case errors.Is(err, core.ErrHibernating):
 		message = name + " is hibernating. Revive it first."
+	case errors.Is(err, core.ErrPetNotAvailable):
+		message = name + " has passed away."
 	case errors.Is(err, core.ErrExploring):
 		message = name + " is out exploring and will be back soon."
 	case errors.Is(err, core.ErrTooTired):
@@ -65,11 +67,20 @@ func (s *Server) withActivePet(w http.ResponseWriter, r *http.Request, fn func()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.pet == nil || !s.pet.IsAlive() {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Pet is not available"})
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: s.unavailableMessageLocked()})
 		return
 	}
 	s.markActiveLocked(time.Now())
 	fn()
+}
+
+// unavailableMessageLocked explains why there is no pet to care for.
+// Caller must hold s.mu.
+func (s *Server) unavailableMessageLocked() string {
+	if s.pet == nil {
+		return "No pet found"
+	}
+	return s.pet.Name + " has passed away."
 }
 
 // trickData is the response data for training or performing a trick.

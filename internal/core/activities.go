@@ -21,6 +21,7 @@ var (
 	ErrInvalidSpot   = errors.New("invalid hiding spot")
 	ErrNotExploring  = errors.New("pet is not out exploring")
 	ErrInjured       = errors.New("pet is injured")
+	ErrHibernating   = errors.New("pet is hibernating")
 )
 
 // randIntn picks random numbers for games and souvenirs (replaced in tests)
@@ -93,8 +94,10 @@ func (p *DigitalPet) Tricks() []TrickProgress {
 // Caller must hold p.mu.
 func (p *DigitalPet) checkActiveLocked() error {
 	switch {
-	case !p.Biology.IsAlive || p.Hibernating:
+	case !p.Biology.IsAlive:
 		return ErrPetNotAvailable
+	case p.Hibernating:
+		return ErrHibernating
 	case p.isExploringLocked():
 		return ErrExploring
 	case p.Biology.Vitals.Energy < minTrainingEnergy:

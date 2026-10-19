@@ -433,3 +433,17 @@ func TestQuitHideAndSeekLosesGains(t *testing.T) {
 		t.Errorf("Guessing after quitting: %v", err)
 	}
 }
+
+func TestHibernatingPetActivityError(t *testing.T) {
+	pet := NewDigitalPet("Biscuit", "user123")
+	pet.Update(10000)
+
+	if _, err := pet.TrainTrick("sit"); !errors.Is(err, ErrHibernating) {
+		t.Errorf("Training a hibernating pet: %v", err)
+	}
+
+	pet.Biology.IsAlive = false
+	if err := pet.StartHideAndSeek(); !errors.Is(err, ErrPetNotAvailable) {
+		t.Errorf("Playing with a pet that is not alive: %v", err)
+	}
+}

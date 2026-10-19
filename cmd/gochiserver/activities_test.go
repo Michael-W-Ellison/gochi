@@ -196,3 +196,31 @@ func TestHealThroughServer(t *testing.T) {
 		t.Error("Medical care should heal the injury")
 	}
 }
+
+func TestMessagesUsePetName(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+
+	server.pet.FriendshipPoints = 100
+	post(t, server.handleBuy, `{"item":"balloon"}`)
+	if rec := post(t, server.handleBuy, `{"item":"balloon"}`); !strings.Contains(rec.Body.String(), "Biscuit already has this") {
+		t.Errorf("Duplicate purchase: %s", rec.Body.String())
+	}
+
+	server.pet.Update(10000) // Hibernates
+	if rec := post(t, server.handleTrick(false), `{"trick":"sit"}`); !strings.Contains(rec.Body.String(), "Biscuit is hibernating") {
+		t.Errorf("Training while hibernating: %s", rec.Body.String())
+	}
+
+	server.pet.Biology.IsAlive = false
+	for name, handler := range map[string]http.HandlerFunc{
+		"interact": server.handleInteract,
+		"explore":  server.handleExplore,
+	} {
+		if rec := post(t, handler, `{"action":"feed"}`); !strings.Contains(rec.Body.String(), "Biscuit has passed away") {
+			t.Errorf("%s with a pet that is not alive: %s", name, rec.Body.String())
+		}
+	}
+}
