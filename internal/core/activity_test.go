@@ -129,6 +129,7 @@ func TestSleepingPetOnlyAsksForFoodAndWater(t *testing.T) {
 
 func TestHibernatingPetAsksToBeRevived(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
+	pet.HibernationEnabled = true
 	pet.Update(10000)
 
 	if r := pet.CurrentRequest(); r == nil || r.Action != "revive" {

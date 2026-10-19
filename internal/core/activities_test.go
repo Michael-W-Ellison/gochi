@@ -342,6 +342,7 @@ func TestTripCanInjurePet(t *testing.T) {
 func TestSevereInjuryHibernatesInsteadOfDying(t *testing.T) {
 	useRandom(t, 0) // Injury
 	pet := NewDigitalPet("Biscuit", "user123")
+	pet.HibernationEnabled = true
 	setCalmHealthyState(pet)
 	pet.SendExploring()
 	pet.Biology.Vitals.Health = 0.3
@@ -436,6 +437,7 @@ func TestQuitHideAndSeekLosesGains(t *testing.T) {
 
 func TestHibernatingPetActivityError(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
+	pet.HibernationEnabled = true
 	pet.Update(10000)
 
 	if _, err := pet.TrainTrick("sit"); !errors.Is(err, ErrHibernating) {
@@ -445,5 +447,20 @@ func TestHibernatingPetActivityError(t *testing.T) {
 	pet.Biology.IsAlive = false
 	if err := pet.StartHideAndSeek(); !errors.Is(err, ErrPetNotAvailable) {
 		t.Errorf("Playing with a pet that is not alive: %v", err)
+	}
+}
+
+func TestSevereInjuryCanKillWithoutHibernation(t *testing.T) {
+	useRandom(t, 0) // Injury
+	pet := NewDigitalPet("Biscuit", "user123")
+	setCalmHealthyState(pet)
+	pet.SendExploring()
+	pet.Biology.Vitals.Health = 0.2
+
+	pet.Update(exploreDuration + 0.1)
+
+	if pet.IsAlive() || pet.Biology.CauseOfDeath != "Health depleted" {
+		t.Errorf("A fatal injury without hibernation should kill the pet, alive=%v cause=%q",
+			pet.IsAlive(), pet.Biology.CauseOfDeath)
 	}
 }

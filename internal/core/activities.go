@@ -488,7 +488,12 @@ func (p *DigitalPet) injureLocked() []StatChange {
 
 	p.Injured = true
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
-	p.updateBehavior() // Hibernates if the injury left health critical
+	if !p.HibernationEnabled {
+		p.Biology.CheckDeathConditions() // A severe injury can be fatal
+	}
+	if p.Biology.IsAlive {
+		p.updateBehavior() // Hibernates if enabled and health is critical
+	}
 	return statChanges(before, *v)
 }
 

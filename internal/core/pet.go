@@ -40,9 +40,12 @@ type DigitalPet struct {
 	TotalInteractions int     `json:"total_interactions"`
 	TotalPlayTime     float64 `json:"total_play_time"` // In hours
 
-	// Hibernating is set when a vital stat reaches a critical level. The pet's
-	// stats are frozen and it ignores interactions until it is revived.
-	Hibernating bool `json:"hibernating"`
+	// HibernationEnabled is the owner's choice of whether the pet hibernates
+	// instead of dying when a vital stat reaches a critical level (off by
+	// default). While Hibernating, the pet's stats are frozen and it ignores
+	// interactions until it is revived.
+	HibernationEnabled bool `json:"hibernation_enabled"`
+	Hibernating        bool `json:"hibernating"`
 
 	// Friendship Points earned by caring for this pet, the items bought
 	// with them, and when each kind of care last earned points
@@ -124,7 +127,7 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	if !p.Biology.IsAlive || p.Hibernating {
 		return
 	}
-	if p.isCriticalLocked() {
+	if p.shouldHibernateLocked() {
 		p.hibernateLocked()
 		return
 	}
@@ -132,19 +135,29 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	// Belongings such as bowls and beds slow the pet's needs
 	p.Biology.DecayMultipliers = p.decayMultipliersLocked()
 
-	// Update biological systems in small steps, stopping if a stat
-	// becomes critical; the rest of the pet lives only that long
+	// Update biological systems in small steps, stopping if the pet
+	// hibernates or dies; the rest of the pet lives only that long
 	elapsed := 0.0
-	for elapsed < deltaTime {
+	for elapsed < deltaTime && p.Biology.IsAlive {
 		step := min(maxBiologyStep, deltaTime-elapsed)
 		p.Biology.Update(step)
 		elapsed += step
-		if p.isCriticalLocked() {
+		if p.shouldHibernateLocked() {
 			p.hibernateLocked()
 			break
 		}
 	}
 	deltaTime = elapsed
+
+	if !p.Biology.IsAlive {
+		// A pet that dies on a trip or mid-game does not come back; record
+		// the time it lived
+		p.ExploringUntilAge = 0
+		p.game = nil
+		p.LastUpdateAt = time.Now()
+		p.TotalPlayTime += deltaTime / 60.0
+		return
+	}
 
 	// Come home from exploring once the trip's time has passed
 	if p.isExploringLocked() && p.Biology.GetAgeInDays() >= p.ExploringUntilAge {
@@ -169,6 +182,20 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	// Track time
 	p.LastUpdateAt = time.Now()
 	p.TotalPlayTime += deltaTime / 60.0 // Convert to hours
+}
+
+// shouldHibernateLocked reports whether the pet should hibernate now: its
+// owner enabled hibernation and a stat is critical. Caller must hold p.mu.
+func (p *DigitalPet) shouldHibernateLocked() bool {
+	return p.HibernationEnabled && p.isCriticalLocked()
+}
+
+// SetHibernationEnabled sets whether the pet hibernates instead of dying.
+// Turning it off does not wake a pet that is already hibernating.
+func (p *DigitalPet) SetHibernationEnabled(enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.HibernationEnabled = enabled
 }
 
 // isCriticalLocked reports whether a stat that could cause death has
@@ -334,7 +361,7 @@ func (p *DigitalPet) updateBehavior() {
 	vitals := p.Biology.Vitals
 
 	// An interaction (such as tiring play) can leave a stat critical
-	if p.Hibernating || p.isCriticalLocked() {
+	if p.Hibernating || p.shouldHibernateLocked() {
 		p.hibernateLocked()
 		return
 	}

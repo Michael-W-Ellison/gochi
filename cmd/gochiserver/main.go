@@ -76,6 +76,8 @@ type PetStatus struct {
 	Dislikes         []string             `json:"dislikes"`
 	Slot             string               `json:"slot"`
 	Hibernating      bool                 `json:"hibernating"`
+	HibernationOn    bool                 `json:"hibernation_enabled"` // Hibernate instead of dying
+	CauseOfDeath     string               `json:"cause_of_death,omitempty"`
 	Paused           bool                 `json:"paused"`
 	PauseReason      string               `json:"pause_reason,omitempty"`
 
@@ -160,6 +162,7 @@ func main() {
 	mux.HandleFunc("/api/load", server.handleLoad)
 	mux.HandleFunc("/api/pause", server.handlePause)
 	mux.HandleFunc("/api/revive", server.handleRevive)
+	mux.HandleFunc("/api/hibernation", server.handleHibernation)
 	mux.HandleFunc("/api/delete", server.handleDelete)
 	mux.HandleFunc("/api/shop", server.handleShop)
 	mux.HandleFunc("/api/shop/buy", server.handleBuy)
@@ -427,6 +430,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .adventure-banner.plain { background: #f8f9fa; color: #495057; }
         .explore-banner button { display: block; margin: 8px auto 0; }
         .adventure-banner button { display: block; margin: 8px auto 0; }
+        .setting { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0; font-size: 0.85em; color: #555; text-align: left; cursor: pointer; }
+        .setting input { margin-top: 2px; }
         .about { margin-top: 16px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; font-size: 0.85em; color: #555; }
         .about div + div { margin-top: 4px; }
         .about-label { font-weight: 600; color: #333; }
@@ -529,6 +534,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="form-group">
                 <label for="petNameInput">What will you name your pet?</label>
                 <input type="text" id="petNameInput" placeholder="Enter a name..." maxlength="20" autofocus>
+                <label class="setting">
+                    <input type="checkbox" id="hibernationInput">
+                    <span>Gentle mode: hibernate instead of dying if neglected</span>
+                </label>
             </div>
             <button class="create-btn" id="createBtn" onclick="createPet()">Create My Pet!</button>
             <div class="error-msg hidden" id="errorMsg"></div>
@@ -608,6 +617,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
             </div>
+            <label class="setting">
+                <input type="checkbox" id="hibernationToggle" onchange="setHibernation(this.checked)">
+                <span id="hibernationLabel">Gentle mode: hibernate instead of dying if neglected</span>
+            </label>
 
             <div class="about" id="about">
                 <div id="aboutPersonality"></div>
@@ -852,6 +865,15 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             });
         }
 
+        function setHibernation(enabled) {
+            postJSON('/api/hibernation', {enabled: enabled})
+                .then(data => {
+                    if (!data.success) showPointsToast(data.error || 'Something went wrong');
+                    fetchStatus();
+                })
+                .catch(console.error);
+        }
+
         function revivePet() {
             const btn = document.getElementById('reviveBtn');
             btn.disabled = true;
@@ -1045,7 +1067,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             fetch('/api/create', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name: name})
+                body: JSON.stringify({name: name, hibernation: document.getElementById('hibernationInput').checked})
             })
             .then(r => r.json())
             .then(data => {
@@ -1103,7 +1125,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             setList('aboutLikes', 'Likes', status.likes || [], 'nothing yet');
             setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
             document.getElementById('activity').textContent =
-                status.is_alive ? status.name + ' ' + status.activity : status.name + ' has passed away';
+                status.is_alive ? status.name + ' ' + status.activity :
+                status.name + ' has passed away' + (status.cause_of_death ? ' (' + status.cause_of_death.toLowerCase() + ')' : '') + '.';
+            document.getElementById('hibernationToggle').checked = status.hibernation_enabled;
+            document.getElementById('hibernationToggle').disabled = !status.is_alive;
+            document.getElementById('hibernationLabel').textContent =
+                'Gentle mode: ' + status.name + ' hibernates instead of dying if neglected';
             document.getElementById('healthBar').style.width = (status.health * 100) + '%';
             document.getElementById('energyBar').style.width = (status.energy * 100) + '%';
             document.getElementById('happinessBar').style.width = (status.happiness * 100) + '%';
@@ -1624,7 +1651,7 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 }
 
 // createPet saves the active pet and replaces it with a new one
-func (s *Server) createPet(name string, randomize bool) error {
+func (s *Server) createPet(name string, randomize, hibernation bool) error {
 	if name == "" {
 		name = "Gochi"
 	}
@@ -1634,6 +1661,7 @@ func (s *Server) createPet(name string, randomize bool) error {
 		if randomize {
 			pet = core.NewDigitalPetRandom(name, "web_user")
 		}
+		pet.HibernationEnabled = hibernation
 		slot := sanitizeSlot(string(pet.ID))
 		if s.store != nil {
 			slot = s.store.NewSlot(pet)
@@ -1799,6 +1827,38 @@ func (s *Server) handleBuy(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
 	}
+}
+
+// handleHibernation handles POST /api/hibernation - {"enabled": true|false}
+// chooses whether the active pet hibernates instead of dying from neglect
+func (s *Server) handleHibernation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	s.mu.Lock()
+	if s.pet == nil {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	s.markActiveLocked(time.Now())
+	s.pet.SetHibernationEnabled(req.Enabled)
+	s.mu.Unlock()
+
+	if _, err := s.saveNow(); err != nil {
+		log.Printf("Failed to save hibernation setting: %v", err)
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]bool{"hibernation_enabled": req.Enabled}})
 }
 
 // handleRevive handles POST /api/revive - wakes the active pet from hibernation
@@ -1999,6 +2059,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if petStatus.Items == nil {
 		petStatus.Items = []core.ShopItem{}
 	}
+	petStatus.HibernationOn = s.pet.HibernationEnabled
+	petStatus.CauseOfDeath = s.pet.Biology.CauseOfDeath
 	petStatus.Tricks = s.pet.Tricks()
 	petStatus.Exploring = s.pet.IsExploring()
 	petStatus.ExploringSeconds = gameDaysToSeconds(s.pet.ExploringRemaining())
@@ -2111,13 +2173,15 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name      string `json:"name"`
 		Randomize bool   `json:"randomize"`
+		// Hibernate instead of dying from neglect (off by default)
+		Hibernation bool `json:"hibernation"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
 		return
 	}
 
-	if err := s.createPet(req.Name, req.Randomize); err != nil {
+	if err := s.createPet(req.Name, req.Randomize, req.Hibernation); err != nil {
 		log.Printf("Create failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
 		return
@@ -2148,13 +2212,15 @@ func (s *Server) handlePets(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Name      string `json:"name"`
 			Randomize bool   `json:"randomize"`
+			// Hibernate instead of dying from neglect (off by default)
+			Hibernation bool `json:"hibernation"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
 			return
 		}
 
-		if err := s.createPet(req.Name, req.Randomize); err != nil {
+		if err := s.createPet(req.Name, req.Randomize, req.Hibernation); err != nil {
 			log.Printf("Create failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
 			return

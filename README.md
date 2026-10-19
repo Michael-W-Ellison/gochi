@@ -175,7 +175,7 @@ example "Energy −10% · Happiness +20% · Stress −5%". A stat that is alread
   - about a third of the time it finds nothing of value, though the trip is still fun;
   - about one trip in nine it gets hurt: it loses health, comes home frightened and becomes warier
     of exploring. An injured pet asks to be healed and can't explore again until you press
-    **Heal**. Adaptable pets get hurt less often. A badly hurt pet hibernates rather than dying.
+    **Heal**. Adaptable pets get hurt less often. A badly hurt pet can die, or hibernates if gentle mode is on.
 
   Press **Call home early** to bring your pet back before the trip ends; it comes home with
   nothing from the trip. A pet that enjoys exploring starts exploring on its own.
@@ -203,12 +203,18 @@ applies. Owned items are shown under the pet's name, with an **Active effects** 
 currently working. When a toy or brush improves an action, the page says so after that action.
 Toys make play more fun without making it more tiring.
 
-### Hibernation
+### Hibernation (Gentle Mode)
 
-If a pet's health or water falls to a critical level, or its food and energy both do, the pet goes
-into hibernation instead of dying. While it hibernates its stats, age and mood stay exactly as they
-are and it does not respond to care. Press **Revive** to wake it: its health, water, food and
-energy are restored to at least half, and you can look after it again.
+By default a pet that is neglected until its health or water runs out, or its food and energy
+both do, dies. The pet screen then says how it died, and you can switch to or create another pet.
+
+Players who prefer a gentler game can turn on **Gentle mode**, either when creating a pet or later
+with the checkbox on the pet screen. With gentle mode on, a pet whose health or water falls to a
+critical level (10%), or whose food and energy both do, goes into hibernation instead of dying.
+While it hibernates its stats, age and mood stay exactly as they are and it does not respond to
+care. Press **Revive** to wake it: its health, water, food and energy are restored to at least
+half, and you can look after it again. Turning gentle mode off does not wake a pet that is
+already hibernating.
 
 ### Deleting Pets
 

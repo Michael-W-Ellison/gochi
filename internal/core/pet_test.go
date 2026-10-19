@@ -283,6 +283,7 @@ func TestLearnedPreferencesSurviveSaveLoad(t *testing.T) {
 
 func TestNeglectedPetHibernatesInsteadOfDying(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true
 
 	// Many small updates with no care
 	for i := 0; i < 1000; i++ {
@@ -302,6 +303,7 @@ func TestNeglectedPetHibernatesInsteadOfDying(t *testing.T) {
 
 func TestLargeUpdateCannotSkipHibernation(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true
 
 	pet.Update(10000)
 
@@ -312,6 +314,7 @@ func TestLargeUpdateCannotSkipHibernation(t *testing.T) {
 
 func TestHibernationFreezesStats(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true
 	pet.Update(10000)
 	if !pet.IsHibernating() {
 		t.Fatal("Pet should be hibernating")
@@ -346,6 +349,7 @@ func TestHibernatingPetIgnoresInteractions(t *testing.T) {
 
 func TestReviveRestoresPet(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true
 
 	if err := pet.Revive(); !errors.Is(err, ErrNotHibernating) {
 		t.Errorf("Reviving an awake pet should return ErrNotHibernating, got %v", err)
@@ -377,6 +381,7 @@ func TestReviveRestoresPet(t *testing.T) {
 
 func TestInteractionLeavingStatCriticalHibernates(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true
 	pet.Biology.Vitals.Nutrition = 0.05
 	pet.Biology.Vitals.Energy = 0.15
 
@@ -390,6 +395,7 @@ func TestInteractionLeavingStatCriticalHibernates(t *testing.T) {
 
 func TestHibernationSurvivesSaveLoad(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true
 	pet.Update(10000)
 
 	data, err := pet.Save()
@@ -403,5 +409,41 @@ func TestHibernationSurvivesSaveLoad(t *testing.T) {
 
 	if !loaded.IsHibernating() {
 		t.Error("Hibernation should be restored from a save")
+	}
+}
+
+func TestNeglectedPetDiesByDefault(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	if pet.HibernationEnabled {
+		t.Fatal("Hibernation should be off by default")
+	}
+
+	for i := 0; i < 1000 && pet.IsAlive(); i++ {
+		pet.Update(1)
+	}
+
+	if pet.IsAlive() || pet.IsHibernating() {
+		t.Errorf("A neglected pet without hibernation should die, alive=%v hibernating=%v", pet.IsAlive(), pet.IsHibernating())
+	}
+	if pet.Biology.CauseOfDeath == "" {
+		t.Error("Cause of death should be recorded")
+	}
+	if pet.TotalPlayTime == 0 {
+		t.Error("The time the pet lived should be recorded")
+	}
+}
+
+func TestTurningHibernationOffKeepsHibernatingPetAsleep(t *testing.T) {
+	pet := NewDigitalPet("TestPet", "user123")
+	pet.SetHibernationEnabled(true)
+	pet.Update(10000)
+	pet.SetHibernationEnabled(false)
+
+	pet.Update(100)
+	if !pet.IsAlive() || !pet.IsHibernating() {
+		t.Error("Turning hibernation off should not wake or kill a hibernating pet")
+	}
+	if err := pet.Revive(); err != nil {
+		t.Errorf("A hibernating pet can still be revived: %v", err)
 	}
 }

@@ -24,7 +24,7 @@ func statusOf(t *testing.T, server *Server) map[string]interface{} {
 
 func TestTrainAndPerformThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false); err != nil {
+	if err := server.createPet("Biscuit", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -68,7 +68,7 @@ func TestTrainAndPerformThroughServer(t *testing.T) {
 
 func TestHideAndSeekThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false); err != nil {
+	if err := server.createPet("Biscuit", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +105,7 @@ func TestHideAndSeekThroughServer(t *testing.T) {
 func TestExploreThroughServer(t *testing.T) {
 	server := newTestServer(t)
 	server.awayTimeout = 0
-	if err := server.createPet("Biscuit", false); err != nil {
+	if err := server.createPet("Biscuit", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +145,7 @@ func TestExploreThroughServer(t *testing.T) {
 
 func TestRecallAndQuitThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false); err != nil {
+	if err := server.createPet("Biscuit", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +177,7 @@ func TestRecallAndQuitThroughServer(t *testing.T) {
 
 func TestHealThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false); err != nil {
+	if err := server.createPet("Biscuit", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.Injured = true
@@ -199,9 +199,10 @@ func TestHealThroughServer(t *testing.T) {
 
 func TestMessagesUsePetName(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false); err != nil {
+	if err := server.createPet("Biscuit", false, false); err != nil {
 		t.Fatal(err)
 	}
+	server.pet.HibernationEnabled = true
 
 	server.pet.FriendshipPoints = 100
 	post(t, server.handleBuy, `{"item":"balloon"}`)
@@ -222,5 +223,52 @@ func TestMessagesUsePetName(t *testing.T) {
 		if rec := post(t, handler, `{"action":"feed"}`); !strings.Contains(rec.Body.String(), "Biscuit has passed away") {
 			t.Errorf("%s with a pet that is not alive: %s", name, rec.Body.String())
 		}
+	}
+}
+
+func TestHibernationSetting(t *testing.T) {
+	server := newTestServer(t)
+
+	// Creating a pet with gentle mode
+	if rec := post(t, server.handleCreate, `{"name":"Gentle","hibernation":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("Create: %s", rec.Body.String())
+	}
+	if !server.pet.HibernationEnabled || statusOf(t, server)["hibernation_enabled"] != true {
+		t.Error("Pet created with hibernation should have it enabled")
+	}
+
+	// The default is off, and can be changed later
+	post(t, server.handleCreate, `{"name":"Biscuit"}`)
+	if server.pet.HibernationEnabled {
+		t.Error("Hibernation should be off by default")
+	}
+	if rec := post(t, server.handleHibernation, `{"enabled":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("Toggle: %s", rec.Body.String())
+	}
+	if statusOf(t, server)["hibernation_enabled"] != true {
+		t.Error("Status should show hibernation enabled")
+	}
+
+	saved, _, _, err := server.store.Load(server.slot)
+	if err != nil || !saved.HibernationEnabled {
+		t.Errorf("The setting should be saved: %v", err)
+	}
+}
+
+func TestStatusShowsCauseOfDeath(t *testing.T) {
+	server := newTestServer(t)
+	server.awayTimeout = 0
+	if err := server.createPet("Biscuit", false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	for elapsed := time.Duration(0); elapsed <= 3*time.Hour && server.pet.IsAlive(); elapsed += time.Minute {
+		server.tick(start.Add(elapsed))
+	}
+
+	s := statusOf(t, server)
+	if s["is_alive"] != false || s["cause_of_death"] == nil || s["cause_of_death"] == "" {
+		t.Errorf("A neglected pet should die with a cause: %+v", s)
 	}
 }
