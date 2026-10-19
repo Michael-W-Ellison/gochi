@@ -1,6 +1,6 @@
 Software Design Document (SDD)
 Advanced Tamagotchi Digital Pet System
-Version: 1.1
+Version: 1.2
 Date: October 2026
 Author: System Architecture Team
 
@@ -125,7 +125,19 @@ cppclass BiologicalSystems {
         float emotionalResilience;
     };
     
+    struct Physiology {                 // Organ systems, 0.0 failing - 1.0 healthy
+        float stomach;                  // Food not yet digested (above 1.0 overfull)
+        float bowel, bladder;           // Waste waiting to be passed
+        float digestiveHealth;          // Scales digestion speed and absorption
+        float cardiovascularHealth;     // Fitness; raised by exercise, fades without it
+        float respiratoryHealth;        // Harmed by foul air, recovers in fresh air
+        float nervousHealth;            // Worn by long-term stress, restored by calm
+    };
+    
     void processMetabolism(float deltaTime);
+    bool eat(float amount);             // True if overfull: the pet throws up
+    void drink(float amount);           // Fills the bladder
+    void exercise(float amount);        // One play session = 1.0
     void processDigestion(FoodItem food);
     void processExercise(ExerciseType type, float duration);
     void processRest(float deltaTime, float sleepQuality);
@@ -141,8 +153,18 @@ by 1.25 with a bed. A pet falls asleep when very tired and wakes only once fatig
 Decay multipliers: the rates at which hunger, thirst, fatigue and energy drain change are
 multiplied by the pet's items (section 3.7) and its environment (section 5.1).
 
+Physiology: the stomach digests 0.6 per game day (scaled by digestive health), and half of what
+is digested becomes waste in the bowel; drinking fills the bladder. Eating past the stomach's
+capacity (for example many treats at once) makes the pet throw up, losing nutrition and harming
+digestion, and a meal's nutrition is scaled by 0.5 + 0.5 x digestive health. Fitness falls 0.02
+per game day without exercise (to 0.3) and rises with play, exploring and walks. Foul air (from a
+dirty living area, section 3.11) lowers respiratory health; fresh air restores it. Stress above
+0.6 wears the nervous system, and a worn one makes stress build faster. An unfit heart or weak
+lungs make energy drain faster, and any organ system below 0.5 costs health.
+
 Death: a pet dies when health or hydration reaches 0.0, or nutrition and energy both do. The
-cause of death is recorded and shown to the player. See section 3.10 for hibernation.
+cause of death is recorded and shown to the player (for an untreated illness, its name). See
+section 3.10 for hibernation.
 3.1.3 PersonalityMatrix Class
 cppclass PersonalityMatrix {
     struct Traits {
@@ -287,7 +309,9 @@ cppenum class InteractionType {
     SOCIAL_INTRODUCTION,
     DISCIPLINE,
     REWARDS,
-    DRINKING
+    DRINKING,
+    CLEANING,         // The living area (section 3.11)
+    WALKING           // Dogs only
 };
 
 class InteractionProcessor {
@@ -470,6 +494,47 @@ until the player revives it. Turning gentle mode off does not wake a hibernating
 3.10.3 Deleting Pets
 Deleting a pet asks twice: first to confirm, then to type that pet's name exactly. Deletion
 removes the pet's save and all of its backups.
+
+3.11 Species, Living Area, Illness and Care Lessons
+The game teaches real pet care. Each pet is a cat or a dog, chosen at creation (pets saved before
+species existed are cats), and care, lessons and warning signs follow its species. Cats and dogs
+cannot breed together; a baby takes its parents' species.
+3.11.1 Living Area
+cppclass LivingArea {
+    float waste;          // 0.0 clean - 1.0 filthy; a cat's litter box, a dog's home
+    
+    void relieve();       // Cat: uses the litter box when the bowel or bladder reaches 0.3
+                          // (stool +0.15, urine +0.08); at 0.8 it avoids the box (stress)
+                          // Dog: relieved outside on walks; at 0.8 an accident in the house
+    void clean();         // CLEANING interaction: waste = 0 (allowed while the pet explores)
+};
+
+Air pollution from the living area is max(waste - 0.3, 0) / 0.7 (section 3.1.2). WALKING (dogs only)
+empties the bowel and bladder outside and counts as exercise.
+3.11.2 Illness
+cppstruct Illness {
+    enum Kind { URINARY, PARASITES, RESPIRATORY };
+    float severity;       // 0.1 at onset, +0.04 per game day, up to 1.0
+};
+
+A living area dirtier than 0.6 can cause illness (a cat: urinary tract infection; a dog:
+intestinal parasites) at 0.3 x (waste - 0.6) / 0.4 per game day, and respiratory health below 0.4
+can cause a respiratory infection, both scaled down by immune strength. An illness costs
+0.04 x severity health per game day and harms its system (urinary: frequent urination and stress;
+parasites: digestion; respiratory: lungs); at severity 0.3 the pet behaves sick and asks for care.
+It worsens until treated with medical care, which cures it; it can come back if the cause remains.
+Untreated, it can kill the pet, or send it into hibernation in gentle mode.
+3.11.3 Teaching
+Lessons: each kind of care returns a short, species-specific explanation of why it matters
+(InteractionResult.lesson); treating an illness explains how to prevent it.
+Warning signs: the pet shows symptoms before problems become serious (a dirty living area, a dog
+waiting by the door, sneezing, tiring quickly, signs of stress, an upset stomach, each illness's
+signs, and recent events such as accidents), each with what it means and a care guide topic.
+Care guide: short lessons per species (feeding, water, litter box or bathroom breaks, exercise,
+grooming, vet care, breathing, stress); topics related to current warning signs are marked.
+Daily checklist: a real owner's routine for the current calendar day (cat: two meals, water,
+scoop the litter box, play, brush; dog: two meals, water, three walks, play), counted from the care
+given. It follows the real day rather than game time, so it shows a real pet's routine.
 
 4. Data Management
 4.1 Persistence Layer

@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ar"
+	"github.com/Michael-W-Ellison/gochi/internal/core"
 )
 
 func TestARThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,7 +85,7 @@ func TestARThroughServer(t *testing.T) {
 	}
 
 	// A pet that is no longer active leaves the scene
-	if err := server.createPet("Pepper", false, false); err != nil {
+	if err := server.createPet("Pepper", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	rec = httptest.NewRecorder()
@@ -96,7 +97,7 @@ func TestARThroughServer(t *testing.T) {
 
 func TestStoppingARSessionRemovesPet(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	post(t, server.handleARSession, `{"action":"start"}`)

@@ -30,6 +30,9 @@ func (e BreedingError) Error() string {
 	return e.Reason
 }
 
+// errDifferentSpecies explains why a cat and a dog can't breed
+const errDifferentSpecies = "cats and dogs can't have babies together"
+
 // childMutationRate is the chance each inherited personality trait mutates
 const childMutationRate = 0.05
 
@@ -84,6 +87,7 @@ type breedingInfo struct {
 	personality                        ai.PersonalityMatrix
 	hibernationEnabled                 bool
 	owner                              types.UserID
+	species                            Species
 }
 
 // breedingInfo snapshots the pet for breeding, so two pets' locks are
@@ -110,6 +114,7 @@ func (p *DigitalPet) breedingInfo() breedingInfo {
 		personality:        personality,
 		hibernationEnabled: p.HibernationEnabled,
 		owner:              p.Owner,
+		species:            p.speciesLocked(),
 	}
 }
 
@@ -157,6 +162,9 @@ func BreedingCompatibility(a, b *DigitalPet) (float64, string) {
 			return compatibility, reason
 		}
 	}
+	if infoA.species != infoB.species {
+		return 0, errDifferentSpecies
+	}
 	now := time.Now()
 	if reason := gs.CheckRequirements(infoA.candidate(now), infoB.candidate(now)); reason != "" {
 		return compatibility, reason
@@ -178,6 +186,9 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 		if reason := info.unavailable(); reason != "" {
 			return nil, BreedingError{reason}
 		}
+	}
+	if infoA.species != infoB.species {
+		return nil, BreedingError{errDifferentSpecies}
 	}
 
 	gs := genetics.NewGeneticSystem()
@@ -201,6 +212,7 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 	child.Personality.Traits.Clamp()
 	child.Biology.Processes.ImmuneStrength = geneValue(child.Genome, genetics.TraitImmuneStrength)
 	child.HibernationEnabled = infoA.hibernationEnabled
+	child.Species = infoA.species
 	child.Relationships.AddRelationship(infoA.id, types.RelationshipParent)
 	child.Relationships.AddRelationship(infoB.id, types.RelationshipParent)
 

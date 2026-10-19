@@ -22,8 +22,9 @@ import (
 // DigitalPet represents a complete digital pet with all its systems
 type DigitalPet struct {
 	// Identification
-	ID   types.PetID `json:"id"`
-	Name string      `json:"name"`
+	ID      types.PetID `json:"id"`
+	Name    string      `json:"name"`
+	Species Species     `json:"species"` // "" in saves made before species existed (a cat)
 
 	// Core Systems
 	Biology       *biology.BiologicalSystems  `json:"biology"`
@@ -75,7 +76,15 @@ type DigitalPet struct {
 	LastGameReward    time.Time          `json:"last_game_reward"`
 	Injured           bool               `json:"injured"`       // Hurt while exploring; healed by medical care
 	LastBredAge       float64            `json:"last_bred_age"` // Age at the last breeding (0 if never)
-	game              *hideAndSeek       // Game in progress (not saved)
+
+	// Health care: how dirty the living area is (0.0 clean to 1.0
+	// filthy), the illness the pet has (nil if well), recent health
+	// events, and today's care checklist
+	LivingAreaWaste float64        `json:"living_area_waste"`
+	Illness         *Illness       `json:"illness"`
+	HealthEvents    []HealthEvent  `json:"health_events"`
+	Checklist       *CareChecklist `json:"checklist"`
+	game            *hideAndSeek   // Game in progress (not saved)
 
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
@@ -155,6 +164,7 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	elapsed := 0.0
 	for elapsed < deltaTime && p.Biology.IsAlive {
 		step := min(maxBiologyStep, deltaTime-elapsed)
+		p.updateHealthLocked(step)
 		p.Biology.Update(step)
 		elapsed += step
 		if p.shouldHibernateLocked() {
@@ -165,6 +175,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	deltaTime = elapsed
 
 	if !p.Biology.IsAlive {
+		if name := p.illnessNameLocked(); name != "" {
+			p.Biology.CauseOfDeath = "Untreated " + strings.ToLower(name)
+		}
 		// A pet that dies on a trip or mid-game does not come back; record
 		// the time it lived
 		p.ExploringUntilAge = 0
@@ -281,8 +294,14 @@ func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionTyp
 // interactLocked applies an interaction and awards Friendship Points.
 // Caller must hold p.mu.
 func (p *DigitalPet) interactLocked(interactionType types.InteractionType, intensity float64) InteractionResult {
-	if !p.Biology.IsAlive || p.Hibernating || p.isExploringLocked() {
+	// The living area can be cleaned while the pet is out exploring
+	away := p.isExploringLocked() && interactionType != types.InteractionCleaning
+	if !p.Biology.IsAlive || p.Hibernating || away {
 		return InteractionResult{}
+	}
+	p.Biology.EnsurePhysiology()
+	if refusal := p.careRefusalLocked(interactionType); refusal != "" {
+		return InteractionResult{Refusal: refusal}
 	}
 
 	// The interaction rules can turn care down (a full pet is not hungry,
@@ -293,16 +312,20 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	p.TotalInteractions++
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
+	treated := ""
 	if interactionType == types.InteractionMedicalCare {
 		p.Injured = false
+		treated = p.treatIllnessLocked()
 	}
 	before := *p.Biology.Vitals
 
 	// How much the pet enjoys this, from what it has learned, its
 	// personality and its needs, scales the benefits
-	result := InteractionResult{Applied: true}
-	result.Reaction, result.ReactionMultiplier = p.reactionLocked(interactionType)
-	result.ReactionText = reactionText(interactionType, result.Reaction, p.Name)
+	result := InteractionResult{Applied: true, ReactionMultiplier: 1}
+	if interactionType != types.InteractionCleaning { // The pet isn't part of cleaning
+		result.Reaction, result.ReactionMultiplier = p.reactionLocked(interactionType)
+		result.ReactionText = reactionText(interactionType, result.Reaction, p.Name)
+	}
 	boost := result.ReactionMultiplier
 
 	// Belongings such as toys and brushes make care more effective
@@ -326,6 +349,8 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	p.meetNeedsLocked(interactionType, intensity)
 	result.PointsEarned = p.awardCareLocked(interactionType)
+	p.checkOffLocked(interactionType)
+	result.Lesson = p.lessonLocked(interactionType, treated)
 
 	// Update behavior
 	p.updateBehavior()
@@ -342,9 +367,10 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 
 	switch interactionType {
 	case types.InteractionFeeding:
-		vitals.Nutrition += 0.3 * intensity * boost
+		vitals.Nutrition += 0.3 * intensity * boost * p.Biology.Absorption()
 		vitals.Energy += 0.1 * intensity * boost
 		vitals.Happiness += 0.05 * intensity * boost
+		p.eatLocked(0.3 * intensity)
 
 	case types.InteractionPetting:
 		vitals.Happiness += 0.15 * intensity * boost
@@ -354,10 +380,12 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.2 * intensity * boost
 		vitals.Energy -= 0.1 * intensity
 		vitals.Stress -= 0.05 * intensity * boost
+		p.Biology.Exercise(intensity)
 
 	case types.InteractionDrinking:
 		vitals.Hydration += 0.4 * intensity * boost
 		vitals.Happiness += 0.02 * intensity * boost
+		p.Biology.Drink(waterToBladder * intensity)
 
 	case types.InteractionTraining:
 		vitals.Happiness += 0.05 * intensity * boost
@@ -367,6 +395,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.15 * intensity * boost
 		vitals.Stress -= 0.05 * intensity * boost
 		vitals.Energy -= 0.15 * intensity
+		p.Biology.Exercise(1.5 * intensity)
 
 	case types.InteractionGrooming:
 		vitals.Cleanliness += 0.3 * intensity * boost
@@ -378,6 +407,20 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 
 	case types.InteractionRewards:
 		vitals.Happiness += 0.25 * intensity * boost
+		p.eatLocked(0.1 * intensity) // Treats are food too
+
+	case types.InteractionCleaning:
+		p.LivingAreaWaste = 0
+		vitals.Stress -= 0.03 // A clean home is calmer
+		vitals.Happiness += 0.02
+
+	case types.InteractionWalking:
+		ph := p.Biology.Physiology
+		ph.Bowel, ph.Bladder = 0, 0 // Relieved outside, and picked up after
+		vitals.Happiness += 0.15 * intensity * boost
+		vitals.Stress -= 0.05 * intensity * boost
+		vitals.Energy -= 0.08 * intensity
+		p.Biology.Exercise(intensity)
 
 	case types.InteractionDiscipline:
 		vitals.Stress += 0.15 * intensity
@@ -401,8 +444,8 @@ func (p *DigitalPet) updateBehavior() {
 		return
 	}
 
-	// Critical needs override other behaviors
-	if vitals.Health < 0.3 {
+	// Critical needs and illness override other behaviors
+	if vitals.Health < 0.3 || (p.Illness != nil && p.Illness.Severity >= illnessSicknessLevel) {
 		p.CurrentBehavior = types.BehaviorSick
 		return
 	}

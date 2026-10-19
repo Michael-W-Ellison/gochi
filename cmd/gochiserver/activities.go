@@ -23,7 +23,33 @@ func (s *Server) interactionData(result core.InteractionResult) map[string]inter
 		"boosted_by":        result.BoostedBy,
 		"reaction":          result.Reaction,
 		"reaction_text":     result.ReactionText,
+		"lesson":            result.Lesson,
 	}
+}
+
+// handleGuide handles GET /api/guide - the care guide for the active pet's
+// species, or ?species=cat or dog
+func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	species, ok := core.ParseSpecies(r.URL.Query().Get("species"))
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose a cat or a dog"})
+		return
+	}
+	if r.URL.Query().Get("species") == "" {
+		s.mu.RLock()
+		if s.pet != nil {
+			species = s.pet.GetSpecies()
+		}
+		s.mu.RUnlock()
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"species": species,
+		"topics":  core.CareGuide(species),
+	}})
 }
 
 // writeActivityError reports why the pet cannot do an activity

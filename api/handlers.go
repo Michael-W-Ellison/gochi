@@ -185,12 +185,19 @@ func (h *Handler) HandleCreatePet(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserIDFromContext(r)
 
+	species, ok := core.ParseSpecies(req.Species)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "INVALID_SPECIES", "Species must be cat or dog")
+		return
+	}
+
 	var pet *core.DigitalPet
 	if req.RandomizeTraits {
 		pet = core.NewDigitalPetRandom(req.Name, userID)
 	} else {
 		pet = core.NewDigitalPet(req.Name, userID)
 	}
+	pet.Species = species
 
 	if err := h.petStore.CreatePet(pet); err != nil {
 		writeError(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create pet")
@@ -619,6 +626,7 @@ func convertPetToResponse(pet *core.DigitalPet) *PetResponse {
 		ID:              pet.ID,
 		Name:            pet.Name,
 		Owner:           pet.Owner,
+		Species:         string(pet.GetSpecies()),
 		Age:             pet.Biology.GetAgeInDays(),
 		IsAlive:         pet.Biology.IsAlive,
 		CurrentBehavior: pet.CurrentBehavior.String(),
@@ -698,6 +706,10 @@ func mapStringToInteractionType(s string) types.InteractionType {
 		return types.InteractionFeeding
 	case "drinking", "drink":
 		return types.InteractionDrinking
+	case "cleaning", "clean":
+		return types.InteractionCleaning
+	case "walking", "walk":
+		return types.InteractionWalking
 	case "petting", "pet":
 		return types.InteractionPetting
 	case "playing", "play":

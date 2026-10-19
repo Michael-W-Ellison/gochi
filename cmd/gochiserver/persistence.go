@@ -26,6 +26,7 @@ type petStore struct {
 type savedPet struct {
 	Slot        string    `json:"slot"`
 	Name        string    `json:"name"`
+	Species     string    `json:"species"` // cat or dog
 	Age         float64   `json:"age"`
 	IsAlive     bool      `json:"is_alive"`
 	Hibernating bool      `json:"hibernating"`
@@ -155,6 +156,7 @@ func readSummary(slot, path string) (savedPet, error) {
 
 	var summary struct {
 		Name        string `json:"name"`
+		Species     string `json:"species"`
 		Hibernating bool   `json:"hibernating"`
 		Biology     struct {
 			IsAlive   bool
@@ -167,9 +169,14 @@ func readSummary(slot, path string) (savedPet, error) {
 		return savedPet{}, err
 	}
 
+	species, ok := core.ParseSpecies(summary.Species)
+	if !ok {
+		species = core.SpeciesCat
+	}
 	return savedPet{
 		Slot:        slot,
 		Name:        summary.Name,
+		Species:     string(species),
 		Age:         summary.Biology.Processes.Age,
 		IsAlive:     summary.Biology.IsAlive,
 		Hibernating: summary.Hibernating,

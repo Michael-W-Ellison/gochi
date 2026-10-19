@@ -143,8 +143,11 @@ Only the active pet's time passes; pets that are not loaded wait in their save f
 
 ### Caring for Your Pet
 
-Use **Feed**, **Drink**, **Pet**, **Play**, **Groom** and **Heal** to look after your pet. The bars show its
-health, energy, happiness, hunger and water.
+When you create a pet, choose a **cat** or a **dog**. The game teaches the real care each one needs.
+
+Use **Feed**, **Drink**, **Pet**, **Play**, **Groom** and **Heal** to look after your pet, **🧹 Scoop
+litter** (cats) or **🧹 Clean up** (dogs) to keep its living area clean, and **🦮 Walk** to take a dog
+outside. The bars show its health, energy, happiness, hunger and water.
 
 Pets don't accept every kind of care at every moment: a full pet isn't hungry, a clean pet doesn't
 need grooming, a very tired pet won't play, and a stressed or tired pet won't train. When your pet
@@ -166,6 +169,51 @@ hide and seek and exploring), **Company** and **Affection** (petting, grooming, 
 training), **Learning** (training and play) and **Adventure** (exploring). A pet asks for help when
 a need runs low, and needs left completely unmet make it unhappy. After each action the page shows what changed, for
 example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
+
+### Health and Learning Real Care
+
+Your pet has a body that works like a real animal's. Under **Body**, four bars show its organ
+systems:
+
+- **Digestion**: food passes through the stomach and becomes waste. Eating too much at once, for
+  example many treats in a row, makes the pet throw up and upsets its stomach; an upset gut takes in
+  less of each meal.
+- **Heart**: kept fit by play, exploring and walks, and fades without exercise. An unfit pet tires
+  quickly.
+- **Lungs**: harmed by foul air from a dirty living area, and recover in fresh air. Weak lungs also
+  make a pet tire quickly.
+- **Nerves**: worn down by long-term stress, and restored by calm. A worn nervous system makes the
+  pet more easily stressed.
+
+An organ system that gets too weak costs the pet health.
+
+**The living area** gets dirty as the pet relieves itself. A cat uses its litter box several times
+a day, so scoop it regularly; if the box gets too dirty, the cat goes elsewhere and gets stressed. A
+dog goes outside on walks, so its home stays clean as long as it is walked often enough; a dog left
+too long has an accident in the house.
+
+**Illness**: a dirty living area makes the air foul and can make the pet ill: a cat can get a
+urinary tract infection, a dog intestinal parasites, and damaged lungs can lead to a respiratory
+infection. An illness gets worse until you give medical care (**Heal**), costing the pet health. Left
+untreated it can kill the pet, or send it into hibernation in gentle mode. Treatment cures it, but it
+can come back if the living area stays dirty.
+
+The game teaches care in four ways:
+
+- **Lessons**: after each action, a 💡 line explains why it matters for a real cat or dog, for
+  example why a clean litter box prevents urinary problems or why you pick up after a dog.
+- **Warning signs**: under **Body**, the pet shows signs before problems get serious (a smelly
+  litter box, sneezing, tiring quickly, waiting by the door, straining in the litter box) with what
+  each means and what to do. Good news, such as a recovery, is shown in green.
+- **Care guide**: press **📖 Care guide** for short lessons on feeding, water, the litter box or
+  bathroom breaks, exercise, grooming, vet care, breathing and stress. Topics related to the pet's
+  current warning signs are marked ⚠️, and **Learn more** on a warning sign opens its topic.
+- **Today's care**: a checklist of a real owner's daily routine, ticked off as you give care. For
+  a cat: two meals, fresh water, scooping the litter box, play and brushing; for a dog: two meals,
+  fresh water, three walks and play. It follows the real calendar day, not game time, so it shows
+  the routine a real pet needs whatever the game speed.
+
+The lessons and guide give general care advice. For a real pet, follow your veterinarian's advice.
 
 ### Getting to Know Your Pet
 
@@ -192,8 +240,8 @@ example "Energy −10% · Happiness +20% · Stress −5%". A stat that is alread
   counts as play and earns a 5-point game bonus (at most once every 3 minutes). Press **Stop
   playing** (or close the panel) to end the game early; an unfinished game earns nothing.
 - **🧭 Explore**: send your pet out for about 2 minutes. It needs energy, water and food to go,
-  and can't be cared for while it is away. Pausing time pauses the trip too. Trips don't always
-  go well:
+  and can't be cared for while it is away, though you can still clean its living area. Pausing
+  time pauses the trip too. Trips don't always go well:
   - a little over half the time your pet brings home a souvenir for its treasure collection (curious
     pets find souvenirs, including rare crystals, more often);
   - about a third of the time it finds nothing of value, though the trip is still fun;
@@ -209,7 +257,7 @@ example "Energy −10% · Happiness +20% · Stress −5%". A stat that is alread
 
 Press **💞 Breed** to have a baby with one of your other saved pets. The panel lists each saved
 pet with how genetically compatible it is with your pet and, if they can't breed right now, why.
-Both pets must be at least 7 game days old, healthy (health at least 60%) and happy (happiness at
+Both pets must be the same species and at least 7 game days old, healthy (health at least 60%) and happy (happiness at
 least 50%), and at least 30% compatible; neither can be hibernating, exploring or have passed
 away. Breeding can still fail by chance; less compatible pairs fail more often.
 
@@ -289,10 +337,10 @@ the header `Authorization: Bearer my-secret`; `/health` and `/ready` need no tok
 | Route | Description |
 |---|---|
 | `GET /api/v1/pets` | All saved pets |
-| `POST /api/v1/pets` | Create a pet (`{"name": "...", "randomize_traits": true}`); it is saved without becoming the active pet |
+| `POST /api/v1/pets` | Create a pet (`{"name": "...", "species": "cat", "randomize_traits": true}`; species is `cat` (default) or `dog`); it is saved without becoming the active pet |
 | `GET /api/v1/pets/{id}`, `GET /api/v1/pets/{id}/status` | One pet |
 | `PUT /api/v1/pets/{id}` | Rename a pet (`{"name": "..."}`) |
-| `POST /api/v1/pets/{id}/interactions` | Care for a pet (`{"type": "feed", "intensity": 1}`; types: feed, drink, pet, play, train, groom, medical, reward, discipline) |
+| `POST /api/v1/pets/{id}/interactions` | Care for a pet (`{"type": "feed", "intensity": 1}`; types: feed, drink, pet, play, train, groom, medical, reward, discipline, clean, walk) |
 | `POST /api/v1/pets/{id}/interactions/feed`, `.../play` | Shortcuts for feeding and playing |
 | `GET /api/v1/social/friends?pet_id=...` | A pet's friends |
 

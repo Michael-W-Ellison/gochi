@@ -79,6 +79,12 @@ var reactionTexts = map[types.InteractionType]map[ReactionLevel]string{
 		ReactionOkay:      "%s had a quiet walk around.",
 		ReactionReluctant: "%s is glad to be home.",
 	},
+	types.InteractionWalking: {
+		ReactionDelighted: "%s pulls happily on the leash, sniffing everything!",
+		ReactionHappy:     "%s trots along beside you.",
+		ReactionOkay:      "%s takes a short stroll.",
+		ReactionReluctant: "%s drags its paws and wants to go home.",
+	},
 	types.InteractionDiscipline: {
 		ReactionDelighted: "%s looks sad and lowers its ears.",
 		ReactionHappy:     "%s looks sad and lowers its ears.",
@@ -127,6 +133,11 @@ func (p *DigitalPet) reactionLocked(interactionType types.InteractionType) (Reac
 	case types.InteractionEnvironmentalEnrichment:
 		score += (traits.Curiosity - 0.5) * 0.6
 		score += (v.Energy - 0.5) * 0.4
+	case types.InteractionWalking:
+		score += (traits.EnergyLevel - 0.5) * 0.6
+		score += (v.Energy - 0.5) * 0.4
+		ph := p.Biology.Physiology
+		score += max(ph.Bowel, ph.Bladder) * 0.4 // Relief at going outside
 	case types.InteractionDiscipline:
 		// Discipline is never enjoyed and has no benefits to scale
 		return ReactionReluctant, 1.0

@@ -37,6 +37,8 @@ var rewardedCare = map[types.InteractionType]bool{
 	types.InteractionTraining:    true,
 
 	types.InteractionEnvironmentalEnrichment: true,
+	types.InteractionCleaning:                true,
+	types.InteractionWalking:                 true,
 }
 
 // ItemCategory groups shop items. Within a category with an effect, the
@@ -129,6 +131,9 @@ type InteractionResult struct {
 
 	// Why the pet turned the interaction down, if it did (Applied is false)
 	Refusal string
+
+	// What this care teaches about looking after a real pet
+	Lesson string
 
 	// How the pet reacted, which scales the interaction's benefits by
 	// ReactionMultiplier (see reactionLocked)

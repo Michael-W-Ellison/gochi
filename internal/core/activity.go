@@ -65,6 +65,7 @@ var careNames = []struct {
 	{types.InteractionDrinking, "fresh water"},
 	{types.InteractionPetting, "being petted"},
 	{types.InteractionPlaying, "playing"},
+	{types.InteractionWalking, "walks"},
 	{types.InteractionGrooming, "being groomed"},
 	{types.InteractionTraining, "training"},
 	{types.InteractionEnvironmentalEnrichment, "exploring"},
@@ -119,7 +120,7 @@ func (p *DigitalPet) PersonalityDescription() string {
 
 // PetRequest is something the pet is asking its owner for
 type PetRequest struct {
-	Action  string `json:"action"` // Page action that fulfils it: feed, drink, groom, pet, play, medic, train, explore or revive
+	Action  string `json:"action"` // Page action that fulfils it: feed, drink, groom, pet, play, medic, train, explore, clean, walk or revive
 	Icon    string `json:"icon"`
 	Message string `json:"message"`
 }
@@ -152,6 +153,13 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	if p.Injured {
 		return &PetRequest{"medic", "🩹", p.Name + " is hurt and needs to be healed."}
 	}
+	if p.Illness != nil {
+		return &PetRequest{"medic", "🤒", p.Name + " is ill and needs medical care."}
+	}
+	p.Biology.EnsurePhysiology()
+	if ph := p.Biology.Physiology; p.speciesLocked() == SpeciesDog && max(ph.Bowel, ph.Bladder) >= 0.5 {
+		return &PetRequest{"walk", "🦮", p.Name + " is waiting by the door and needs to go outside!"}
+	}
 
 	v := p.Biology.Vitals
 	switch {
@@ -159,6 +167,13 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 		return &PetRequest{"drink", "💧", p.Name + " is thirsty!"}
 	case v.Nutrition < needRequestLevel:
 		return &PetRequest{"feed", "🍖", p.Name + " is hungry!"}
+	}
+
+	if p.LivingAreaWaste >= 0.5 {
+		if p.speciesLocked() == SpeciesDog {
+			return &PetRequest{"clean", "🧹", "There's a mess in the house that needs cleaning up."}
+		}
+		return &PetRequest{"clean", "🧹", p.Name + "'s litter box needs cleaning."}
 	}
 
 	// A sleeping pet only wakes for food and water
