@@ -122,6 +122,13 @@ func (b breedingInfo) lastBreedingTime(now time.Time) time.Time {
 	return now.Add(-time.Duration((b.age - b.lastBredAt) * 24 * float64(time.Hour)))
 }
 
+// candidate describes the pet for the genetics package's requirement
+// checks
+func (b breedingInfo) candidate(now time.Time) genetics.BreedingCandidate {
+	return genetics.BreedingCandidate{Name: b.name, Age: b.age, Health: b.health, Happiness: b.happiness,
+		LastBreeding: b.lastBreedingTime(now)}
+}
+
 // unavailable explains why a pet can't breed right now, or returns ""
 func (b breedingInfo) unavailable() string {
 	switch {
@@ -151,14 +158,10 @@ func BreedingCompatibility(a, b *DigitalPet) (float64, string) {
 		}
 	}
 	now := time.Now()
-	if ok, reason := gs.CanBreed(infoA.age, infoB.age, infoA.health, infoB.health,
-		infoA.happiness, infoB.happiness, infoA.lastBreedingTime(now), infoB.lastBreedingTime(now)); !ok {
+	if reason := gs.CheckRequirements(infoA.candidate(now), infoB.candidate(now)); reason != "" {
 		return compatibility, reason
 	}
-	if compatibility < gs.Requirements.MinCompatibility {
-		return compatibility, "they are not compatible enough"
-	}
-	return compatibility, ""
+	return compatibility, gs.CompatibilityProblem(compatibility)
 }
 
 // Breed tries to have a baby named childName with two pets. It can fail
@@ -179,9 +182,10 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 
 	gs := genetics.NewGeneticSystem()
 	now := time.Now()
-	result := gs.CreateOffspring(string(infoA.id), string(infoB.id), infoA.genome, infoB.genome,
-		infoA.age, infoB.age, infoA.health, infoB.health, infoA.happiness, infoB.happiness,
-		infoA.lastBreedingTime(now), infoB.lastBreedingTime(now))
+	if reason := gs.CheckRequirements(infoA.candidate(now), infoB.candidate(now)); reason != "" {
+		return nil, BreedingError{reason}
+	}
+	result := gs.Breed(infoA.genome, infoB.genome) // Checks compatibility; can fail by chance
 	if !result.Success {
 		return nil, BreedingError{result.FailureReason}
 	}

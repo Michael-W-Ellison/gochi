@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/genetics"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -375,7 +376,7 @@ func TestBreedingThroughServer(t *testing.T) {
 		if rec.Code == http.StatusOK {
 			break
 		}
-		if rec.Code != http.StatusConflict || !strings.Contains(body, "random chance") {
+		if rec.Code != http.StatusConflict || !strings.Contains(body, genetics.FailureChance) {
 			t.Fatalf("Breeding failed for a reason other than chance: %d %s", rec.Code, body)
 		}
 	}

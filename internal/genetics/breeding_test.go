@@ -139,7 +139,7 @@ func TestCanBreedTooYoung(t *testing.T) {
 		t.Error("Should not be able to breed when too young")
 	}
 
-	if reason != "one or both pets are too young" {
+	if reason != "parent 1 is too young (3.0 days old; must be at least 7)" {
 		t.Errorf("Expected 'too young' reason, got: %s", reason)
 	}
 }
@@ -160,7 +160,7 @@ func TestCanBreedTooOld(t *testing.T) {
 		t.Error("Should not be able to breed when too old")
 	}
 
-	if reason != "one or both pets are too old" {
+	if reason != "parent 2 is too old (500 days old; the limit is 365)" {
 		t.Errorf("Expected 'too old' reason, got: %s", reason)
 	}
 }
@@ -181,7 +181,7 @@ func TestCanBreedUnhealthy(t *testing.T) {
 		t.Error("Should not be able to breed when unhealthy")
 	}
 
-	if reason != "one or both pets are not healthy enough" {
+	if reason != "parent 1 isn't healthy enough (health 30%; needs at least 60%)" {
 		t.Errorf("Expected 'not healthy' reason, got: %s", reason)
 	}
 }
@@ -202,7 +202,7 @@ func TestCanBreedUnhappy(t *testing.T) {
 		t.Error("Should not be able to breed when unhappy")
 	}
 
-	if reason != "one or both pets are not happy enough" {
+	if reason != "parent 1 isn't happy enough (happiness 20%; needs at least 50%)" {
 		t.Errorf("Expected 'not happy' reason, got: %s", reason)
 	}
 }
@@ -224,8 +224,28 @@ func TestCanBreedCooldown(t *testing.T) {
 		t.Error("Should not be able to breed during cooldown")
 	}
 
-	if reason != "parent 1 is still in cooldown" {
+	if reason != "parent 1 had a baby recently and can breed again in 3.0 days" {
 		t.Errorf("Expected cooldown reason, got: %s", reason)
+	}
+}
+
+func TestCheckRequirementsNamesEachPet(t *testing.T) {
+	gs := NewGeneticSystem()
+
+	reason := gs.CheckRequirements(
+		BreedingCandidate{Name: "Pip", Age: 2, Health: 0.4, Happiness: 0.9},
+		BreedingCandidate{Name: "Biscuit", Age: 10, Health: 1, Happiness: 0.9},
+	)
+	want := "Pip is too young (2.0 days old; must be at least 7); Pip isn't healthy enough (health 40%; needs at least 60%)"
+	if reason != want {
+		t.Errorf("CheckRequirements = %q, want %q", reason, want)
+	}
+
+	if problem := gs.CompatibilityProblem(0.25); problem != "they aren't compatible enough (25% compatible; need at least 30%)" {
+		t.Errorf("CompatibilityProblem = %q", problem)
+	}
+	if problem := gs.CompatibilityProblem(0.5); problem != "" {
+		t.Errorf("A compatible pair should have no problem, got %q", problem)
 	}
 }
 

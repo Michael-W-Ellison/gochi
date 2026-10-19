@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -122,41 +123,78 @@ func (gs *GeneticSystem) CalculateCompatibility(genome1, genome2 *Genome) float6
 	return clamp(compatibility, 0.0, 1.0)
 }
 
-// CanBreed checks if two pets meet breeding requirements
+// BreedingCandidate describes one pet for the breeding requirement checks
+type BreedingCandidate struct {
+	Name         string    // Used in messages
+	Age          float64   // Days
+	Health       float64   // 0.0 to 1.0
+	Happiness    float64   // 0.0 to 1.0
+	LastBreeding time.Time // Zero if the pet has never bred
+}
+
+// FailureChance is the FailureReason of a breeding attempt that met every
+// requirement but failed by chance
+const FailureChance = "it didn't happen this time, by chance; they can try again"
+
+// CheckRequirements returns why two pets can't breed, naming each pet and
+// each requirement it doesn't meet, or "" if they meet them all
+func (gs *GeneticSystem) CheckRequirements(a, b BreedingCandidate) string {
+	req := gs.Requirements
+	now := time.Now()
+	cooldown := time.Duration(req.CooldownDays * 24 * float64(time.Hour))
+
+	var problems []string
+	for _, c := range []BreedingCandidate{a, b} {
+		if c.Age < req.MinAge {
+			problems = append(problems, fmt.Sprintf("%s is too young (%.1f days old; must be at least %g)",
+				c.Name, c.Age, req.MinAge))
+		}
+		if c.Age > req.MaxAge {
+			problems = append(problems, fmt.Sprintf("%s is too old (%.0f days old; the limit is %g)",
+				c.Name, c.Age, req.MaxAge))
+		}
+		if c.Health < req.MinHealth {
+			problems = append(problems, fmt.Sprintf("%s isn't healthy enough (health %s; needs at least %s)",
+				c.Name, percent(c.Health), percent(req.MinHealth)))
+		}
+		if c.Happiness < req.MinHappiness {
+			problems = append(problems, fmt.Sprintf("%s isn't happy enough (happiness %s; needs at least %s)",
+				c.Name, percent(c.Happiness), percent(req.MinHappiness)))
+		}
+		if since := now.Sub(c.LastBreeding); !c.LastBreeding.IsZero() && since < cooldown {
+			problems = append(problems, fmt.Sprintf("%s had a baby recently and can breed again in %.1f days",
+				c.Name, (cooldown-since).Hours()/24))
+		}
+	}
+	return strings.Join(problems, "; ")
+}
+
+// CompatibilityProblem returns why a compatibility score is too low to
+// breed, or "" if it is high enough
+func (gs *GeneticSystem) CompatibilityProblem(score float64) string {
+	if score >= gs.Requirements.MinCompatibility {
+		return ""
+	}
+	return fmt.Sprintf("they aren't compatible enough (%s compatible; need at least %s)",
+		percent(score), percent(gs.Requirements.MinCompatibility))
+}
+
+// percent formats a 0.0 to 1.0 value as a whole percentage
+func percent(v float64) string {
+	return fmt.Sprintf("%.0f%%", v*100)
+}
+
+// CanBreed checks if two pets meet breeding requirements. The reason
+// refers to the pets as parent 1 and parent 2; use CheckRequirements to
+// name them.
 func (gs *GeneticSystem) CanBreed(age1, age2, health1, health2, happiness1, happiness2 float64,
 	lastBreeding1, lastBreeding2 time.Time) (bool, string) {
 
-	req := gs.Requirements
-	now := time.Now()
-
-	// Age checks
-	if age1 < req.MinAge || age2 < req.MinAge {
-		return false, "one or both pets are too young"
-	}
-	if age1 > req.MaxAge || age2 > req.MaxAge {
-		return false, "one or both pets are too old"
-	}
-
-	// Health checks
-	if health1 < req.MinHealth || health2 < req.MinHealth {
-		return false, "one or both pets are not healthy enough"
-	}
-
-	// Happiness checks
-	if happiness1 < req.MinHappiness || happiness2 < req.MinHappiness {
-		return false, "one or both pets are not happy enough"
-	}
-
-	// Cooldown checks
-	cooldownDuration := time.Duration(req.CooldownDays * 24 * float64(time.Hour))
-	if !lastBreeding1.IsZero() && now.Sub(lastBreeding1) < cooldownDuration {
-		return false, "parent 1 is still in cooldown"
-	}
-	if !lastBreeding2.IsZero() && now.Sub(lastBreeding2) < cooldownDuration {
-		return false, "parent 2 is still in cooldown"
-	}
-
-	return true, ""
+	reason := gs.CheckRequirements(
+		BreedingCandidate{Name: "parent 1", Age: age1, Health: health1, Happiness: happiness1, LastBreeding: lastBreeding1},
+		BreedingCandidate{Name: "parent 2", Age: age2, Health: health2, Happiness: happiness2, LastBreeding: lastBreeding2},
+	)
+	return reason == "", reason
 }
 
 // Crossover performs genetic crossover between two parent genomes
@@ -248,9 +286,8 @@ func (gs *GeneticSystem) Breed(parent1, parent2 *Genome) BreedingResult {
 	result.CompatibilityScore = gs.CalculateCompatibility(parent1, parent2)
 
 	// Check minimum compatibility
-	if result.CompatibilityScore < gs.Requirements.MinCompatibility {
-		result.FailureReason = fmt.Sprintf("compatibility too low (%.2f < %.2f)",
-			result.CompatibilityScore, gs.Requirements.MinCompatibility)
+	if problem := gs.CompatibilityProblem(result.CompatibilityScore); problem != "" {
+		result.FailureReason = problem
 		// Record failed attempt in history
 		gs.BreedingHistory = append(gs.BreedingHistory, result)
 		return result
@@ -259,7 +296,7 @@ func (gs *GeneticSystem) Breed(parent1, parent2 *Genome) BreedingResult {
 	// Breeding success chance based on compatibility
 	successChance := 0.5 + result.CompatibilityScore*0.5
 	if rand.Float64() > successChance {
-		result.FailureReason = "breeding attempt failed (random chance)"
+		result.FailureReason = FailureChance
 		// Record failed attempt in history
 		gs.BreedingHistory = append(gs.BreedingHistory, result)
 		return result

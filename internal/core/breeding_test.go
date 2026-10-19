@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/Michael-W-Ellison/gochi/internal/genetics"
@@ -27,7 +28,7 @@ func breedUntilSuccess(t *testing.T, a, b *DigitalPet, name string) *DigitalPet 
 			return child
 		}
 		var be BreedingError
-		if !errors.As(err, &be) || be.Reason != "breeding attempt failed (random chance)" {
+		if !errors.As(err, &be) || be.Reason != genetics.FailureChance {
 			t.Fatalf("Breed failed for a reason other than chance: %v", err)
 		}
 	}
@@ -49,7 +50,7 @@ func TestGenomeMatchesPersonality(t *testing.T) {
 func TestBreedingRequirements(t *testing.T) {
 	young := NewDigitalPet("Young", "user123")
 	adult := adultPet("Adult")
-	if _, reason := BreedingCompatibility(young, adult); reason != "one or both pets are too young" {
+	if _, reason := BreedingCompatibility(young, adult); !strings.HasPrefix(reason, "Young is too young (0.0 days old; must be at least 7)") || strings.Contains(reason, "Adult") {
 		t.Errorf("Young pet: %q", reason)
 	}
 
@@ -90,7 +91,8 @@ func TestBreedingMakesBaby(t *testing.T) {
 	}
 
 	// Cooldown, counted in game days
-	if _, reason := BreedingCompatibility(a, b); reason != "parent 1 is still in cooldown" {
+	want := "Biscuit had a baby recently and can breed again in 3.0 days; Mochi had a baby recently and can breed again in 3.0 days"
+	if _, reason := BreedingCompatibility(a, b); reason != want {
 		t.Errorf("Parents should need a rest after breeding: %q", reason)
 	}
 	a.Biology.Processes.Age += 3.1
