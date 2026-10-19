@@ -34,6 +34,9 @@ var rewardedCare = map[types.InteractionType]bool{
 	types.InteractionGrooming:    true,
 	types.InteractionMedicalCare: true,
 	types.InteractionRewards:     true,
+	types.InteractionTraining:    true,
+
+	types.InteractionEnvironmentalEnrichment: true,
 }
 
 // ItemCategory groups shop items. Within a category with an effect, the

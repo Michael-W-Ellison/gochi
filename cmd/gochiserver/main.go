@@ -51,26 +51,33 @@ type APIResponse struct {
 
 // PetStatus represents the pet's current state for the frontend
 type PetStatus struct {
-	Name        string           `json:"name"`
-	Age         float64          `json:"age"`
-	IsAlive     bool             `json:"is_alive"`
-	Behavior    string           `json:"behavior"`
-	Activity    string           `json:"activity"` // What the pet is doing, e.g. "is playing"
-	Request     *core.PetRequest `json:"request"`  // What the pet is asking for, or null
-	Mood        string           `json:"mood"`
-	Health      float64          `json:"health"`
-	Energy      float64          `json:"energy"`
-	Happiness   float64          `json:"happiness"`
-	Hunger      float64          `json:"hunger"`
-	Water       float64          `json:"water"`
-	Wellbeing   float64          `json:"wellbeing"`
-	Personality string           `json:"personality"`
-	Likes       []string         `json:"likes"`
-	Dislikes    []string         `json:"dislikes"`
-	Slot        string           `json:"slot"`
-	Hibernating bool             `json:"hibernating"`
-	Paused      bool             `json:"paused"`
-	PauseReason string           `json:"pause_reason,omitempty"`
+	Name     string           `json:"name"`
+	Age      float64          `json:"age"`
+	IsAlive  bool             `json:"is_alive"`
+	Behavior string           `json:"behavior"`
+	Activity string           `json:"activity"` // What the pet is doing, e.g. "is playing"
+	Request  *core.PetRequest `json:"request"`  // What the pet is asking for, or null
+
+	Tricks           []core.TrickProgress `json:"tricks"`
+	Exploring        bool                 `json:"exploring"`
+	ExploringSeconds int                  `json:"exploring_seconds"` // Real seconds until home
+	HideAndSeek      bool                 `json:"hide_and_seek"`     // A game is in progress
+	Souvenirs        []core.SouvenirCount `json:"souvenirs"`
+	LastAdventure    *core.Adventure      `json:"last_adventure"` // Most recent trip, if it ended recently
+	Mood             string               `json:"mood"`
+	Health           float64              `json:"health"`
+	Energy           float64              `json:"energy"`
+	Happiness        float64              `json:"happiness"`
+	Hunger           float64              `json:"hunger"`
+	Water            float64              `json:"water"`
+	Wellbeing        float64              `json:"wellbeing"`
+	Personality      string               `json:"personality"`
+	Likes            []string             `json:"likes"`
+	Dislikes         []string             `json:"dislikes"`
+	Slot             string               `json:"slot"`
+	Hibernating      bool                 `json:"hibernating"`
+	Paused           bool                 `json:"paused"`
+	PauseReason      string               `json:"pause_reason,omitempty"`
 
 	FriendshipPoints int             `json:"friendship_points"`
 	Items            []core.ShopItem `json:"items"`   // Owned items
@@ -156,6 +163,11 @@ func main() {
 	mux.HandleFunc("/api/delete", server.handleDelete)
 	mux.HandleFunc("/api/shop", server.handleShop)
 	mux.HandleFunc("/api/shop/buy", server.handleBuy)
+	mux.HandleFunc("/api/train", server.handleTrick(false))
+	mux.HandleFunc("/api/perform", server.handleTrick(true))
+	mux.HandleFunc("/api/hideseek/start", server.handleHideSeekStart)
+	mux.HandleFunc("/api/hideseek/guess", server.handleHideSeekGuess)
+	mux.HandleFunc("/api/explore", server.handleExplore)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -391,6 +403,24 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .speech::after { content: ''; position: absolute; left: 50%; bottom: -8px; margin-left: -8px; border: 8px solid transparent; border-top-color: #fff3bf; border-bottom: 0; }
         @keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.9); } 50% { box-shadow: 0 0 0 6px rgba(255, 193, 7, 0); } }
         .requested { animation: nudge 1.2s ease-in-out infinite; outline: 3px solid #ffc107; }
+        .activities { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+        .activity-btn { padding: 10px 6px; border: 2px solid #b197fc; border-radius: 12px; background: #f3f0ff; color: #5f3dc4; font-weight: 600; font-size: 0.9em; cursor: pointer; }
+        .activity-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .activity-panel { margin-top: 10px; padding: 12px; border-radius: 12px; background: #f8f9fa; border: 2px solid #e9ecef; }
+        .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; color: #333; }
+        .panel-close { background: none; border: none; font-size: 1.2em; cursor: pointer; color: #888; }
+        .panel-text { text-align: center; color: #444; margin-bottom: 10px; }
+        .trick-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .trick-name { width: 120px; font-size: 0.9em; }
+        .trick-bar { flex: 1; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+        .trick-fill { height: 100%; background: linear-gradient(90deg, #9775fa, #7048e8); }
+        .spots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .spot-btn { padding: 10px; border: 2px solid #dee2e6; border-radius: 12px; background: white; cursor: pointer; font-size: 0.9em; }
+        .spot-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .explore-banner, .adventure-banner { text-align: center; margin: 10px 0; padding: 12px; border-radius: 12px; font-size: 0.9em; }
+        .explore-banner { background: #e7f5ff; color: #1864ab; }
+        .adventure-banner { background: #ebfbee; color: #2b8a3e; }
+        .adventure-banner button { display: block; margin: 8px auto 0; }
         .about { margin-top: 16px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; font-size: 0.85em; color: #555; }
         .about div + div { margin-top: 4px; }
         .about-label { font-weight: 600; color: #333; }
@@ -511,6 +541,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="activity" id="activity"></div>
             <div class="mood" id="mood">Mood: Happy</div>
             <div class="pause-banner hidden" id="pauseBanner"></div>
+            <div class="activities">
+                <button class="activity-btn" onclick="openTricks()">🎓 Train</button>
+                <button class="activity-btn" onclick="startHideSeek()">🙈 Hide &amp; Seek</button>
+                <button class="activity-btn" onclick="explore()">🧭 Explore</button>
+            </div>
+            <div class="activity-panel hidden" id="activityPanel"></div>
+            <div class="explore-banner hidden" id="exploreBanner"></div>
+            <div class="adventure-banner hidden" id="adventureBanner">
+                <div id="adventureText"></div>
+                <button class="save-btn" onclick="dismissAdventure()">Yay!</button>
+            </div>
             <div class="points-toast" id="pointsToast"></div>
             <div class="hibernate-banner hidden" id="hibernateBanner">
                 <span id="hibernateText"></span>
@@ -562,6 +603,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutPersonality"></div>
                 <div id="aboutLikes"></div>
                 <div id="aboutDislikes"></div>
+                <div id="aboutTreasures"></div>
             </div>
 
             <div class="status-text" id="statusText">Age: 0 days | Wellbeing: 100%</div>
@@ -1104,7 +1146,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('hibernateText').textContent = hibernating ?
                 '💤 ' + status.name + ' got too weak and is hibernating to stay safe. Its stats are paused. Revive it to keep playing.' : '';
             document.getElementById('hibernateBanner').classList.toggle('hidden', !hibernating);
-            document.querySelectorAll('.actions .action-btn').forEach(b => { b.disabled = hibernating; });
+            document.querySelectorAll('.actions .action-btn').forEach(b => { b.disabled = hibernating || status.exploring; });
+            updateActivities(status);
         }
 
         function fetchStatus() {
@@ -1152,26 +1195,252 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    const lines = [];
-                    if (data.data.reaction_text) lines.push([data.data.reaction_text, 'reaction']);
-                    const face = {delighted: '😻', reluctant: '😾'}[data.data.reaction];
-                    if (face) sprite.textContent = face;
-                    const changes = data.data.changes || [];
-                    if (changes.length > 0) lines.push([formatChanges(changes), 'changes']);
-                    const boost = data.data.boosted_by;
-                    if (boost) lines.push([boost.icon + ' ' + boost.name + ': ' + boost.description, 'boost']);
-                    if (data.data.points_earned > 0) {
-                        lines.push(['+' + data.data.points_earned + ' Friendship Points!', '']);
-                    } else {
-                        lines.push(['This kind of care earns points again in a few minutes.', '']);
-                    }
-                    showPointsToast(lines);
+                    showResult(data.data);
                     setTimeout(fetchStatus, 500);
                 } else if (data.error) {
                     showPointsToast(data.error);
                 }
             })
             .catch(console.error);
+        }
+
+        // Shows what an action did: an optional headline, the pet's
+        // reaction, stat changes, item boost and points
+        function showResult(result, headline) {
+            const lines = [];
+            if (headline) lines.push([headline, 'reaction']);
+            if (result.reaction_text) lines.push([result.reaction_text, 'reaction']);
+            const face = {delighted: '😻', reluctant: '😾'}[result.reaction];
+            if (face) document.getElementById('petSprite').textContent = face;
+            const changes = result.changes || [];
+            if (changes.length > 0) lines.push([formatChanges(changes), 'changes']);
+            const boost = result.boosted_by;
+            if (boost) lines.push([boost.icon + ' ' + boost.name + ': ' + boost.description, 'boost']);
+            if (result.bonus_points > 0) lines.push(['+' + result.bonus_points + ' game bonus!', '']);
+            if ('points_earned' in result) {
+                lines.push(result.points_earned > 0 ?
+                    ['+' + result.points_earned + ' Friendship Points!', ''] :
+                    ['This kind of care earns points again in a few minutes.', '']);
+            }
+            showPointsToast(lines);
+        }
+
+        // Activities: tricks, hide and seek, exploring
+        let lastStatus = null;
+        let panelMode = null;   // 'tricks' or 'hideseek' while the panel is open
+        let hideSpots = [];
+        let dismissedAdventure = null;
+        try { dismissedAdventure = localStorage.getItem('gochiDismissedAdventure'); } catch (e) {}
+
+        function postJSON(url, body) {
+            return fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body || {})
+            }).then(r => r.json());
+        }
+
+        function panel() {
+            return document.getElementById('activityPanel');
+        }
+
+        function panelHeader(title) {
+            const head = document.createElement('div');
+            head.className = 'panel-head';
+            const label = document.createElement('span');
+            label.textContent = title;
+            const close = document.createElement('button');
+            close.className = 'panel-close';
+            close.textContent = '✕';
+            close.setAttribute('aria-label', 'Close');
+            close.onclick = closePanel;
+            head.append(label, close);
+            return head;
+        }
+
+        function closePanel() {
+            panelMode = null;
+            panel().classList.add('hidden');
+            panel().replaceChildren();
+        }
+
+        function openTricks() {
+            panelMode = 'tricks';
+            renderTricks();
+        }
+
+        function renderTricks() {
+            if (!lastStatus) return;
+            const p = panel();
+            p.replaceChildren(panelHeader('Tricks'));
+            lastStatus.tricks.forEach(trick => {
+                const row = document.createElement('div');
+                row.className = 'trick-row';
+                const name = document.createElement('span');
+                name.className = 'trick-name';
+                name.textContent = trick.icon + ' ' + trick.name;
+                const bar = document.createElement('div');
+                bar.className = 'trick-bar';
+                const fill = document.createElement('div');
+                fill.className = 'trick-fill';
+                fill.style.width = Math.round(trick.skill * 100) + '%';
+                bar.append(fill);
+                const btn = document.createElement('button');
+                btn.className = 'save-btn';
+                btn.textContent = trick.learned ? 'Do it!' : 'Train';
+                btn.onclick = () => doTrick(trick.id, trick.learned);
+                row.append(name, bar, btn);
+                p.append(row);
+            });
+            p.classList.remove('hidden');
+        }
+
+        function doTrick(id, perform) {
+            postJSON(perform ? '/api/perform' : '/api/train', {trick: id})
+                .then(data => {
+                    if (data.success) {
+                        showResult(data.data, data.data.text);
+                        fetchStatus();
+                    } else {
+                        showPointsToast(data.error || 'Something went wrong');
+                    }
+                })
+                .catch(console.error);
+        }
+
+        function startHideSeek() {
+            postJSON('/api/hideseek/start')
+                .then(data => {
+                    if (!data.success) {
+                        showPointsToast(data.error || 'Something went wrong');
+                        return;
+                    }
+                    panelMode = 'hideseek';
+                    hideSpots = data.data.spots;
+                    renderHideSeek(data.data.text, false);
+                })
+                .catch(console.error);
+        }
+
+        function renderHideSeek(text, over) {
+            const p = panel();
+            p.replaceChildren(panelHeader('Hide & Seek'));
+            const message = document.createElement('div');
+            message.className = 'panel-text';
+            message.id = 'hideSeekText';
+            message.textContent = text;
+            p.append(message);
+
+            if (over) {
+                const again = document.createElement('button');
+                again.className = 'save-btn';
+                again.textContent = 'Play again';
+                again.onclick = startHideSeek;
+                const wrap = document.createElement('div');
+                wrap.style.textAlign = 'center';
+                wrap.append(again);
+                p.append(wrap);
+            } else {
+                const spots = document.createElement('div');
+                spots.className = 'spots';
+                hideSpots.forEach((spot, i) => {
+                    const btn = document.createElement('button');
+                    btn.className = 'spot-btn';
+                    btn.textContent = spot.icon + ' ' + spot.name;
+                    btn.onclick = () => guessSpot(i, btn);
+                    spots.append(btn);
+                });
+                p.append(spots);
+            }
+            p.classList.remove('hidden');
+        }
+
+        function guessSpot(i, btn) {
+            btn.disabled = true;
+            postJSON('/api/hideseek/guess', {spot: i})
+                .then(data => {
+                    if (!data.success) {
+                        showPointsToast(data.error || 'Something went wrong');
+                        return;
+                    }
+                    if (data.data.over) {
+                        renderHideSeek(data.data.text, true);
+                        showResult(data.data);
+                        fetchStatus();
+                    } else {
+                        document.getElementById('hideSeekText').textContent = data.data.text;
+                    }
+                })
+                .catch(console.error);
+        }
+
+        function explore() {
+            postJSON('/api/explore')
+                .then(data => {
+                    if (data.success) {
+                        closePanel();
+                        showPointsToast(data.data.text);
+                        fetchStatus();
+                    } else {
+                        showPointsToast(data.error || 'Something went wrong');
+                    }
+                })
+                .catch(console.error);
+        }
+
+        function adventureKey(status) {
+            return status.slot + ':' + status.last_adventure.returned_age;
+        }
+
+        function dismissAdventure() {
+            if (lastStatus && lastStatus.last_adventure) {
+                dismissedAdventure = adventureKey(lastStatus);
+                try { localStorage.setItem('gochiDismissedAdventure', dismissedAdventure); } catch (e) {}
+            }
+            document.getElementById('adventureBanner').classList.add('hidden');
+        }
+
+        function formatWait(seconds) {
+            return seconds >= 90 ? 'about ' + Math.round(seconds / 60) + ' minutes' : seconds + ' seconds';
+        }
+
+        function updateActivities(status) {
+            lastStatus = status;
+            const away = status.exploring;
+            const busy = status.hibernating || away;
+
+            const banner = document.getElementById('exploreBanner');
+            banner.textContent = away ? '🧭 ' + status.name + ' is out exploring. Back in ' + formatWait(status.exploring_seconds) + '.' : '';
+            banner.classList.toggle('hidden', !away);
+
+            document.querySelectorAll('.activity-btn').forEach(b => { b.disabled = busy; });
+            if (busy && panelMode) closePanel();
+            if (panelMode === 'tricks') renderTricks();
+
+            const adventure = status.last_adventure;
+            const adventureBanner = document.getElementById('adventureBanner');
+            if (adventure && adventureKey(status) !== dismissedAdventure) {
+                const text = document.getElementById('adventureText');
+                text.replaceChildren();
+                [adventure.text, adventure.reaction_text, formatChanges(adventure.changes || []),
+                 adventure.points_earned > 0 ? '+' + adventure.points_earned + ' Friendship Points!' : '']
+                    .filter(Boolean).forEach(line => {
+                        const div = document.createElement('div');
+                        div.textContent = line;
+                        text.append(div);
+                    });
+                adventureBanner.classList.remove('hidden');
+            } else {
+                adventureBanner.classList.add('hidden');
+            }
+
+            const treasures = (status.souvenirs || []).map(s => s.icon + (s.count > 1 ? '×' + s.count : ''));
+            const el = document.getElementById('aboutTreasures');
+            el.replaceChildren();
+            const label = document.createElement('span');
+            label.className = 'about-label';
+            label.textContent = 'Treasures: ';
+            el.append(label, treasures.length ? treasures.join(' ') : 'none yet');
         }
 
         function savePet() {
@@ -1678,6 +1947,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if petStatus.Items == nil {
 		petStatus.Items = []core.ShopItem{}
 	}
+	petStatus.Tricks = s.pet.Tricks()
+	petStatus.Exploring = s.pet.IsExploring()
+	petStatus.ExploringSeconds = gameDaysToSeconds(s.pet.ExploringRemaining())
+	petStatus.HideAndSeek = s.pet.PlayingHideAndSeek()
+	petStatus.Souvenirs = s.pet.SouvenirCollection()
+	if a := s.pet.LastAdventure; a != nil && status.Age-a.ReturnedAge < recentAdventureDays {
+		petStatus.LastAdventure = a
+	}
 	petStatus.Likes, petStatus.Dislikes = s.pet.LikesAndDislikes()
 	if petStatus.Likes == nil {
 		petStatus.Likes = []string{}
@@ -1716,6 +1993,10 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: s.pet.Name + " is hibernating. Revive it first."})
 		return
 	}
+	if s.pet.IsExploring() {
+		writeActivityError(w, s.pet.Name, core.ErrExploring)
+		return
+	}
 
 	var interactionType types.InteractionType
 	switch req.Action {
@@ -1740,15 +2021,7 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 
 	s.markActiveLocked(time.Now())
 	result := s.pet.Interact(interactionType, 1.0)
-	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
-		"message":           "Interaction successful",
-		"points_earned":     result.PointsEarned,
-		"friendship_points": s.pet.FriendshipPoints,
-		"changes":           result.Changes,
-		"boosted_by":        result.BoostedBy,
-		"reaction":          result.Reaction,
-		"reaction_text":     result.ReactionText,
-	}})
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.interactionData(result)})
 }
 
 func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {

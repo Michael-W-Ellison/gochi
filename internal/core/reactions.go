@@ -67,6 +67,18 @@ var reactionTexts = map[types.InteractionType]map[ReactionLevel]string{
 		ReactionOkay:      "%s eats the treat.",
 		ReactionReluctant: "%s isn't interested in a treat right now.",
 	},
+	types.InteractionTraining: {
+		ReactionDelighted: "%s is focused and eager to learn!",
+		ReactionHappy:     "%s pays attention and tries hard.",
+		ReactionOkay:      "%s gets a little distracted.",
+		ReactionReluctant: "%s would rather do something else.",
+	},
+	types.InteractionEnvironmentalEnrichment: {
+		ReactionDelighted: "%s had the best adventure ever!",
+		ReactionHappy:     "%s enjoyed exploring.",
+		ReactionOkay:      "%s had a quiet walk around.",
+		ReactionReluctant: "%s is glad to be home.",
+	},
 	types.InteractionDiscipline: {
 		ReactionDelighted: "%s looks sad and lowers its ears.",
 		ReactionHappy:     "%s looks sad and lowers its ears.",
@@ -106,6 +118,12 @@ func (p *DigitalPet) reactionLocked(interactionType types.InteractionType) (Reac
 		score += (0.6 - v.Health) * 0.8
 	case types.InteractionRewards:
 		score += 0.2
+	case types.InteractionTraining:
+		score += (traits.Intelligence - 0.5) * 0.6
+		score += (v.Energy - 0.5) * 0.4
+	case types.InteractionEnvironmentalEnrichment:
+		score += (traits.Curiosity - 0.5) * 0.6
+		score += (v.Energy - 0.5) * 0.4
 	case types.InteractionDiscipline:
 		// Discipline is never enjoyed and has no benefits to scale
 		return ReactionReluctant, 1.0

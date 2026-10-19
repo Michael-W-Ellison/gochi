@@ -284,6 +284,15 @@ func CreateStimulusFromInteraction(interactionType types.InteractionType, qualit
 		stimulus.ContentmentDelta = 0.1 * quality
 		stimulus.JoyDelta = 0.05 * quality
 
+	case types.InteractionTraining:
+		stimulus.ContentmentDelta = 0.05 * quality
+		stimulus.JoyDelta = 0.05 * quality
+		stimulus.ExcitementDelta = 0.05 * quality
+
+	case types.InteractionEnvironmentalEnrichment:
+		stimulus.ExcitementDelta = 0.15 * quality
+		stimulus.JoyDelta = 0.1 * quality
+
 	case types.InteractionMedicalCare:
 		stimulus.FearDelta = -0.1 * quality
 		stimulus.ContentmentDelta = 0.05 * quality

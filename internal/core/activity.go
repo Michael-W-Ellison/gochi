@@ -125,6 +125,9 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	if p.Hibernating {
 		return &PetRequest{"revive", "💤", p.Name + " is hibernating and needs you to revive it."}
 	}
+	if p.isExploringLocked() {
+		return nil
+	}
 
 	v := p.Biology.Vitals
 	switch {

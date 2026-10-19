@@ -54,6 +54,16 @@ type DigitalPet struct {
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`
 
+	// Activities: trick skills (0.0 to 1.0, learned at 1.0), an exploring
+	// trip that ends at ExploringUntilAge (0 when home), souvenirs found
+	// while exploring, the most recent trip, and the last game bonus
+	TrickSkills       map[string]float64 `json:"trick_skills"`
+	ExploringUntilAge float64            `json:"exploring_until_age"`
+	Souvenirs         []string           `json:"souvenirs"`
+	LastAdventure     *Adventure         `json:"last_adventure"`
+	LastGameReward    time.Time          `json:"last_game_reward"`
+	game              *hideAndSeek       // Game in progress (not saved)
+
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
 }
@@ -135,6 +145,11 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	}
 	deltaTime = elapsed
 
+	// Come home from exploring once the trip's time has passed
+	if p.isExploringLocked() && p.Biology.GetAgeInDays() >= p.ExploringUntilAge {
+		p.finishExploringLocked()
+	}
+
 	// Update emotions
 	p.Emotions.Update(deltaTime)
 
@@ -168,6 +183,8 @@ func (p *DigitalPet) isCriticalLocked() bool {
 func (p *DigitalPet) hibernateLocked() {
 	p.Hibernating = true
 	p.CurrentBehavior = types.BehaviorHibernating
+	p.ExploringUntilAge = 0 // A trip ends early so the pet is home to be revived
+	p.game = nil
 }
 
 // IsHibernating reports whether the pet is hibernating
@@ -212,7 +229,7 @@ func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionTyp
 // interactLocked applies an interaction and awards Friendship Points.
 // Caller must hold p.mu.
 func (p *DigitalPet) interactLocked(interactionType types.InteractionType, intensity float64) InteractionResult {
-	if !p.Biology.IsAlive || p.Hibernating {
+	if !p.Biology.IsAlive || p.Hibernating || p.isExploringLocked() {
 		return InteractionResult{}
 	}
 
@@ -280,6 +297,15 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Hydration += 0.4 * intensity * boost
 		vitals.Happiness += 0.02 * intensity * boost
 
+	case types.InteractionTraining:
+		vitals.Happiness += 0.05 * intensity * boost
+		vitals.Energy -= 0.05 * intensity
+
+	case types.InteractionEnvironmentalEnrichment:
+		vitals.Happiness += 0.15 * intensity * boost
+		vitals.Stress -= 0.05 * intensity * boost
+		vitals.Energy -= 0.15 * intensity
+
 	case types.InteractionGrooming:
 		vitals.Cleanliness += 0.3 * intensity * boost
 		vitals.Happiness += 0.05 * intensity * boost
@@ -306,6 +332,10 @@ func (p *DigitalPet) updateBehavior() {
 	// An interaction (such as tiring play) can leave a stat critical
 	if p.Hibernating || p.isCriticalLocked() {
 		p.hibernateLocked()
+		return
+	}
+	if p.isExploringLocked() {
+		p.CurrentBehavior = types.BehaviorExploring
 		return
 	}
 
@@ -376,8 +406,9 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 				learnedBehaviorWeight*(learned(types.InteractionPetting)+learned(types.InteractionDiscipline)),
 		},
 		{
+			// Enjoying exploring trips makes a pet more adventurous
 			types.BehaviorExploring,
-			p.Personality.GetTraitInfluence("explore"),
+			p.Personality.GetTraitInfluence("explore") + learnedBehaviorWeight*learned(types.InteractionEnvironmentalEnrichment),
 		},
 	}
 

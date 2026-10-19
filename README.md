@@ -144,10 +144,37 @@ Use **Feed**, **Drink**, **Pet**, **Play** and **Groom** to look after your pet.
 health, energy, happiness, hunger and water. After each action the page shows what changed, for
 example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
 
+### Getting to Know Your Pet
+
+- **What it is doing**: the line under the picture says what your pet is doing, such as
+  "Biscuit is playing" or "Biscuit wants your attention". What a pet chooses to do depends on its
+  personality and on what it has learned it enjoys.
+- **Requests**: your pet asks for what it needs in a speech bubble (a drink, food, grooming,
+  attention or play), the matching button is highlighted, and the browser tab title shows 💬.
+  A pet left alone for a while asks for the kind of attention it likes best.
+- **About**: shows your pet's personality, its likes and dislikes (learned from how you care for
+  it) and the treasures it has found.
+- **Reactions**: each pet reacts in its own way. A hungry pet gobbles up its food while a full one
+  barely eats; an affectionate pet loves being petted while an independent one wants space; a pet
+  that has learned to love something enjoys it even more. How much your pet enjoys an action
+  changes how much good it does (from 0.6 to 1.4 times the usual effect).
+
+### Activities
+
+- **🎓 Train**: teach tricks (Sit, Shake a paw, Spin, Roll over, Play dead). Each session
+  improves the trick; harder tricks take longer, and clever pets learn faster. Once a trick is
+  learned, press **Do it!** to have your pet perform it. A tired pet can't train.
+- **🙈 Hide & Seek**: your pet hides in one of four places and you get two guesses. Finding it
+  counts as play and earns a 5-point game bonus (at most once every 3 minutes).
+- **🧭 Explore**: send your pet out for about 2 minutes. It needs energy, water and food to go,
+  can't be cared for while it is away, and comes home with a souvenir for its treasure collection
+  (curious pets find rare crystals more often). Pausing time pauses the trip too. A pet that enjoys
+  exploring starts exploring on its own.
+
 ### Friendship Points and the Shop
 
-Caring for a pet earns it Friendship Points: 5 points for each kind of care, at most once every
-3 minutes per kind (more clicks still help your pet but earn nothing extra). Points belong to the
+Caring for a pet earns it Friendship Points: 5 points for each kind of care (including training
+and exploring), at most once every 3 minutes per kind (more clicks still help your pet but earn nothing extra). Points belong to the
 pet that earned them. Press **Shop** to spend them on items for that pet:
 
 | Item | Price | Effect |
