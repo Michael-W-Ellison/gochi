@@ -664,3 +664,25 @@ func TestStatusShowsPersonalityAndPreferences(t *testing.T) {
 		t.Errorf("Status should list the learned like: %s", body)
 	}
 }
+
+func TestStatusShowsRequest(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+
+	statusBody := func() string {
+		rec := httptest.NewRecorder()
+		server.handleStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+		return rec.Body.String()
+	}
+
+	if body := statusBody(); !strings.Contains(body, `"request":null`) {
+		t.Errorf("A content pet should have no request: %s", body)
+	}
+
+	server.pet.Biology.Vitals.Hydration = 0.2
+	if body := statusBody(); !strings.Contains(body, `"request":{"action":"drink"`) {
+		t.Errorf("A thirsty pet should ask for a drink: %s", body)
+	}
+}

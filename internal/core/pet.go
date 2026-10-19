@@ -50,6 +50,10 @@ type DigitalPet struct {
 	Inventory        []string                            `json:"inventory"`
 	LastCareReward   map[types.InteractionType]time.Time `json:"last_care_reward"`
 
+	// Age (in days) at the last interaction, used to tell when the pet
+	// has been left alone
+	LastInteractionAge float64 `json:"last_interaction_age"`
+
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
 }
@@ -213,6 +217,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	}
 
 	p.TotalInteractions++
+	p.LastInteractionAge = p.Biology.GetAgeInDays()
 	before := *p.Biology.Vitals
 
 	// Belongings such as toys and brushes make care more effective

@@ -51,25 +51,26 @@ type APIResponse struct {
 
 // PetStatus represents the pet's current state for the frontend
 type PetStatus struct {
-	Name        string   `json:"name"`
-	Age         float64  `json:"age"`
-	IsAlive     bool     `json:"is_alive"`
-	Behavior    string   `json:"behavior"`
-	Activity    string   `json:"activity"` // What the pet is doing, e.g. "is playing"
-	Mood        string   `json:"mood"`
-	Health      float64  `json:"health"`
-	Energy      float64  `json:"energy"`
-	Happiness   float64  `json:"happiness"`
-	Hunger      float64  `json:"hunger"`
-	Water       float64  `json:"water"`
-	Wellbeing   float64  `json:"wellbeing"`
-	Personality string   `json:"personality"`
-	Likes       []string `json:"likes"`
-	Dislikes    []string `json:"dislikes"`
-	Slot        string   `json:"slot"`
-	Hibernating bool     `json:"hibernating"`
-	Paused      bool     `json:"paused"`
-	PauseReason string   `json:"pause_reason,omitempty"`
+	Name        string           `json:"name"`
+	Age         float64          `json:"age"`
+	IsAlive     bool             `json:"is_alive"`
+	Behavior    string           `json:"behavior"`
+	Activity    string           `json:"activity"` // What the pet is doing, e.g. "is playing"
+	Request     *core.PetRequest `json:"request"`  // What the pet is asking for, or null
+	Mood        string           `json:"mood"`
+	Health      float64          `json:"health"`
+	Energy      float64          `json:"energy"`
+	Happiness   float64          `json:"happiness"`
+	Hunger      float64          `json:"hunger"`
+	Water       float64          `json:"water"`
+	Wellbeing   float64          `json:"wellbeing"`
+	Personality string           `json:"personality"`
+	Likes       []string         `json:"likes"`
+	Dislikes    []string         `json:"dislikes"`
+	Slot        string           `json:"slot"`
+	Hibernating bool             `json:"hibernating"`
+	Paused      bool             `json:"paused"`
+	PauseReason string           `json:"pause_reason,omitempty"`
 
 	FriendshipPoints int             `json:"friendship_points"`
 	Items            []core.ShopItem `json:"items"`   // Owned items
@@ -386,6 +387,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .action-btn.groom { background: #74b9ff; color: white; }
         .action-btn.drink { background: #4dabf7; color: white; }
         .actions .action-btn:last-child:nth-child(odd) { grid-column: span 2; }
+        .speech { position: relative; margin: 0 auto 6px; max-width: 280px; padding: 8px 14px; border-radius: 16px; background: #fff3bf; color: #5c4400; font-size: 0.95em; text-align: center; }
+        .speech::after { content: ''; position: absolute; left: 50%; bottom: -8px; margin-left: -8px; border: 8px solid transparent; border-top-color: #fff3bf; border-bottom: 0; }
+        @keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.9); } 50% { box-shadow: 0 0 0 6px rgba(255, 193, 7, 0); } }
+        .requested { animation: nudge 1.2s ease-in-out infinite; outline: 3px solid #ffc107; }
         .about { margin-top: 16px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; font-size: 0.85em; color: #555; }
         .about div + div { margin-top: 4px; }
         .about-label { font-weight: 600; color: #333; }
@@ -500,6 +505,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="friendship" id="friendship"></div>
             <div class="belongings" id="belongings"></div>
             <div class="effects hidden" id="effects"></div>
+            <div class="speech hidden" id="speech"></div>
             <div class="pet-display" id="petSprite">🐱</div>
             <div class="activity" id="activity"></div>
             <div class="mood" id="mood">Mood: Happy</div>
@@ -1014,6 +1020,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         function updateUI(status) {
             document.getElementById('petName').textContent = status.name;
+            // The pet's request: speech bubble, highlighted button, tab title
+            const speech = document.getElementById('speech');
+            const request = status.request;
+            speech.textContent = request ? request.icon + ' ' + request.message : '';
+            speech.classList.toggle('hidden', !request);
+            document.querySelectorAll('.requested').forEach(el => el.classList.remove('requested'));
+            if (request) {
+                const target = request.action === 'revive' ?
+                    document.getElementById('reviveBtn') :
+                    document.querySelector('.action-btn.' + request.action);
+                if (target) target.classList.add('requested');
+            }
+            document.title = request ? '💬 ' + status.name + ' needs you - Gochi' : 'Gochi - Virtual Pet';
+
             document.getElementById('aboutPersonality').textContent = status.personality;
             const setList = (id, label, items, none) => {
                 const el = document.getElementById(id);
@@ -1635,6 +1655,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		IsAlive:     status.IsAlive,
 		Behavior:    s.pet.CurrentBehavior.String(),
 		Activity:    core.ActivityDescription(s.pet.CurrentBehavior),
+		Request:     s.pet.CurrentRequest(),
 		Mood:        s.pet.Emotions.GetMoodDescription(),
 		Health:      s.pet.Biology.Vitals.Health,
 		Energy:      s.pet.Biology.Vitals.Energy,

@@ -95,3 +95,65 @@ func (p *DigitalPet) LikesAndDislikes() (likes, dislikes []string) {
 func (p *DigitalPet) PersonalityDescription() string {
 	return strings.Replace(p.Personality.GetPersonalityDescription(), "This pet", p.Name, 1)
 }
+
+// PetRequest is something the pet is asking its owner for
+type PetRequest struct {
+	Action  string `json:"action"` // Page action that fulfils it: feed, drink, groom, pet, play or revive
+	Icon    string `json:"icon"`
+	Message string `json:"message"`
+}
+
+const (
+	// needRequestLevel is the level below which the pet asks for food,
+	// water or grooming
+	needRequestLevel = 0.35
+
+	// lonelyAfter is how long (in game days of the pet's age) without any
+	// interaction before the pet asks for attention
+	lonelyAfter = 3.0
+)
+
+// CurrentRequest returns what the pet is asking for, most urgent first, or
+// nil if it is content
+func (p *DigitalPet) CurrentRequest() *PetRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.Biology.IsAlive {
+		return nil
+	}
+	if p.Hibernating {
+		return &PetRequest{"revive", "💤", p.Name + " is hibernating and needs you to revive it."}
+	}
+
+	v := p.Biology.Vitals
+	switch {
+	case v.Hydration < needRequestLevel:
+		return &PetRequest{"drink", "💧", p.Name + " is thirsty!"}
+	case v.Nutrition < needRequestLevel:
+		return &PetRequest{"feed", "🍖", p.Name + " is hungry!"}
+	}
+
+	// A sleeping pet only wakes for food and water
+	if p.CurrentBehavior == types.BehaviorSleeping {
+		return nil
+	}
+
+	if v.Cleanliness < needRequestLevel {
+		return &PetRequest{"groom", "🧼", p.Name + " feels messy and wants to be groomed."}
+	}
+
+	alone := p.Biology.GetAgeInDays()-p.LastInteractionAge > lonelyAfter
+	if alone || p.Emotions.Loneliness > 0.6 {
+		// Ask for whichever kind of attention the pet has learned to like more
+		if v.Energy > 0.4 && p.Memory.GetLearnedAffinity(types.InteractionPlaying) > p.Memory.GetLearnedAffinity(types.InteractionPetting) {
+			return &PetRequest{"play", "🎾", p.Name + " misses you and wants to play!"}
+		}
+		return &PetRequest{"pet", "💕", p.Name + " misses you and wants to be petted."}
+	}
+
+	if v.Happiness < 0.45 && v.Energy > 0.5 {
+		return &PetRequest{"play", "🎾", p.Name + " is bored and wants to play!"}
+	}
+	return nil
+}
