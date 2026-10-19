@@ -1,6 +1,7 @@
 package data
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -655,5 +656,224 @@ func TestMaxInt(t *testing.T) {
 
 	if maxInt(15, 3) != 15 {
 		t.Error("maxInt(15, 3) should be 15")
+	}
+}
+
+func newTestDataManager(t *testing.T) *DataManager {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dm, err := NewDataManagerWithConfig(DataManagerConfig{
+		SavePath:   filepath.Join(tmpDir, "saves"),
+		BackupPath: filepath.Join(tmpDir, "backups"),
+		CachePath:  filepath.Join(tmpDir, "cache"),
+		MaxBackups: 3,
+		AutoBackup: true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create DataManager: %v", err)
+	}
+	return dm
+}
+
+func TestLoadLatestNoSave(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	_, _, err := dm.LoadLatest("pet")
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Expected os.ErrNotExist when nothing was saved, got %v", err)
+	}
+}
+
+func TestLoadLatestReturnsMostRecentSave(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	sd := NewSaveData("user", "User")
+	sd.Username = "first"
+	if err := dm.Save(sd, "pet"); err != nil {
+		t.Fatal(err)
+	}
+	sd.Username = "second"
+	if err := dm.Save(sd, "pet"); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, path, err := dm.LoadLatest("pet")
+	if err != nil {
+		t.Fatalf("LoadLatest failed: %v", err)
+	}
+	if loaded.Username != "second" {
+		t.Errorf("Expected most recent save, got %q", loaded.Username)
+	}
+	if path != dm.getSavePath("pet") {
+		t.Errorf("Expected load from main save file, got %s", path)
+	}
+}
+
+func TestLoadLatestFallsBackToBackup(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	sd := NewSaveData("user", "User")
+	sd.SetPetData(map[string]string{"name": "first"})
+	if err := dm.Save(sd, "pet"); err != nil {
+		t.Fatal(err)
+	}
+	sd.SetPetData(map[string]string{"name": "second"})
+	if err := dm.Save(sd, "pet"); err != nil { // Backs up the first save
+		t.Fatal(err)
+	}
+
+	// Corrupt the main save
+	if err := os.WriteFile(dm.getSavePath("pet"), []byte("{truncated"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, path, err := dm.LoadLatest("pet")
+	if err != nil {
+		t.Fatalf("LoadLatest should fall back to backup: %v", err)
+	}
+	if filepath.Dir(path) != dm.BackupPath {
+		t.Errorf("Expected load from backup directory, got %s", path)
+	}
+
+	var pet map[string]string
+	if err := loaded.GetPetData(&pet); err != nil || pet["name"] != "first" {
+		t.Errorf("Expected backup pet data, got %v (err %v)", pet, err)
+	}
+	if dm.GetLastError() == nil {
+		t.Error("Skipping a corrupt save should be reported in LastError")
+	}
+}
+
+func TestLoadLatestSkipsChecksumMismatch(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	sd := NewSaveData("user", "User")
+	sd.SetPetData(map[string]string{"name": "only"})
+	if err := dm.Save(sd, "pet"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Alter pet data without updating the checksum
+	sd.SetPetData(map[string]string{"name": "tampered"})
+	data, _ := sd.ToJSON()
+	os.WriteFile(dm.getSavePath("pet"), data, 0644)
+
+	if _, _, err := dm.LoadLatest("pet"); err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Expected failure for save with bad checksum and no backups, got %v", err)
+	}
+}
+
+func TestSaveLeavesNoTemporaryFiles(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	sd := NewSaveData("user", "User")
+	for i := 0; i < 3; i++ {
+		if err := dm.Save(sd, "pet"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := os.ReadDir(dm.SavePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "pet.json" {
+		names := []string{}
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("Expected only pet.json in save directory, got %v", names)
+	}
+}
+
+func TestBackupsAreSeparatePerSave(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	// "pet" is a prefix of "pet_2"; their backups must not be mixed up
+	for _, name := range []string{"pet", "pet_2"} {
+		sd := NewSaveData("user", name)
+		sd.SetPetData(map[string]string{"name": name})
+		if err := dm.Save(sd, name); err != nil {
+			t.Fatal(err)
+		}
+		if err := dm.Save(sd, name); err != nil { // Creates a backup
+			t.Fatal(err)
+		}
+	}
+
+	for _, name := range []string{"pet", "pet_2"} {
+		backups, err := dm.ListBackups(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(backups) != 1 {
+			t.Errorf("Expected 1 backup for %q, got %d", name, len(backups))
+		}
+	}
+
+	// With "pet" corrupt, its fallback must be its own backup
+	os.WriteFile(dm.getSavePath("pet"), []byte("corrupt"), 0644)
+	loaded, _, err := dm.LoadLatest("pet")
+	if err != nil {
+		t.Fatalf("LoadLatest failed: %v", err)
+	}
+	var pet map[string]string
+	loaded.GetPetData(&pet)
+	if pet["name"] != "pet" {
+		t.Errorf("Fell back to another save's backup: %v", pet)
+	}
+}
+
+func TestIsBackupOf(t *testing.T) {
+	tests := []struct {
+		name, prefix string
+		want         bool
+	}{
+		{"pet_20261018_223851.bak", "pet", true},
+		{"pet_2_20261018_223851.bak", "pet", false},
+		{"pet_2_20261018_223851.bak", "pet_2", true},
+		{"pet_20261018_223851.json", "pet", false},
+		{"petx_20261018_223851.bak", "pet", false},
+	}
+	for _, tt := range tests {
+		if got := isBackupOf(tt.name, tt.prefix); got != tt.want {
+			t.Errorf("isBackupOf(%q, %q) = %v, want %v", tt.name, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestDeleteWithBackups(t *testing.T) {
+	dm := newTestDataManager(t)
+
+	for _, name := range []string{"pet", "pet_2"} {
+		sd := NewSaveData("user", name)
+		dm.Save(sd, name)
+		dm.Save(sd, name) // Creates a backup
+	}
+
+	if err := dm.DeleteWithBackups("pet"); err != nil {
+		t.Fatalf("DeleteWithBackups failed: %v", err)
+	}
+
+	if dm.Exists("pet") {
+		t.Error("Save file should be deleted")
+	}
+	if backups, _ := dm.ListBackups("pet"); len(backups) != 0 {
+		t.Errorf("Backups should be deleted, %d remain", len(backups))
+	}
+	if _, _, err := dm.LoadLatest("pet"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Deleted save should not be loadable, got %v", err)
+	}
+
+	// The other save is untouched
+	if !dm.Exists("pet_2") {
+		t.Error("Other save should not be deleted")
+	}
+	if backups, _ := dm.ListBackups("pet_2"); len(backups) != 1 {
+		t.Errorf("Other save's backups should remain, got %d", len(backups))
+	}
+
+	if err := dm.DeleteWithBackups("pet"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Deleting again should report os.ErrNotExist, got %v", err)
 	}
 }

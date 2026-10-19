@@ -2,7 +2,7 @@
 
 # Build variables
 BINARY_NAME=gochi
-MAIN_PATH=./cmd/gochi
+MAIN_PATH=./cmd/gochiserver
 BUILD_DIR=./bin
 GO=go
 GOFLAGS=-v

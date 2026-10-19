@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -26,6 +27,10 @@ type PetStore interface {
 	UpdatePet(pet *core.DigitalPet) error
 	DeletePet(id types.PetID) error
 }
+
+// ErrNotPermitted is returned by a PetStore that does not allow an
+// operation through the API
+var ErrNotPermitted = errors.New("not permitted")
 
 // UserStore defines the interface for user data storage
 type UserStore interface {
@@ -157,9 +162,8 @@ func getQueryParamFloat(r *http.Request, name string, defaultValue float64) floa
 
 // getUserIDFromContext extracts user ID from request context (set by auth middleware)
 func getUserIDFromContext(r *http.Request) types.UserID {
-	// This would be implemented based on your auth middleware
-	// For example: return r.Context().Value("userID").(types.UserID)
-	return ""
+	userID, _ := r.Context().Value(ContextKeyUserID).(types.UserID)
+	return userID
 }
 
 // ============================================================================
@@ -263,6 +267,10 @@ func (h *Handler) HandleDeletePet(w http.ResponseWriter, r *http.Request) {
 	petID := types.PetID(getPathParam(r, "petId"))
 
 	if err := h.petStore.DeletePet(petID); err != nil {
+		if errors.Is(err, ErrNotPermitted) {
+			writeError(w, http.StatusForbidden, "NOT_PERMITTED", "Pets can't be deleted through the API")
+			return
+		}
 		writeError(w, http.StatusNotFound, "PET_NOT_FOUND", "Pet not found")
 		return
 	}
@@ -329,7 +337,11 @@ func (h *Handler) HandleInteraction(w http.ResponseWriter, r *http.Request) {
 	initialJoy := pet.Emotions.Joy
 
 	// Process the interaction
-	pet.ProcessUserInteraction(interactionType, req.Intensity)
+	result := pet.Interact(interactionType, req.Intensity)
+	if !result.Applied {
+		writeRefusal(w, pet, result)
+		return
+	}
 
 	// Save updated pet
 	if err := h.petStore.UpdatePet(pet); err != nil {
@@ -349,7 +361,7 @@ func (h *Handler) HandleInteraction(w http.ResponseWriter, r *http.Request) {
 			"joy": pet.Emotions.Joy - initialJoy,
 		},
 		MemoryCreated: true,
-		Message:       "Interaction successful",
+		Message:       interactionMessage(result, "Interaction successful"),
 	})
 }
 
@@ -370,7 +382,11 @@ func (h *Handler) HandleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process feeding interaction
-	pet.ProcessUserInteraction(types.InteractionFeeding, req.Quantity)
+	result := pet.Interact(types.InteractionFeeding, req.Quantity)
+	if !result.Applied {
+		writeRefusal(w, pet, result)
+		return
+	}
 
 	if err := h.petStore.UpdatePet(pet); err != nil {
 		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to save")
@@ -380,7 +396,7 @@ func (h *Handler) HandleFeed(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, InteractionResponse{
 		Success:     true,
 		PetReaction: pet.CurrentBehavior.String(),
-		Message:     "Pet has been fed",
+		Message:     interactionMessage(result, "Pet has been fed"),
 	})
 }
 
@@ -401,7 +417,11 @@ func (h *Handler) HandlePlay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process play interaction
-	pet.ProcessUserInteraction(types.InteractionPlaying, req.Enthusiasm)
+	result := pet.Interact(types.InteractionPlaying, req.Enthusiasm)
+	if !result.Applied {
+		writeRefusal(w, pet, result)
+		return
+	}
 
 	if err := h.petStore.UpdatePet(pet); err != nil {
 		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to save")
@@ -411,7 +431,7 @@ func (h *Handler) HandlePlay(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, InteractionResponse{
 		Success:     true,
 		PetReaction: pet.CurrentBehavior.String(),
-		Message:     "Played with pet",
+		Message:     interactionMessage(result, "Played with pet"),
 	})
 }
 
@@ -647,11 +667,31 @@ func convertPetToResponse(pet *core.DigitalPet) *PetResponse {
 	}
 }
 
+// writeRefusal reports an interaction the pet turned down or could not
+// respond to
+func writeRefusal(w http.ResponseWriter, pet *core.DigitalPet, result core.InteractionResult) {
+	message := result.Refusal
+	if message == "" {
+		message = pet.Name + " can't do that right now."
+	}
+	writeError(w, http.StatusConflict, "INTERACTION_REFUSED", message)
+}
+
+// interactionMessage describes how the pet reacted, or returns fallback
+func interactionMessage(result core.InteractionResult, fallback string) string {
+	if result.ReactionText != "" {
+		return result.ReactionText
+	}
+	return fallback
+}
+
 // mapStringToInteractionType converts a string to InteractionType
 func mapStringToInteractionType(s string) types.InteractionType {
 	switch s {
 	case "feeding", "feed":
 		return types.InteractionFeeding
+	case "drinking", "drink":
+		return types.InteractionDrinking
 	case "petting", "pet":
 		return types.InteractionPetting
 	case "playing", "play":

@@ -365,3 +365,42 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Should complete without panicking
 }
+
+func TestGameTimeScale(t *testing.T) {
+	tm := NewTimeManager(types.TimeScaleGame)
+	start := tm.LastUpdateRealTime
+
+	// One real minute is one game day
+	delta := tm.UpdateAt(start.Add(time.Minute))
+	if delta != 86400 {
+		t.Errorf("One real minute should be 86400 game seconds, got %f", delta)
+	}
+	if tm.GetAgeInDays() < 0.999 || tm.GetAgeInDays() > 1.001 {
+		t.Errorf("Expected 1 game day, got %f", tm.GetAgeInDays())
+	}
+	if types.TimeScaleGame.String() != "Game" {
+		t.Errorf("String = %q", types.TimeScaleGame.String())
+	}
+}
+
+func TestSetPausedSkipsPausedTime(t *testing.T) {
+	tm := NewTimeManager(types.TimeScaleRealTime)
+	start := tm.LastUpdateRealTime
+
+	tm.SetPaused(true, start)
+	if d := tm.UpdateAt(start.Add(time.Hour)); d != 0 {
+		t.Errorf("Paused update should not advance, got %f", d)
+	}
+
+	tm.SetPaused(false, start.Add(2*time.Hour))
+	if d := tm.UpdateAt(start.Add(2*time.Hour + 10*time.Second)); d != 10 {
+		t.Errorf("Only time after resuming should count, got %f", d)
+	}
+}
+
+func TestUpdateAtIgnoresClockGoingBackwards(t *testing.T) {
+	tm := NewTimeManager(types.TimeScaleRealTime)
+	if d := tm.UpdateAt(tm.LastUpdateRealTime.Add(-time.Minute)); d != 0 {
+		t.Errorf("Negative real time should not move the simulation backwards, got %f", d)
+	}
+}

@@ -16,12 +16,13 @@ const (
 	TimeScaleAccelerated4X
 	TimeScaleAccelerated24X
 	TimeScalePaused
+	TimeScaleGame // One game day per real minute (the game's default pace)
 )
 
 // String returns the string representation of TimeScale
 func (ts TimeScale) String() string {
 	return [...]string{
-		"RealTime", "Accelerated4X", "Accelerated24X", "Paused",
+		"RealTime", "Accelerated4X", "Accelerated24X", "Paused", "Game",
 	}[ts]
 }
 
@@ -41,6 +42,7 @@ const (
 	BehaviorDistressed
 	BehaviorHappy
 	BehaviorExcited
+	BehaviorHibernating
 )
 
 // String returns the string representation of BehaviorState
@@ -48,7 +50,7 @@ func (bs BehaviorState) String() string {
 	return [...]string{
 		"Idle", "Sleeping", "Eating", "Playing", "Exploring",
 		"Social Interaction", "Grooming", "Exercising",
-		"Sick", "Distressed", "Happy", "Excited",
+		"Sick", "Distressed", "Happy", "Excited", "Hibernating",
 	}[bs]
 }
 
@@ -66,6 +68,7 @@ const (
 	InteractionSocialIntroduction
 	InteractionDiscipline
 	InteractionRewards
+	InteractionDrinking
 )
 
 // String returns the string representation of InteractionType
@@ -73,7 +76,7 @@ func (it InteractionType) String() string {
 	return [...]string{
 		"Feeding", "Petting", "Playing", "Training", "Grooming",
 		"Medical Care", "Environmental Enrichment", "Social Introduction",
-		"Discipline", "Rewards",
+		"Discipline", "Rewards", "Drinking",
 	}[it]
 }
 

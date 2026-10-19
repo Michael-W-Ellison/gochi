@@ -39,33 +39,33 @@ func (ir ItemRarity) String() string {
 
 // Item represents an interactable item
 type Item struct {
-	ID          string              `json:"id"`
-	Name        string              `json:"name"`
-	Description string              `json:"description"`
-	Type        ItemType            `json:"type"`
-	Rarity      ItemRarity          `json:"rarity"`
-	Effects     map[string]float64  `json:"effects"`
-	Duration    float64             `json:"duration"`     // For toys/accessories, how long effect lasts
-	Uses        int                 `json:"uses"`         // -1 for unlimited (toys)
-	MaxUses     int                 `json:"max_uses"`
-	Cooldown    float64             `json:"cooldown"`     // Seconds between uses
-	Price       int                 `json:"price"`
-	Unlocked    bool                `json:"unlocked"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Type        ItemType           `json:"type"`
+	Rarity      ItemRarity         `json:"rarity"`
+	Effects     map[string]float64 `json:"effects"`
+	Duration    float64            `json:"duration"` // For toys/accessories, how long effect lasts
+	Uses        int                `json:"uses"`     // -1 for unlimited (toys)
+	MaxUses     int                `json:"max_uses"`
+	Cooldown    float64            `json:"cooldown"` // Seconds between uses
+	Price       int                `json:"price"`
+	Unlocked    bool               `json:"unlocked"`
 }
 
 // InventoryItem represents an item in the player's inventory
 type InventoryItem struct {
-	Item        *Item     `json:"item"`
-	Quantity    int       `json:"quantity"`
-	LastUsed    time.Time `json:"last_used"`
-	TotalUsed   int       `json:"total_used"`
+	Item      *Item     `json:"item"`
+	Quantity  int       `json:"quantity"`
+	LastUsed  time.Time `json:"last_used"`
+	TotalUsed int       `json:"total_used"`
 }
 
 // Inventory manages the player's items
 type Inventory struct {
 	Items       map[string]*InventoryItem `json:"items"`
-	MaxCapacity int                        `json:"max_capacity"`
-	Currency    int                        `json:"currency"`
+	MaxCapacity int                       `json:"max_capacity"`
+	Currency    int                       `json:"currency"`
 }
 
 // NewInventory creates a new inventory

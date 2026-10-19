@@ -10,36 +10,36 @@ import (
 
 // InteractionResult contains the outcome of an interaction
 type InteractionResult struct {
-	Success       bool                   `json:"success"`
-	Message       string                 `json:"message"`
-	Effects       map[string]float64     `json:"effects"`
-	SkillGain     map[string]float64     `json:"skill_gain,omitempty"`
-	MoodChange    string                 `json:"mood_change,omitempty"`
-	ItemConsumed  string                 `json:"item_consumed,omitempty"`
-	Feedback      InteractionFeedback    `json:"feedback"`
-	Timestamp     time.Time              `json:"timestamp"`
+	Success      bool                `json:"success"`
+	Message      string              `json:"message"`
+	Effects      map[string]float64  `json:"effects"`
+	SkillGain    map[string]float64  `json:"skill_gain,omitempty"`
+	MoodChange   string              `json:"mood_change,omitempty"`
+	ItemConsumed string              `json:"item_consumed,omitempty"`
+	Feedback     InteractionFeedback `json:"feedback"`
+	Timestamp    time.Time           `json:"timestamp"`
 }
 
 // InteractionFeedback provides user-facing feedback
 type InteractionFeedback struct {
-	Animation     string   `json:"animation"`
-	Sound         string   `json:"sound"`
-	Particles     string   `json:"particles,omitempty"`
-	PetReaction   string   `json:"pet_reaction"`
-	Messages      []string `json:"messages"`
+	Animation   string   `json:"animation"`
+	Sound       string   `json:"sound"`
+	Particles   string   `json:"particles,omitempty"`
+	PetReaction string   `json:"pet_reaction"`
+	Messages    []string `json:"messages"`
 }
 
 // InteractionContext provides context for processing interactions
 type InteractionContext struct {
 	// Pet state
-	Health       float64
-	Energy       float64
-	Happiness    float64
-	Hunger       float64
-	Thirst       float64
-	Cleanliness  float64
-	Stress       float64
-	Fatigue      float64
+	Health      float64
+	Energy      float64
+	Happiness   float64
+	Hunger      float64
+	Thirst      float64
+	Cleanliness float64
+	Stress      float64
+	Fatigue     float64
 
 	// Personality traits
 	Playfulness  float64
@@ -54,8 +54,8 @@ type InteractionContext struct {
 	IsSick          bool
 
 	// Environment
-	TimeOfDay       float64
-	IsOutdoors      bool
+	TimeOfDay  float64
+	IsOutdoors bool
 }
 
 // InteractionProcessor handles all user interactions with pets
@@ -72,8 +72,8 @@ type InteractionProcessor struct {
 
 // ProcessorConfig configures the interaction processor
 type ProcessorConfig struct {
-	BaseCooldownSeconds float64            // Base cooldown between interactions
-	EffectMultiplier    float64            // Global effect multiplier
+	BaseCooldownSeconds float64 // Base cooldown between interactions
+	EffectMultiplier    float64 // Global effect multiplier
 	CooldownOverrides   map[types.InteractionType]float64
 }
 
@@ -616,6 +616,7 @@ func GetInteractionDescription(interactionType types.InteractionType) string {
 		types.InteractionDiscipline:              "Discipline to correct unwanted behavior",
 		types.InteractionEnvironmentalEnrichment: "Add enrichment to stimulate curiosity",
 		types.InteractionSocialIntroduction:      "Introduce your pet to others for socialization",
+		types.InteractionDrinking:                "Give your pet fresh water to quench its thirst",
 	}
 
 	if desc, exists := descriptions[interactionType]; exists {

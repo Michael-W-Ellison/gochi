@@ -101,20 +101,20 @@ func (e *Environment) Update(deltaTimeHours float64) {
 // calculateCombinedEffects computes the total environmental impact
 func (e *Environment) calculateCombinedEffects() {
 	effects := EnvironmentEffects{
-		EnergyDrainRate:   1.0,
-		HungerRate:        1.0,
-		ThirstRate:        1.0,
-		StressModifier:    1.0,
-		HappinessModifier: 1.0,
+		EnergyDrainRate:    1.0,
+		HungerRate:         1.0,
+		ThirstRate:         1.0,
+		StressModifier:     1.0,
+		HappinessModifier:  1.0,
 		OutdoorSuitability: 1.0,
-		ExplorationBonus:  1.0,
-		SocialBonus:       1.0,
-		SleepQuality:      1.0,
-		HealthRisk:        0.0,
-		BreedingModifier:  1.0,
-		GrowthRate:        1.0,
-		OverallComfort:    1.0,
-		MoodModifier:      1.0,
+		ExplorationBonus:   1.0,
+		SocialBonus:        1.0,
+		SleepQuality:       1.0,
+		HealthRisk:         0.0,
+		BreedingModifier:   1.0,
+		GrowthRate:         1.0,
+		OverallComfort:     1.0,
+		MoodModifier:       1.0,
 	}
 
 	// Apply weather effects
@@ -329,16 +329,16 @@ func (e *Environment) ForceSeason(season Season, day int) {
 // GetStats returns environment statistics
 func (e *Environment) GetStats() map[string]interface{} {
 	return map[string]interface{}{
-		"game_time_hours":       e.GameTimeElapsed,
-		"game_days":             e.GameTimeElapsed / 24.0,
-		"current_season":        e.Seasons.GetSeason().String(),
-		"season_day":            e.Seasons.GetDayOfSeason(),
-		"year":                  e.Seasons.GetYear(),
-		"time_of_day":           e.TimeOfDay,
-		"weather":               e.Weather.Current.Type.String(),
-		"temperature":           e.Weather.Current.Temperature,
-		"location":              e.Locations.GetCurrentLocationName(),
-		"locations_unlocked":    e.Locations.GetExplorationProgress(),
-		"overall_comfort":       e.CombinedEffects.OverallComfort,
+		"game_time_hours":    e.GameTimeElapsed,
+		"game_days":          e.GameTimeElapsed / 24.0,
+		"current_season":     e.Seasons.GetSeason().String(),
+		"season_day":         e.Seasons.GetDayOfSeason(),
+		"year":               e.Seasons.GetYear(),
+		"time_of_day":        e.TimeOfDay,
+		"weather":            e.Weather.Current.Type.String(),
+		"temperature":        e.Weather.Current.Temperature,
+		"location":           e.Locations.GetCurrentLocationName(),
+		"locations_unlocked": e.Locations.GetExplorationProgress(),
+		"overall_comfort":    e.CombinedEffects.OverallComfort,
 	}
 }

@@ -835,7 +835,7 @@ func TestIsConnected(t *testing.T) {
 
 func TestCalculateDistance(t *testing.T) {
 	// Test distance between two points (NYC to LA approximately 3944 km)
-	lat1, lon1 := 40.7128, -74.0060 // NYC
+	lat1, lon1 := 40.7128, -74.0060  // NYC
 	lat2, lon2 := 34.0522, -118.2437 // LA
 
 	distance := calculateDistance(lat1, lon1, lat2, lon2)
@@ -852,7 +852,7 @@ func TestCalculateDistance(t *testing.T) {
 
 func TestCalculateBearing(t *testing.T) {
 	// Test bearing from NYC to LA (should be approximately 273 degrees - roughly west)
-	lat1, lon1 := 40.7128, -74.0060 // NYC
+	lat1, lon1 := 40.7128, -74.0060  // NYC
 	lat2, lon2 := 34.0522, -118.2437 // LA
 
 	bearing := calculateBearing(lat1, lon1, lat2, lon2)

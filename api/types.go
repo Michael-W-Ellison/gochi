@@ -70,10 +70,10 @@ type TokenRefreshRequest struct {
 
 // CreatePetRequest represents a request to create a new pet
 type CreatePetRequest struct {
-	Name           string            `json:"name"`
-	Species        string            `json:"species,omitempty"`
-	Appearance     *AppearanceConfig `json:"appearance,omitempty"`
-	RandomizeTraits bool             `json:"randomize_traits"`
+	Name            string            `json:"name"`
+	Species         string            `json:"species,omitempty"`
+	Appearance      *AppearanceConfig `json:"appearance,omitempty"`
+	RandomizeTraits bool              `json:"randomize_traits"`
 }
 
 // AppearanceConfig represents pet appearance customization
@@ -87,20 +87,20 @@ type AppearanceConfig struct {
 
 // PetResponse represents a pet in API responses
 type PetResponse struct {
-	ID              types.PetID         `json:"id"`
-	Name            string              `json:"name"`
-	Owner           types.UserID        `json:"owner"`
-	Species         string              `json:"species"`
-	Age             float64             `json:"age_days"`
-	IsAlive         bool                `json:"is_alive"`
-	CurrentBehavior string              `json:"current_behavior"`
-	Location        string              `json:"location"`
-	Vitals          *VitalsResponse     `json:"vitals"`
-	Emotions        *EmotionsResponse   `json:"emotions"`
+	ID              types.PetID          `json:"id"`
+	Name            string               `json:"name"`
+	Owner           types.UserID         `json:"owner"`
+	Species         string               `json:"species"`
+	Age             float64              `json:"age_days"`
+	IsAlive         bool                 `json:"is_alive"`
+	CurrentBehavior string               `json:"current_behavior"`
+	Location        string               `json:"location"`
+	Vitals          *VitalsResponse      `json:"vitals"`
+	Emotions        *EmotionsResponse    `json:"emotions"`
 	Personality     *PersonalityResponse `json:"personality,omitempty"`
-	Statistics      *PetStatistics      `json:"statistics"`
-	CreatedAt       time.Time           `json:"created_at"`
-	LastUpdatedAt   time.Time           `json:"last_updated_at"`
+	Statistics      *PetStatistics       `json:"statistics"`
+	CreatedAt       time.Time            `json:"created_at"`
+	LastUpdatedAt   time.Time            `json:"last_updated_at"`
 }
 
 // VitalsResponse represents pet vital statistics
@@ -150,12 +150,12 @@ type PersonalityResponse struct {
 
 // PetStatistics represents pet statistics
 type PetStatistics struct {
-	TotalInteractions   int     `json:"total_interactions"`
-	TotalPlayTimeHours  float64 `json:"total_play_time_hours"`
-	DaysAlive           float64 `json:"days_alive"`
-	FriendCount         int     `json:"friend_count"`
-	MemoryCount         int     `json:"memory_count"`
-	AchievementCount    int     `json:"achievement_count"`
+	TotalInteractions  int     `json:"total_interactions"`
+	TotalPlayTimeHours float64 `json:"total_play_time_hours"`
+	DaysAlive          float64 `json:"days_alive"`
+	FriendCount        int     `json:"friend_count"`
+	MemoryCount        int     `json:"memory_count"`
+	AchievementCount   int     `json:"achievement_count"`
 }
 
 // UpdatePetRequest represents a request to update pet properties
@@ -184,21 +184,21 @@ type PetStatusResponse struct {
 
 // InteractionRequest represents a user interaction with a pet
 type InteractionRequest struct {
-	Type      string  `json:"type"` // feeding, petting, playing, training, grooming, medical, rewards, discipline
-	Intensity float64 `json:"intensity"` // 0.0 to 1.0
+	Type      string  `json:"type"`               // feeding, petting, playing, training, grooming, medical, rewards, discipline
+	Intensity float64 `json:"intensity"`          // 0.0 to 1.0
 	Duration  float64 `json:"duration,omitempty"` // seconds
-	ItemID    string  `json:"item_id,omitempty"` // for feeding specific food, using specific toy
+	ItemID    string  `json:"item_id,omitempty"`  // for feeding specific food, using specific toy
 }
 
 // InteractionResponse represents the result of an interaction
 type InteractionResponse struct {
-	Success        bool              `json:"success"`
-	PetReaction    string            `json:"pet_reaction"`
+	Success        bool               `json:"success"`
+	PetReaction    string             `json:"pet_reaction"`
 	VitalChanges   map[string]float64 `json:"vital_changes"`
 	EmotionChanges map[string]float64 `json:"emotion_changes"`
-	MemoryCreated  bool              `json:"memory_created"`
-	Experience     float64           `json:"experience_gained,omitempty"`
-	Message        string            `json:"message"`
+	MemoryCreated  bool               `json:"memory_created"`
+	Experience     float64            `json:"experience_gained,omitempty"`
+	Message        string             `json:"message"`
 }
 
 // FeedingRequest represents a feeding interaction
@@ -232,15 +232,15 @@ type GroomingRequest struct {
 
 // NearbyPetResponse represents a nearby pet
 type NearbyPetResponse struct {
-	PetID        types.PetID `json:"pet_id"`
-	Name         string      `json:"name"`
-	OwnerID      string      `json:"owner_id"`
-	OwnerName    string      `json:"owner_name"`
-	Distance     float64     `json:"distance_meters"`
-	Direction    string      `json:"direction"`
-	IsOnline     bool        `json:"is_online"`
-	LastSeen     time.Time   `json:"last_seen"`
-	Compatibility float64    `json:"compatibility,omitempty"`
+	PetID         types.PetID `json:"pet_id"`
+	Name          string      `json:"name"`
+	OwnerID       string      `json:"owner_id"`
+	OwnerName     string      `json:"owner_name"`
+	Distance      float64     `json:"distance_meters"`
+	Direction     string      `json:"direction"`
+	IsOnline      bool        `json:"is_online"`
+	LastSeen      time.Time   `json:"last_seen"`
+	Compatibility float64     `json:"compatibility,omitempty"`
 }
 
 // FriendRequest represents a friend request
@@ -251,27 +251,27 @@ type FriendRequest struct {
 
 // FriendRequestResponse represents a friend request in responses
 type FriendRequestResponse struct {
-	ID           string      `json:"id"`
-	FromPetID    types.PetID `json:"from_pet_id"`
-	FromPetName  string      `json:"from_pet_name"`
-	ToPetID      types.PetID `json:"to_pet_id"`
-	ToPetName    string      `json:"to_pet_name"`
-	Message      string      `json:"message,omitempty"`
-	Status       string      `json:"status"` // pending, accepted, declined, expired
-	CreatedAt    time.Time   `json:"created_at"`
-	ExpiresAt    time.Time   `json:"expires_at"`
+	ID          string      `json:"id"`
+	FromPetID   types.PetID `json:"from_pet_id"`
+	FromPetName string      `json:"from_pet_name"`
+	ToPetID     types.PetID `json:"to_pet_id"`
+	ToPetName   string      `json:"to_pet_name"`
+	Message     string      `json:"message,omitempty"`
+	Status      string      `json:"status"` // pending, accepted, declined, expired
+	CreatedAt   time.Time   `json:"created_at"`
+	ExpiresAt   time.Time   `json:"expires_at"`
 }
 
 // FriendResponse represents a friend in responses
 type FriendResponse struct {
-	PetID         types.PetID `json:"pet_id"`
-	Name          string      `json:"name"`
-	OwnerID       string      `json:"owner_id"`
-	OwnerName     string      `json:"owner_name"`
-	BondStrength  float64     `json:"bond_strength"`
-	FriendsSince  time.Time   `json:"friends_since"`
-	LastInteraction time.Time `json:"last_interaction"`
-	IsOnline      bool        `json:"is_online"`
+	PetID           types.PetID `json:"pet_id"`
+	Name            string      `json:"name"`
+	OwnerID         string      `json:"owner_id"`
+	OwnerName       string      `json:"owner_name"`
+	BondStrength    float64     `json:"bond_strength"`
+	FriendsSince    time.Time   `json:"friends_since"`
+	LastInteraction time.Time   `json:"last_interaction"`
+	IsOnline        bool        `json:"is_online"`
 }
 
 // SocialInteractionRequest represents a social interaction between pets
@@ -283,12 +283,12 @@ type SocialInteractionRequest struct {
 
 // SocialInteractionResponse represents the result of a social interaction
 type SocialInteractionResponse struct {
-	Success       bool    `json:"success"`
-	Type          string  `json:"type"`
-	Result        string  `json:"result"`
-	BondChange    float64 `json:"bond_change"`
+	Success        bool    `json:"success"`
+	Type           string  `json:"type"`
+	Result         string  `json:"result"`
+	BondChange     float64 `json:"bond_change"`
 	ExperienceGain float64 `json:"experience_gain,omitempty"`
-	Message       string  `json:"message"`
+	Message        string  `json:"message"`
 }
 
 // ============================================================================
@@ -304,17 +304,17 @@ type FeedPostRequest struct {
 
 // FeedItemResponse represents a social feed item
 type FeedItemResponse struct {
-	ID          string        `json:"id"`
-	PetID       types.PetID   `json:"pet_id"`
-	PetName     string        `json:"pet_name"`
-	OwnerID     string        `json:"owner_id"`
-	OwnerName   string        `json:"owner_name"`
-	Content     string        `json:"content"`
-	ImageURL    string        `json:"image_url,omitempty"`
-	TaggedPets  []types.PetID `json:"tagged_pets,omitempty"`
-	LikeCount   int           `json:"like_count"`
-	HasLiked    bool          `json:"has_liked"`
-	CreatedAt   time.Time     `json:"created_at"`
+	ID         string        `json:"id"`
+	PetID      types.PetID   `json:"pet_id"`
+	PetName    string        `json:"pet_name"`
+	OwnerID    string        `json:"owner_id"`
+	OwnerName  string        `json:"owner_name"`
+	Content    string        `json:"content"`
+	ImageURL   string        `json:"image_url,omitempty"`
+	TaggedPets []types.PetID `json:"tagged_pets,omitempty"`
+	LikeCount  int           `json:"like_count"`
+	HasLiked   bool          `json:"has_liked"`
+	CreatedAt  time.Time     `json:"created_at"`
 }
 
 // ============================================================================
@@ -323,19 +323,19 @@ type FeedItemResponse struct {
 
 // EventResponse represents a social event
 type EventResponse struct {
-	ID            string      `json:"id"`
-	Name          string      `json:"name"`
-	Description   string      `json:"description"`
-	Type          string      `json:"type"` // meetup, competition, party, training
-	Location      *LocationResponse `json:"location,omitempty"`
-	StartTime     time.Time   `json:"start_time"`
-	EndTime       time.Time   `json:"end_time"`
-	MaxParticipants int       `json:"max_participants"`
-	CurrentCount  int         `json:"current_participants"`
-	HostPetID     types.PetID `json:"host_pet_id"`
-	HostName      string      `json:"host_name"`
-	Rewards       []string    `json:"rewards,omitempty"`
-	IsJoined      bool        `json:"is_joined"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"`
+	Type            string            `json:"type"` // meetup, competition, party, training
+	Location        *LocationResponse `json:"location,omitempty"`
+	StartTime       time.Time         `json:"start_time"`
+	EndTime         time.Time         `json:"end_time"`
+	MaxParticipants int               `json:"max_participants"`
+	CurrentCount    int               `json:"current_participants"`
+	HostPetID       types.PetID       `json:"host_pet_id"`
+	HostName        string            `json:"host_name"`
+	Rewards         []string          `json:"rewards,omitempty"`
+	IsJoined        bool              `json:"is_joined"`
 }
 
 // LocationResponse represents a geographic location
@@ -369,12 +369,12 @@ type LeaderboardResponse struct {
 
 // LeaderboardEntry represents a single leaderboard entry
 type LeaderboardEntry struct {
-	Rank      int         `json:"rank"`
-	PetID     types.PetID `json:"pet_id"`
-	PetName   string      `json:"pet_name"`
-	OwnerName string      `json:"owner_name"`
-	Score     int         `json:"score"`
-	IsCurrentUser bool    `json:"is_current_user"`
+	Rank          int         `json:"rank"`
+	PetID         types.PetID `json:"pet_id"`
+	PetName       string      `json:"pet_name"`
+	OwnerName     string      `json:"owner_name"`
+	Score         int         `json:"score"`
+	IsCurrentUser bool        `json:"is_current_user"`
 }
 
 // ============================================================================
@@ -396,13 +396,13 @@ type MemoryResponse struct {
 
 // MemorySummaryResponse represents aggregated memory statistics
 type MemorySummaryResponse struct {
-	TotalMemories   int                `json:"total_memories"`
-	ShortTermCount  int                `json:"short_term_count"`
-	LongTermCount   int                `json:"long_term_count"`
-	AverageStrength float64            `json:"average_strength"`
-	DominantEmotion string             `json:"dominant_emotion"`
-	MemoriesByType  map[string]int     `json:"memories_by_type"`
-	MostRecalled    *MemoryResponse    `json:"most_recalled,omitempty"`
+	TotalMemories   int             `json:"total_memories"`
+	ShortTermCount  int             `json:"short_term_count"`
+	LongTermCount   int             `json:"long_term_count"`
+	AverageStrength float64         `json:"average_strength"`
+	DominantEmotion string          `json:"dominant_emotion"`
+	MemoriesByType  map[string]int  `json:"memories_by_type"`
+	MostRecalled    *MemoryResponse `json:"most_recalled,omitempty"`
 }
 
 // ============================================================================
@@ -417,11 +417,11 @@ type BreedingCompatibilityRequest struct {
 
 // BreedingCompatibilityResponse represents breeding compatibility result
 type BreedingCompatibilityResponse struct {
-	IsCompatible      bool     `json:"is_compatible"`
-	CompatibilityScore float64 `json:"compatibility_score"`
-	PotentialTraits   []string `json:"potential_traits"`
-	Warnings          []string `json:"warnings,omitempty"`
-	CooldownRemaining float64  `json:"cooldown_remaining_hours,omitempty"`
+	IsCompatible       bool     `json:"is_compatible"`
+	CompatibilityScore float64  `json:"compatibility_score"`
+	PotentialTraits    []string `json:"potential_traits"`
+	Warnings           []string `json:"warnings,omitempty"`
+	CooldownRemaining  float64  `json:"cooldown_remaining_hours,omitempty"`
 }
 
 // BreedingRequest represents a breeding request
@@ -432,12 +432,12 @@ type BreedingRequest struct {
 
 // BreedingResponse represents the result of breeding
 type BreedingResponse struct {
-	Success       bool        `json:"success"`
-	OffspringID   types.PetID `json:"offspring_id,omitempty"`
-	OffspringName string      `json:"offspring_name,omitempty"`
-	InheritedTraits []string  `json:"inherited_traits,omitempty"`
-	Mutations     []string    `json:"mutations,omitempty"`
-	Message       string      `json:"message"`
+	Success         bool        `json:"success"`
+	OffspringID     types.PetID `json:"offspring_id,omitempty"`
+	OffspringName   string      `json:"offspring_name,omitempty"`
+	InheritedTraits []string    `json:"inherited_traits,omitempty"`
+	Mutations       []string    `json:"mutations,omitempty"`
+	Message         string      `json:"message"`
 }
 
 // ============================================================================
@@ -519,25 +519,25 @@ type WSMessage struct {
 type WSEventType string
 
 const (
-	WSEventPetUpdate      WSEventType = "pet_update"
-	WSEventVitalsUpdate   WSEventType = "vitals_update"
-	WSEventEmotionUpdate  WSEventType = "emotion_update"
-	WSEventNearbyPet      WSEventType = "nearby_pet"
-	WSEventFriendRequest  WSEventType = "friend_request"
+	WSEventPetUpdate         WSEventType = "pet_update"
+	WSEventVitalsUpdate      WSEventType = "vitals_update"
+	WSEventEmotionUpdate     WSEventType = "emotion_update"
+	WSEventNearbyPet         WSEventType = "nearby_pet"
+	WSEventFriendRequest     WSEventType = "friend_request"
 	WSEventSocialInteraction WSEventType = "social_interaction"
-	WSEventFeedItem       WSEventType = "feed_item"
-	WSEventEventUpdate    WSEventType = "event_update"
-	WSEventAchievement    WSEventType = "achievement"
-	WSEventNotification   WSEventType = "notification"
+	WSEventFeedItem          WSEventType = "feed_item"
+	WSEventEventUpdate       WSEventType = "event_update"
+	WSEventAchievement       WSEventType = "achievement"
+	WSEventNotification      WSEventType = "notification"
 )
 
 // NotificationResponse represents a notification
 type NotificationResponse struct {
-	ID        string    `json:"id"`
-	Type      string    `json:"type"`
-	Title     string    `json:"title"`
-	Message   string    `json:"message"`
+	ID        string      `json:"id"`
+	Type      string      `json:"type"`
+	Title     string      `json:"title"`
+	Message   string      `json:"message"`
 	Data      interface{} `json:"data,omitempty"`
-	IsRead    bool      `json:"is_read"`
-	CreatedAt time.Time `json:"created_at"`
+	IsRead    bool        `json:"is_read"`
+	CreatedAt time.Time   `json:"created_at"`
 }

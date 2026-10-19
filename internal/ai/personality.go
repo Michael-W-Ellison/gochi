@@ -16,15 +16,15 @@ type Traits struct {
 	Neuroticism       float64 `json:"neuroticism"`       // Emotional stability (higher = less stable)
 
 	// Pet-specific traits (0.0 to 1.0)
-	Playfulness   float64 `json:"playfulness"`   // Desire to play and have fun
-	Independence  float64 `json:"independence"`  // Self-reliance vs. neediness
-	Loyalty       float64 `json:"loyalty"`       // Attachment to caregiver
-	Intelligence  float64 `json:"intelligence"`  // Learning speed and problem-solving
-	EnergyLevel   float64 `json:"energy_level"`  // Natural activity level
-	Affectionate  float64 `json:"affectionate"`  // Desire for physical affection
-	Curiosity     float64 `json:"curiosity"`     // Exploration drive
-	Adaptability  float64 `json:"adaptability"`  // Ability to handle change
-	Vocalization  float64 `json:"vocalization"`  // Tendency to make sounds/communicate
+	Playfulness    float64 `json:"playfulness"`    // Desire to play and have fun
+	Independence   float64 `json:"independence"`   // Self-reliance vs. neediness
+	Loyalty        float64 `json:"loyalty"`        // Attachment to caregiver
+	Intelligence   float64 `json:"intelligence"`   // Learning speed and problem-solving
+	EnergyLevel    float64 `json:"energy_level"`   // Natural activity level
+	Affectionate   float64 `json:"affectionate"`   // Desire for physical affection
+	Curiosity      float64 `json:"curiosity"`      // Exploration drive
+	Adaptability   float64 `json:"adaptability"`   // Ability to handle change
+	Vocalization   float64 `json:"vocalization"`   // Tendency to make sounds/communicate
 	Territoriality float64 `json:"territoriality"` // Protective of space/resources
 }
 

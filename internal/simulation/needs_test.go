@@ -267,9 +267,9 @@ func TestNeedsManagerGetMostUrgentNeed(t *testing.T) {
 	nm := NewNeedsManager()
 
 	// Set different urgency levels
-	nm.SetNeedLevel(types.NeedHunger, 0.1)  // Very urgent
-	nm.SetNeedLevel(types.NeedThirst, 0.5)  // Less urgent
-	nm.SetNeedLevel(types.NeedSleep, 0.9)   // Not urgent
+	nm.SetNeedLevel(types.NeedHunger, 0.1) // Very urgent
+	nm.SetNeedLevel(types.NeedThirst, 0.5) // Less urgent
+	nm.SetNeedLevel(types.NeedSleep, 0.9)  // Not urgent
 
 	mostUrgent := nm.GetMostUrgentNeed()
 

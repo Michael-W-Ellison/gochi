@@ -12,11 +12,11 @@ type TimeManager struct {
 	mu sync.RWMutex
 
 	// Time tracking
-	RealStartTime       time.Time     // When the simulation started in real time
-	SimulationStartTime time.Time     // Simulation epoch (game time zero)
-	CurrentSimTime      time.Time     // Current simulation time
-	LastUpdateRealTime  time.Time     // Last real-world update time
-	TotalSimulatedDays  float64       // Total game days elapsed
+	RealStartTime       time.Time // When the simulation started in real time
+	SimulationStartTime time.Time // Simulation epoch (game time zero)
+	CurrentSimTime      time.Time // Current simulation time
+	LastUpdateRealTime  time.Time // Last real-world update time
+	TotalSimulatedDays  float64   // Total game days elapsed
 
 	// Time scale settings
 	CurrentTimeScale    types.TimeScale // Current time scaling mode
@@ -24,8 +24,8 @@ type TimeManager struct {
 	IsPaused            bool            // Whether time is paused
 
 	// Delta time tracking
-	LastDeltaTime       float64 // Last frame's delta time in game seconds
-	AccumulatedTime     float64 // Accumulated time for fixed timesteps
+	LastDeltaTime   float64 // Last frame's delta time in game seconds
+	AccumulatedTime float64 // Accumulated time for fixed timesteps
 
 	// Statistics
 	TotalRealTimeElapsed time.Duration // Total real time since start
@@ -37,17 +37,17 @@ func NewTimeManager(timeScale types.TimeScale) *TimeManager {
 	now := time.Now()
 
 	tm := &TimeManager{
-		RealStartTime:       now,
-		SimulationStartTime: now,
-		CurrentSimTime:      now,
-		LastUpdateRealTime:  now,
-		TotalSimulatedDays:  0.0,
-		CurrentTimeScale:    timeScale,
-		IsPaused:            false,
-		LastDeltaTime:       0.0,
-		AccumulatedTime:     0.0,
+		RealStartTime:        now,
+		SimulationStartTime:  now,
+		CurrentSimTime:       now,
+		LastUpdateRealTime:   now,
+		TotalSimulatedDays:   0.0,
+		CurrentTimeScale:     timeScale,
+		IsPaused:             false,
+		LastDeltaTime:        0.0,
+		AccumulatedTime:      0.0,
 		TotalRealTimeElapsed: 0,
-		TickCount:           0,
+		TickCount:            0,
 	}
 
 	tm.TimeScaleMultiplier = tm.getMultiplierForScale(timeScale)
@@ -56,17 +56,24 @@ func NewTimeManager(timeScale types.TimeScale) *TimeManager {
 
 // Update processes time advancement and returns delta time in game seconds
 func (tm *TimeManager) Update() float64 {
+	return tm.UpdateAt(time.Now())
+}
+
+// UpdateAt advances simulation time to the real time now and returns the
+// delta in game seconds. While paused, the real time passes without
+// advancing the simulation.
+func (tm *TimeManager) UpdateAt(now time.Time) float64 {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
 	if tm.IsPaused {
+		tm.LastUpdateRealTime = now
 		tm.LastDeltaTime = 0.0
 		return 0.0
 	}
 
 	// Calculate real time elapsed since last update
-	now := time.Now()
-	realDelta := now.Sub(tm.LastUpdateRealTime).Seconds()
+	realDelta := max(now.Sub(tm.LastUpdateRealTime).Seconds(), 0)
 	tm.LastUpdateRealTime = now
 
 	// Calculate total real time elapsed
@@ -151,6 +158,18 @@ func (tm *TimeManager) Resume() {
 	}
 }
 
+// SetPaused pauses or resumes the simulation as of the real time now
+func (tm *TimeManager) SetPaused(paused bool, now time.Time) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	if tm.IsPaused && !paused {
+		// Resume from now so the paused period is not simulated
+		tm.LastUpdateRealTime = now
+	}
+	tm.IsPaused = paused
+}
+
 // TogglePause toggles pause state
 func (tm *TimeManager) TogglePause() bool {
 	tm.mu.Lock()
@@ -185,6 +204,11 @@ func (tm *TimeManager) GetTimeOfDay() float64 {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
+	return tm.timeOfDay()
+}
+
+// timeOfDay returns the time of day in hours; caller must hold tm.mu
+func (tm *TimeManager) timeOfDay() float64 {
 	hour := float64(tm.CurrentSimTime.Hour())
 	minute := float64(tm.CurrentSimTime.Minute()) / 60.0
 	second := float64(tm.CurrentSimTime.Second()) / 3600.0
@@ -205,8 +229,11 @@ func (tm *TimeManager) IsNighttime() bool {
 
 // GetDayPhase returns a description of the current day phase
 func (tm *TimeManager) GetDayPhase() string {
-	hour := tm.GetTimeOfDay()
+	return dayPhaseForHour(tm.GetTimeOfDay())
+}
 
+// dayPhaseForHour returns the day phase for a time of day in hours
+func dayPhaseForHour(hour float64) string {
 	switch {
 	case hour >= 5.0 && hour < 8.0:
 		return "dawn"
@@ -235,7 +262,7 @@ func (tm *TimeManager) GetStats() TimeStats {
 		CurrentTimeScale:    tm.CurrentTimeScale,
 		TimeScaleMultiplier: tm.TimeScaleMultiplier,
 		IsPaused:            tm.IsPaused,
-		CurrentDayPhase:     tm.GetDayPhase(),
+		CurrentDayPhase:     dayPhaseForHour(tm.timeOfDay()),
 		TickCount:           tm.TickCount,
 		AverageTickRate:     float64(tm.TickCount) / tm.TotalRealTimeElapsed.Seconds(),
 	}
@@ -290,6 +317,8 @@ func (tm *TimeManager) getMultiplierForScale(scale types.TimeScale) float64 {
 		return 4.0
 	case types.TimeScaleAccelerated24X:
 		return 24.0
+	case types.TimeScaleGame:
+		return 1440.0
 	case types.TimeScalePaused:
 		return 0.0
 	default:

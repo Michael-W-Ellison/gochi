@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,8 +58,8 @@ func TestNewMemorySystem(t *testing.T) {
 		t.Errorf("Expected capacity 100, got %d", ms.MemoryCapacity)
 	}
 
-	if ms.LongTermCapacity != 500 {
-		t.Errorf("Expected long-term capacity 500, got %d", ms.LongTermCapacity)
+	if ms.LongTermCapacity != 5000 {
+		t.Errorf("Expected long-term capacity 5000, got %d", ms.LongTermCapacity)
 	}
 
 	if ms.WorkingMemoryCap != 7 {
@@ -412,10 +414,10 @@ func TestDecayLongTermMemories(t *testing.T) {
 	// Decay
 	ms.DecayMemories(10.0)
 
-	// Long-term decay rate is 0.01 * deltaTime * 0.1 = 0.01
-	expectedDecay := 0.01
+	// Long-term decay rate for a Minor memory is 0.01 * deltaTime * 0.1 * 0.05 = 0.0005
+	expectedDecay := 0.0005
 	actualDecay := initialStrength - memory.Strength
-	tolerance := 0.001
+	tolerance := 0.00001
 
 	if actualDecay < expectedDecay-tolerance || actualDecay > expectedDecay+tolerance {
 		t.Errorf("Expected decay ~%f for long-term memory, got %f", expectedDecay, actualDecay)
@@ -1022,6 +1024,32 @@ func TestGenerateMemoryID(t *testing.T) {
 	}
 }
 
+func TestGenerateMemoryIDUniqueAcrossCounts(t *testing.T) {
+	// Counts in the UTF-16 surrogate range and above the maximum rune
+	// must not collapse to the same ID
+	seen := make(map[string]int)
+	for _, count := range []int{0, 1, 0xD7FF, 0xD800, 0xD801, 0xDFFF, 0x10FFFF, 0x110000, 0x110001} {
+		id := generateMemoryID(count)
+		if prev, exists := seen[id]; exists {
+			t.Errorf("generateMemoryID(%d) duplicates generateMemoryID(%d): %q", count, prev, id)
+		}
+		seen[id] = count
+	}
+}
+
+func TestMemoryIndexHoldsAllMemoriesPastSurrogateRange(t *testing.T) {
+	ms := NewMemorySystem(100)
+	ms.TotalMemories = 0xD7FE
+
+	for i := 0; i < 5; i++ {
+		ms.RecordMemory(MemoryEvent, "Event", 100.0, 0.5, "neutral", nil)
+	}
+
+	if len(ms.MemoryIndex) != 5 {
+		t.Errorf("Expected 5 indexed memories, got %d", len(ms.MemoryIndex))
+	}
+}
+
 func TestContainsIgnoreCase(t *testing.T) {
 	tests := []struct {
 		s        string
@@ -1124,5 +1152,212 @@ func TestConsolidateSignificantImportance(t *testing.T) {
 
 	if consolidated != 1 {
 		t.Errorf("Expected 1 memory consolidated (significant importance), got %d", consolidated)
+	}
+}
+
+func TestLongTermDecayScalesWithImportance(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	importances := []MemoryImportance{
+		ImportanceTrivial, ImportanceMinor, ImportanceModerate,
+		ImportanceSignificant, ImportanceMajor, ImportanceFormative,
+	}
+	memories := make([]*Memory, len(importances))
+	for i, importance := range importances {
+		memories[i] = ms.RecordMemoryFull(MemoryEvent, importance.String(), 0, 1.0, "neutral", nil, 0.0, 0.5, importance, nil)
+	}
+	ms.ConsolidateMemoriesWithThreshold(0.0)
+
+	ms.DecayMemories(100.0)
+
+	for i := 1; i < len(memories); i++ {
+		if memories[i].Strength <= memories[i-1].Strength {
+			t.Errorf("%s memory (%f) should outlast %s memory (%f)",
+				importances[i], memories[i].Strength, importances[i-1], memories[i-1].Strength)
+		}
+	}
+
+	if memories[len(memories)-1].Strength != 1.0 {
+		t.Errorf("Formative memory should not fade, got %f", memories[len(memories)-1].Strength)
+	}
+}
+
+func TestMinorLongTermMemoryLastsAboutTwoWeeks(t *testing.T) {
+	// The server advances one time unit per real minute
+	const unitsPerDay = 24 * 60
+
+	ms := NewMemorySystem(100)
+	memory := ms.RecordMemory(MemoryEvent, "Minor", 0, 1.0, "neutral", nil)
+	ms.ConsolidateMemories()
+
+	ms.DecayMemories(13 * unitsPerDay)
+	if memory.Strength <= 0 {
+		t.Errorf("Minor memory should survive 13 days, strength %f", memory.Strength)
+	}
+
+	ms.DecayMemories(1 * unitsPerDay)
+	if memory.Strength != 0 {
+		t.Errorf("Minor memory should have faded after 14 days, strength %f", memory.Strength)
+	}
+}
+
+func TestStimulusValence(t *testing.T) {
+	petting := CreateStimulusFromInteraction(types.InteractionPetting, 1.0).Valence()
+	if petting <= 0 {
+		t.Errorf("Petting should have positive valence, got %f", petting)
+	}
+
+	discipline := CreateStimulusFromInteraction(types.InteractionDiscipline, 1.0).Valence()
+	if discipline >= 0 {
+		t.Errorf("Discipline should have negative valence, got %f", discipline)
+	}
+
+	none := EmotionalStimulus{}.Valence()
+	if none != 0 {
+		t.Errorf("Empty stimulus should have zero valence, got %f", none)
+	}
+}
+
+func TestLearnedAffinityGrowsWithExperience(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	if ms.GetLearnedAffinity(types.InteractionPlaying) != 0 {
+		t.Error("Affinity should be 0 before any interaction")
+	}
+
+	previous := 0.0
+	for i := 0; i < 20; i++ {
+		ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+		affinity := ms.GetLearnedAffinity(types.InteractionPlaying)
+		if affinity <= previous {
+			t.Fatalf("Affinity should grow with repeated positive play, got %f after %f", affinity, previous)
+		}
+		previous = affinity
+	}
+
+	if ms.GetLearnedAffinity(types.InteractionPetting) != 0 {
+		t.Error("Playing should not change the petting preference")
+	}
+}
+
+func TestLearnedPreferenceIsStable(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	for i := 0; i < 100; i++ {
+		ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "affectionate", 0.9, 0.9)
+	}
+	before := ms.Preferences[types.InteractionPetting].Affinity
+
+	// One bad experience barely moves an established preference
+	ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "fearful", -1.0, 1.0)
+	after := ms.Preferences[types.InteractionPetting].Affinity
+
+	if before-after > minPreferenceRate*(before+1.0)+1e-9 {
+		t.Errorf("A single interaction moved preference too far: %f -> %f", before, after)
+	}
+}
+
+func TestLearnedPreferenceChangesWithSustainedInteractions(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	for i := 0; i < 100; i++ {
+		ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "affectionate", 0.9, 0.9)
+	}
+	for i := 0; i < 150; i++ {
+		ms.RecordInteractionFull(types.InteractionPetting, 0, 1.0, "fearful", -0.5, 0.5)
+	}
+
+	if ms.GetLearnedAffinity(types.InteractionPetting) >= 0 {
+		t.Errorf("Sustained negative interactions should turn the preference negative, got %f",
+			ms.GetLearnedAffinity(types.InteractionPetting))
+	}
+}
+
+func TestLearnedPreferenceUnaffectedByMemoryDecay(t *testing.T) {
+	ms := NewMemorySystem(100)
+
+	for i := 0; i < 10; i++ {
+		ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+	}
+	before := ms.GetLearnedAffinity(types.InteractionPlaying)
+
+	// A year without interaction
+	ms.ConsolidateMemories()
+	ms.DecayMemories(365 * 24 * 60)
+
+	if after := ms.GetLearnedAffinity(types.InteractionPlaying); after != before {
+		t.Errorf("Time alone should not change learned preference: %f -> %f", before, after)
+	}
+}
+
+func TestMemorySystemCopyPreferences(t *testing.T) {
+	ms := NewMemorySystem(100)
+	ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+
+	copied := ms.Copy()
+	copied.Preferences[types.InteractionPlaying].Affinity = -1.0
+
+	if ms.Preferences[types.InteractionPlaying].Affinity == -1.0 {
+		t.Error("Copied preferences should be independent of the original")
+	}
+}
+
+func TestMemorySystemJSONRoundTrip(t *testing.T) {
+	ms := NewMemorySystem(100)
+	strong := ms.RecordMemoryFull(MemoryEvent, "Strong", 0, 0.9, "joyful", nil, 0.5, 0.5, ImportanceModerate, []string{"park"})
+	weak := ms.RecordMemory(MemoryEvent, "Weak", 0, 0.3, "neutral", nil)
+	ms.ConsolidateMemories()
+	if err := ms.LinkMemories(strong.ID, weak.ID, "related", 0.5); err != nil {
+		t.Fatal(err)
+	}
+	ms.RecordInteractionFull(types.InteractionPlaying, 0, 1.0, "joyful", 0.8, 0.8)
+
+	data, err := json.Marshal(ms)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	if strings.Contains(string(data), "MemoryIndex") || strings.Contains(string(data), "TagIndex") {
+		t.Error("Indexes should not be serialized")
+	}
+
+	var restored MemorySystem
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if len(restored.LongTermMemories) != len(ms.LongTermMemories) || len(restored.ShortTermMemories) != len(ms.ShortTermMemories) {
+		t.Error("Memory lists should be restored")
+	}
+
+	// Indexes must point at the restored list entries, not separate copies
+	got, ok := restored.GetMemoryByID(strong.ID)
+	if !ok || got != restored.LongTermMemories[0] {
+		t.Error("Memory index should reference restored long-term memory")
+	}
+	if len(restored.SearchByTag("park")) != 1 {
+		t.Error("Tag index should be rebuilt")
+	}
+	if len(restored.GetLinkedMemories(strong.ID)) != 1 {
+		t.Error("Links should be restored")
+	}
+	if restored.GetLearnedAffinity(types.InteractionPlaying) != ms.GetLearnedAffinity(types.InteractionPlaying) {
+		t.Error("Learned preferences should be restored")
+	}
+
+	// The restored system must accept new memories
+	restored.RecordMemory(MemoryEvent, "New", 0, 0.5, "neutral", nil)
+}
+
+func TestMemorySystemUnmarshalAppliesDefaults(t *testing.T) {
+	var restored MemorySystem
+	if err := json.Unmarshal([]byte(`{"MemoryCapacity": 50}`), &restored); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if restored.MemoryCapacity != 50 {
+		t.Errorf("Saved capacity should be kept, got %d", restored.MemoryCapacity)
+	}
+	if restored.LongTermCapacity != DefaultLongTermCapacity || restored.TraumaThreshold != -0.7 || restored.WorkingMemoryCap != 7 {
+		t.Error("Missing fields should take default values")
 	}
 }

@@ -1,6 +1,7 @@
 package data
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,9 +16,9 @@ type DataManager struct {
 	mu sync.RWMutex
 
 	// Paths
-	SavePath    string
-	BackupPath  string
-	CachePath   string
+	SavePath   string
+	BackupPath string
+	CachePath  string
 
 	// Configuration
 	EncryptionEnabled bool
@@ -26,9 +27,9 @@ type DataManager struct {
 	AutoBackup        bool
 
 	// State
-	CurrentSave  *SaveData
-	LastError    error
-	IsDirty      bool
+	CurrentSave *SaveData
+	LastError   error
+	IsDirty     bool
 }
 
 // DataManagerConfig contains configuration for DataManager
@@ -124,7 +125,7 @@ func (dm *DataManager) Save(saveData *SaveData, filename string) error {
 
 	// Write to file
 	savePath := dm.getSavePath(filename)
-	if err := os.WriteFile(savePath, data, 0644); err != nil {
+	if err := writeFileAtomic(savePath, data, 0644); err != nil {
 		dm.LastError = err
 		return fmt.Errorf("failed to write save file: %w", err)
 	}
@@ -132,6 +133,107 @@ func (dm *DataManager) Save(saveData *SaveData, filename string) error {
 	dm.CurrentSave = saveData
 	dm.IsDirty = false
 	return nil
+}
+
+// writeFileAtomic writes data to a temporary file in the same directory and
+// renames it over path, so an interrupted write never leaves a partial file
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// LoadLatest loads the most recent valid save for filename. It tries the
+// save file first, then its backups from newest to oldest, skipping any that
+// cannot be read, cannot be parsed or fail checksum validation. It returns
+// the save data and the path it was loaded from. If neither the save file
+// nor any backup exists, the error wraps os.ErrNotExist.
+func (dm *DataManager) LoadLatest(filename string) (*SaveData, string, error) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	candidates := []string{dm.getSavePath(filename)}
+	backups, err := dm.listBackupsLocked(filename)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, "", err
+	}
+	for _, backup := range backups {
+		candidates = append(candidates, backup.Path)
+	}
+
+	var failures []string
+	for _, path := range candidates {
+		saveData, err := dm.loadPathLocked(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+
+		dm.CurrentSave = saveData
+		dm.LastError = nil
+		if len(failures) > 0 {
+			dm.LastError = fmt.Errorf("skipped unusable saves: %s", strings.Join(failures, "; "))
+		}
+		return saveData, path, nil
+	}
+
+	if len(failures) == 0 {
+		return nil, "", fmt.Errorf("no save found for %s: %w", filename, os.ErrNotExist)
+	}
+	dm.LastError = fmt.Errorf("no usable save found: %s", strings.Join(failures, "; "))
+	return nil, "", dm.LastError
+}
+
+// loadPathLocked reads, parses and validates a save file at path
+func (dm *DataManager) loadPathLocked(path string) (*SaveData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var saveData *SaveData
+	if dm.EncryptionEnabled && dm.EncryptionKey != nil {
+		saveData, err = FromEncryptedJSON(data, dm.EncryptionKey)
+	} else {
+		saveData, err = FromJSON(data)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if !saveData.ValidateChecksum() {
+		return nil, fmt.Errorf("checksum mismatch")
+	}
+	return saveData, nil
 }
 
 // Load reads save data from disk
@@ -183,6 +285,44 @@ func (dm *DataManager) Delete(filename string) error {
 	return nil
 }
 
+// DeleteWithBackups permanently removes a save file and all of its backups.
+// It succeeds if the save file is already gone; the error wraps
+// os.ErrNotExist only if neither the save nor any backup existed.
+func (dm *DataManager) DeleteWithBackups(filename string) error {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+
+	found := false
+	if err := os.Remove(dm.getSavePath(filename)); err == nil {
+		found = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		dm.LastError = err
+		return fmt.Errorf("failed to delete save file: %w", err)
+	}
+
+	backups, err := dm.listBackupsLocked(filename)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	var failures []string
+	for _, backup := range backups {
+		if err := os.Remove(backup.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failures = append(failures, err.Error())
+			continue
+		}
+		found = true
+	}
+	if len(failures) > 0 {
+		dm.LastError = fmt.Errorf("failed to delete backups: %s", strings.Join(failures, "; "))
+		return dm.LastError
+	}
+
+	if !found {
+		return fmt.Errorf("no save found for %s: %w", filename, os.ErrNotExist)
+	}
+	return nil
+}
+
 // ListSaves returns all available save files
 func (dm *DataManager) ListSaves() ([]SaveFileInfo, error) {
 	dm.mu.RLock()
@@ -205,10 +345,10 @@ func (dm *DataManager) ListSaves() ([]SaveFileInfo, error) {
 		}
 
 		saves = append(saves, SaveFileInfo{
-			Filename:    file.Name(),
-			Path:        filepath.Join(dm.SavePath, file.Name()),
-			Size:        info.Size(),
-			ModifiedAt:  info.ModTime(),
+			Filename:   file.Name(),
+			Path:       filepath.Join(dm.SavePath, file.Name()),
+			Size:       info.Size(),
+			ModifiedAt: info.ModTime(),
 		})
 	}
 
@@ -256,7 +396,7 @@ func (dm *DataManager) createBackupLocked(filename string) error {
 	}
 
 	// Create backup with timestamp
-	timestamp := time.Now().Format("20060102_150405")
+	timestamp := time.Now().Format(backupTimestampFormat)
 	backupName := fmt.Sprintf("%s_%s.bak", strings.TrimSuffix(filename, ".json"), timestamp)
 	backupPath := filepath.Join(dm.BackupPath, backupName)
 
@@ -270,6 +410,25 @@ func (dm *DataManager) createBackupLocked(filename string) error {
 	return nil
 }
 
+// backupTimestampFormat is the timestamp in backup names: <save>_<timestamp>.bak
+const backupTimestampFormat = "20060102_150405"
+
+// isBackupOf reports whether name is a backup of the save named prefix.
+// The timestamp must match exactly, so backups of "pet" are not confused
+// with backups of another save such as "pet_123".
+func isBackupOf(name, prefix string) bool {
+	rest, ok := strings.CutPrefix(name, prefix+"_")
+	if !ok {
+		return false
+	}
+	timestamp, ok := strings.CutSuffix(rest, ".bak")
+	if !ok {
+		return false
+	}
+	_, err := time.Parse(backupTimestampFormat, timestamp)
+	return err == nil
+}
+
 // cleanupOldBackupsLocked removes old backups exceeding MaxBackups
 func (dm *DataManager) cleanupOldBackupsLocked(filename string) {
 	prefix := strings.TrimSuffix(filename, ".json")
@@ -281,7 +440,7 @@ func (dm *DataManager) cleanupOldBackupsLocked(filename string) {
 
 	var backups []os.DirEntry
 	for _, file := range files {
-		if strings.HasPrefix(file.Name(), prefix) && strings.HasSuffix(file.Name(), ".bak") {
+		if isBackupOf(file.Name(), prefix) {
 			backups = append(backups, file)
 		}
 	}
@@ -322,6 +481,11 @@ func (dm *DataManager) ListBackups(filename string) ([]SaveFileInfo, error) {
 	dm.mu.RLock()
 	defer dm.mu.RUnlock()
 
+	return dm.listBackupsLocked(filename)
+}
+
+// listBackupsLocked returns backups for a save, newest first; caller must hold dm.mu
+func (dm *DataManager) listBackupsLocked(filename string) ([]SaveFileInfo, error) {
 	prefix := strings.TrimSuffix(filename, ".json")
 
 	files, err := os.ReadDir(dm.BackupPath)
@@ -331,7 +495,7 @@ func (dm *DataManager) ListBackups(filename string) ([]SaveFileInfo, error) {
 
 	var backups []SaveFileInfo
 	for _, file := range files {
-		if !strings.HasPrefix(file.Name(), prefix) || !strings.HasSuffix(file.Name(), ".bak") {
+		if !isBackupOf(file.Name(), prefix) {
 			continue
 		}
 

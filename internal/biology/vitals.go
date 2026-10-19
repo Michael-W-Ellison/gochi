@@ -8,13 +8,13 @@ import (
 // VitalStats represents the core vital statistics of a digital pet.
 // All values range from 0.0 (critical/depleted) to 1.0 (optimal/full).
 type VitalStats struct {
-	Health     float64 `json:"health"`     // Overall health status
-	Energy     float64 `json:"energy"`     // Current energy level
-	Hydration  float64 `json:"hydration"`  // Water level
-	Nutrition  float64 `json:"nutrition"`  // Food/nutrient level
-	Happiness  float64 `json:"happiness"`  // Emotional well-being
-	Stress     float64 `json:"stress"`     // Stress level (higher is worse)
-	Fatigue    float64 `json:"fatigue"`    // Tiredness level (higher is worse)
+	Health      float64 `json:"health"`      // Overall health status
+	Energy      float64 `json:"energy"`      // Current energy level
+	Hydration   float64 `json:"hydration"`   // Water level
+	Nutrition   float64 `json:"nutrition"`   // Food/nutrient level
+	Happiness   float64 `json:"happiness"`   // Emotional well-being
+	Stress      float64 `json:"stress"`      // Stress level (higher is worse)
+	Fatigue     float64 `json:"fatigue"`     // Tiredness level (higher is worse)
 	Cleanliness float64 `json:"cleanliness"` // Hygiene level
 }
 
@@ -124,12 +124,33 @@ func NewPhysiologicalProcesses() *PhysiologicalProcesses {
 
 // BiologicalSystems manages all biological simulation aspects of a pet
 type BiologicalSystems struct {
-	Vitals      *VitalStats
-	Processes   *PhysiologicalProcesses
-	BirthTime   time.Time
-	LastUpdate  time.Time
-	IsAlive     bool
+	Vitals       *VitalStats
+	Processes    *PhysiologicalProcesses
+	BirthTime    time.Time
+	LastUpdate   time.Time
+	IsAlive      bool
 	CauseOfDeath string
+
+	// DecayMultipliers scale how fast needs build up (set by the pet's
+	// belongings each update; not saved)
+	DecayMultipliers DecayMultipliers `json:"-"`
+}
+
+// DecayMultipliers scale natural decay rates. A value of 0 means 1.0
+// (normal rate); 0.8 makes that need build up 20% slower.
+type DecayMultipliers struct {
+	Nutrition float64
+	Hydration float64
+	Fatigue   float64
+	Energy    float64
+}
+
+// rate returns the multiplier to apply, treating 0 as the normal rate
+func rate(multiplier float64) float64 {
+	if multiplier <= 0 {
+		return 1.0
+	}
+	return multiplier
 }
 
 // NewBiologicalSystems creates a new biological system for a pet
@@ -168,6 +189,18 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 	b.Vitals.Clamp()
 }
 
+// ProcessRest lets a sleeping pet recover over deltaTime game days:
+// tiredness falls and energy returns, faster with better sleep quality
+// (1.0 is normal)
+func (b *BiologicalSystems) ProcessRest(deltaTime, sleepQuality float64) {
+	if !b.IsAlive {
+		return
+	}
+	b.Vitals.Fatigue -= 0.5 * sleepQuality * deltaTime
+	b.Vitals.Energy += 0.15 * sleepQuality * deltaTime
+	b.Vitals.Clamp()
+}
+
 // processMetabolism handles energy conversion and consumption
 func (b *BiologicalSystems) processMetabolism(deltaTime float64) {
 	// Base metabolic rate consumption
@@ -190,12 +223,12 @@ func (b *BiologicalSystems) processMetabolism(deltaTime float64) {
 // decayVitalStats handles natural decay of stats over time
 func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	// Natural decay rates (per game day)
-	b.Vitals.Hydration -= deltaTime * 0.05
-	b.Vitals.Nutrition -= deltaTime * 0.03
-	b.Vitals.Energy -= deltaTime * 0.02
+	b.Vitals.Hydration -= deltaTime * 0.05 * rate(b.DecayMultipliers.Hydration)
+	b.Vitals.Nutrition -= deltaTime * 0.03 * rate(b.DecayMultipliers.Nutrition)
+	b.Vitals.Energy -= deltaTime * 0.02 * rate(b.DecayMultipliers.Energy)
 
 	// Fatigue builds up over time awake
-	b.Vitals.Fatigue += deltaTime * 0.01
+	b.Vitals.Fatigue += deltaTime * 0.01 * rate(b.DecayMultipliers.Fatigue)
 
 	// Cleanliness decreases slowly
 	b.Vitals.Cleanliness -= deltaTime * 0.01

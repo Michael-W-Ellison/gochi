@@ -333,6 +333,9 @@ func TestPetRandomPersonality(t *testing.T) {
 // TestPetMultipleInteractions tests a sequence of interactions
 func TestPetMultipleInteractions(t *testing.T) {
 	pet := core.NewDigitalPet("MultiTest", "user_multi")
+	// A pet that is hungry and a little messy accepts all of this care
+	pet.Biology.Vitals.Nutrition = 0.5
+	pet.Biology.Vitals.Cleanliness = 0.5
 
 	interactionSequence := []struct {
 		interactionType types.InteractionType

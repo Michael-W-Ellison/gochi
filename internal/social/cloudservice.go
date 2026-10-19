@@ -29,25 +29,25 @@ func (s CloudServiceStatus) String() string {
 
 // Location represents a geographic coordinate
 type Location struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Accuracy  float64 `json:"accuracy"` // Meters
+	Latitude  float64   `json:"latitude"`
+	Longitude float64   `json:"longitude"`
+	Accuracy  float64   `json:"accuracy"` // Meters
 	Timestamp time.Time `json:"timestamp"`
 }
 
 // PetProfile represents a public-facing pet profile for social features
 type PetProfile struct {
-	PetID       types.PetID `json:"pet_id"`
-	OwnerID     string      `json:"owner_id"`
-	Name        string      `json:"name"`
-	Species     string      `json:"species"`
-	Age         float64     `json:"age"` // In game days
-	Personality string      `json:"personality"`
-	AvatarURL   string      `json:"avatar_url"`
-	Bio         string      `json:"bio"`
-	Badges      []string    `json:"badges"`
-	IsOnline    bool        `json:"is_online"`
-	LastSeen    time.Time   `json:"last_seen"`
+	PetID       types.PetID  `json:"pet_id"`
+	OwnerID     string       `json:"owner_id"`
+	Name        string       `json:"name"`
+	Species     string       `json:"species"`
+	Age         float64      `json:"age"` // In game days
+	Personality string       `json:"personality"`
+	AvatarURL   string       `json:"avatar_url"`
+	Bio         string       `json:"bio"`
+	Badges      []string     `json:"badges"`
+	IsOnline    bool         `json:"is_online"`
+	LastSeen    time.Time    `json:"last_seen"`
 	Privacy     PrivacyLevel `json:"privacy"`
 }
 
@@ -68,7 +68,7 @@ func (p PrivacyLevel) String() string {
 // NearbyPet represents a pet discovered in the vicinity
 type NearbyPet struct {
 	Profile   *PetProfile `json:"profile"`
-	Distance  float64     `json:"distance"` // Meters
+	Distance  float64     `json:"distance"`  // Meters
 	Direction float64     `json:"direction"` // Degrees from north
 	LastSeen  time.Time   `json:"last_seen"`
 	Signal    float64     `json:"signal"` // Signal strength 0-1
@@ -94,25 +94,25 @@ func (s SocialInteractionType) String() string {
 
 // SocialInteraction represents an interaction between pets
 type SocialInteraction struct {
-	ID            string                `json:"id"`
-	Type          SocialInteractionType `json:"type"`
-	InitiatorID   types.PetID           `json:"initiator_id"`
-	TargetID      types.PetID           `json:"target_id"`
-	Timestamp     time.Time             `json:"timestamp"`
-	Outcome       string                `json:"outcome"`
-	ExperienceGain float64              `json:"experience_gain"`
-	Data          map[string]interface{} `json:"data"`
+	ID             string                 `json:"id"`
+	Type           SocialInteractionType  `json:"type"`
+	InitiatorID    types.PetID            `json:"initiator_id"`
+	TargetID       types.PetID            `json:"target_id"`
+	Timestamp      time.Time              `json:"timestamp"`
+	Outcome        string                 `json:"outcome"`
+	ExperienceGain float64                `json:"experience_gain"`
+	Data           map[string]interface{} `json:"data"`
 }
 
 // FriendRequest represents a friend request between pet owners
 type FriendRequest struct {
-	ID          string    `json:"id"`
-	FromPetID   types.PetID `json:"from_pet_id"`
-	ToPetID     types.PetID `json:"to_pet_id"`
-	Message     string    `json:"message"`
-	SentAt      time.Time `json:"sent_at"`
+	ID          string              `json:"id"`
+	FromPetID   types.PetID         `json:"from_pet_id"`
+	ToPetID     types.PetID         `json:"to_pet_id"`
+	Message     string              `json:"message"`
+	SentAt      time.Time           `json:"sent_at"`
 	Status      FriendRequestStatus `json:"status"`
-	RespondedAt time.Time `json:"responded_at"`
+	RespondedAt time.Time           `json:"responded_at"`
 }
 
 // FriendRequestStatus represents the status of a friend request
@@ -138,39 +138,39 @@ type SocialFeed struct {
 
 // FeedItem represents an item in the social feed
 type FeedItem struct {
-	ID        string    `json:"id"`
-	Type      string    `json:"type"`
-	PetID     types.PetID `json:"pet_id"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-	Likes     int       `json:"likes"`
-	HasLiked  bool      `json:"has_liked"`
+	ID        string                 `json:"id"`
+	Type      string                 `json:"type"`
+	PetID     types.PetID            `json:"pet_id"`
+	Content   string                 `json:"content"`
+	Timestamp time.Time              `json:"timestamp"`
+	Likes     int                    `json:"likes"`
+	HasLiked  bool                   `json:"has_liked"`
 	Data      map[string]interface{} `json:"data"`
 }
 
 // SocialEvent represents a social event that pets can participate in
 type SocialEvent struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Type        string    `json:"type"`
-	Location    *Location `json:"location,omitempty"`
-	StartTime   time.Time `json:"start_time"`
-	EndTime     time.Time `json:"end_time"`
-	MaxParticipants int   `json:"max_participants"`
-	Participants []types.PetID `json:"participants"`
-	Rewards     []string  `json:"rewards"`
-	IsActive    bool      `json:"is_active"`
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	Description     string        `json:"description"`
+	Type            string        `json:"type"`
+	Location        *Location     `json:"location,omitempty"`
+	StartTime       time.Time     `json:"start_time"`
+	EndTime         time.Time     `json:"end_time"`
+	MaxParticipants int           `json:"max_participants"`
+	Participants    []types.PetID `json:"participants"`
+	Rewards         []string      `json:"rewards"`
+	IsActive        bool          `json:"is_active"`
 }
 
 // Leaderboard represents a competitive leaderboard
 type Leaderboard struct {
-	ID      string            `json:"id"`
-	Name    string            `json:"name"`
-	Type    string            `json:"type"`
-	Period  string            `json:"period"` // daily, weekly, monthly, all-time
-	Entries []*LeaderboardEntry `json:"entries"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Type      string              `json:"type"`
+	Period    string              `json:"period"` // daily, weekly, monthly, all-time
+	Entries   []*LeaderboardEntry `json:"entries"`
+	UpdatedAt time.Time           `json:"updated_at"`
 }
 
 // LeaderboardEntry represents an entry in the leaderboard
@@ -184,26 +184,26 @@ type LeaderboardEntry struct {
 
 // CloudServiceConfig holds configuration for the cloud service
 type CloudServiceConfig struct {
-	ServerURL        string        `json:"server_url"`
-	APIKey           string        `json:"api_key"`
-	NearbyRadius     float64       `json:"nearby_radius"` // Meters
-	ScanInterval     time.Duration `json:"scan_interval"`
+	ServerURL         string        `json:"server_url"`
+	APIKey            string        `json:"api_key"`
+	NearbyRadius      float64       `json:"nearby_radius"` // Meters
+	ScanInterval      time.Duration `json:"scan_interval"`
 	HeartbeatInterval time.Duration `json:"heartbeat_interval"`
-	EnableNearby     bool          `json:"enable_nearby"`
-	EnableSocialFeed bool          `json:"enable_social_feed"`
-	EnableEvents     bool          `json:"enable_events"`
+	EnableNearby      bool          `json:"enable_nearby"`
+	EnableSocialFeed  bool          `json:"enable_social_feed"`
+	EnableEvents      bool          `json:"enable_events"`
 }
 
 // DefaultCloudServiceConfig returns default configuration
 func DefaultCloudServiceConfig() *CloudServiceConfig {
 	return &CloudServiceConfig{
-		ServerURL:        "https://api.gochi.example.com",
-		NearbyRadius:     500.0, // 500 meters
-		ScanInterval:     30 * time.Second,
+		ServerURL:         "https://api.gochi.example.com",
+		NearbyRadius:      500.0, // 500 meters
+		ScanInterval:      30 * time.Second,
 		HeartbeatInterval: 60 * time.Second,
-		EnableNearby:     true,
-		EnableSocialFeed: true,
-		EnableEvents:     true,
+		EnableNearby:      true,
+		EnableSocialFeed:  true,
+		EnableEvents:      true,
 	}
 }
 
@@ -221,19 +221,19 @@ type CloudService struct {
 	SessionID string
 
 	// Local pet info
-	LocalPet    *PetProfile
+	LocalPet      *PetProfile
 	LocalLocation *Location
 
 	// Social data
-	Friends       map[types.PetID]*PetProfile
-	NearbyPets    []*NearbyPet
+	Friends         map[types.PetID]*PetProfile
+	NearbyPets      []*NearbyPet
 	PendingRequests []*FriendRequest
-	SocialFeed    *SocialFeed
-	ActiveEvents  []*SocialEvent
-	Leaderboards  map[string]*Leaderboard
+	SocialFeed      *SocialFeed
+	ActiveEvents    []*SocialEvent
+	Leaderboards    map[string]*Leaderboard
 
 	// Interaction history
-	InteractionHistory []*SocialInteraction
+	InteractionHistory  []*SocialInteraction
 	LastInteractionTime time.Time
 
 	// Callbacks
@@ -248,7 +248,7 @@ type CloudService struct {
 	Provider SocialCloudProvider
 
 	// Internal
-	stopChan      chan struct{}
+	stopChan         chan struct{}
 	nearbyScanTicker *time.Ticker
 	heartbeatTicker  *time.Ticker
 }
@@ -1072,14 +1072,14 @@ func generateInteractionID() string {
 type MockSocialCloudProvider struct {
 	mu sync.RWMutex
 
-	Connected bool
-	Profiles  map[types.PetID]*PetProfile
-	Friends   map[types.PetID]*PetProfile
-	Requests  []*FriendRequest
-	Feed      *SocialFeed
-	Events    []*SocialEvent
+	Connected    bool
+	Profiles     map[types.PetID]*PetProfile
+	Friends      map[types.PetID]*PetProfile
+	Requests     []*FriendRequest
+	Feed         *SocialFeed
+	Events       []*SocialEvent
 	Leaderboards map[string]*Leaderboard
-	NearbyPets []*NearbyPet
+	NearbyPets   []*NearbyPet
 	Interactions []*SocialInteraction
 }
 
@@ -1179,11 +1179,11 @@ func (m *MockSocialCloudProvider) SendFriendRequest(toPetID types.PetID, message
 	defer m.mu.Unlock()
 
 	request := &FriendRequest{
-		ID:        generateInteractionID(),
-		ToPetID:   toPetID,
-		Message:   message,
-		SentAt:    time.Now(),
-		Status:    FriendRequestPending,
+		ID:      generateInteractionID(),
+		ToPetID: toPetID,
+		Message: message,
+		SentAt:  time.Now(),
+		Status:  FriendRequestPending,
 	}
 	m.Requests = append(m.Requests, request)
 	return request, nil

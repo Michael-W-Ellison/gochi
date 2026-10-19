@@ -24,35 +24,35 @@ func (s Season) String() string {
 type SeasonalEffects struct {
 	TemperatureModifier float64 `json:"temperature_modifier"`
 	DaylightHours       float64 `json:"daylight_hours"`
-	GrowthRate          float64 `json:"growth_rate"`          // For any growth mechanics
-	ActivityLevel       float64 `json:"activity_level"`       // Natural pet activity level
-	FoodAvailability    float64 `json:"food_availability"`    // Wild food availability
-	BreedingModifier    float64 `json:"breeding_modifier"`    // Breeding success modifier
-	MoodModifier        float64 `json:"mood_modifier"`        // Base mood effect
-	EnergyModifier      float64 `json:"energy_modifier"`      // Energy consumption rate
+	GrowthRate          float64 `json:"growth_rate"`       // For any growth mechanics
+	ActivityLevel       float64 `json:"activity_level"`    // Natural pet activity level
+	FoodAvailability    float64 `json:"food_availability"` // Wild food availability
+	BreedingModifier    float64 `json:"breeding_modifier"` // Breeding success modifier
+	MoodModifier        float64 `json:"mood_modifier"`     // Base mood effect
+	EnergyModifier      float64 `json:"energy_modifier"`   // Energy consumption rate
 }
 
 // SeasonalCycle manages the progression of seasons
 type SeasonalCycle struct {
-	CurrentSeason    Season         `json:"current_season"`
-	DayOfSeason      int            `json:"day_of_season"`
-	DaysPerSeason    int            `json:"days_per_season"`
-	Year             int            `json:"year"`
-	SeasonProgress   float64        `json:"season_progress"`   // 0.0 to 1.0 within current season
-	Effects          SeasonalEffects `json:"effects"`
-	TransitionPhase  float64        `json:"transition_phase"`  // 0.0 to 1.0 during season transitions
-	StartDate        time.Time      `json:"start_date"`
+	CurrentSeason   Season          `json:"current_season"`
+	DayOfSeason     int             `json:"day_of_season"`
+	DaysPerSeason   int             `json:"days_per_season"`
+	Year            int             `json:"year"`
+	SeasonProgress  float64         `json:"season_progress"` // 0.0 to 1.0 within current season
+	Effects         SeasonalEffects `json:"effects"`
+	TransitionPhase float64         `json:"transition_phase"` // 0.0 to 1.0 during season transitions
+	StartDate       time.Time       `json:"start_date"`
 }
 
 // NewSeasonalCycle creates a new seasonal cycle
 func NewSeasonalCycle() *SeasonalCycle {
 	sc := &SeasonalCycle{
-		CurrentSeason: SeasonSpring,
-		DayOfSeason:   1,
-		DaysPerSeason: 30, // 30 game days per season
-		Year:          1,
+		CurrentSeason:  SeasonSpring,
+		DayOfSeason:    1,
+		DaysPerSeason:  30, // 30 game days per season
+		Year:           1,
 		SeasonProgress: 0.0,
-		StartDate:     time.Now(),
+		StartDate:      time.Now(),
 	}
 	sc.Effects = sc.calculateSeasonalEffects()
 	return sc
@@ -131,7 +131,7 @@ func (sc *SeasonalCycle) calculateSeasonalEffects() SeasonalEffects {
 		effects.TemperatureModifier = 15.0
 		effects.DaylightHours = 14.0 + (1.0-math.Abs(sc.SeasonProgress-0.5)*2)*2.0 // Peak at 16
 		effects.GrowthRate = 1.3
-		effects.ActivityLevel = 1.0 // Can be too hot
+		effects.ActivityLevel = 1.0    // Can be too hot
 		effects.FoodAvailability = 1.2 // Abundant
 		effects.BreedingModifier = 1.0
 		effects.MoodModifier = 1.05
@@ -151,7 +151,7 @@ func (sc *SeasonalCycle) calculateSeasonalEffects() SeasonalEffects {
 		effects.TemperatureModifier = -20.0
 		effects.DaylightHours = 10.0 - (1.0-math.Abs(sc.SeasonProgress-0.5)*2)*2.0 // Low at 8
 		effects.GrowthRate = 0.5
-		effects.ActivityLevel = 0.8 // Less active
+		effects.ActivityLevel = 0.8    // Less active
 		effects.FoodAvailability = 0.6 // Scarce
 		effects.BreedingModifier = 0.5
 		effects.MoodModifier = 0.85

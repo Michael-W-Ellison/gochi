@@ -163,8 +163,8 @@ func TestNewARService(t *testing.T) {
 		t.Fatal("Service should not be nil")
 	}
 
-	if service.State != ARSessionStateInactive {
-		t.Errorf("Expected inactive state, got %v", service.State)
+	if service.GetSessionState() != ARSessionStateInactive {
+		t.Errorf("Expected inactive state, got %v", service.GetSessionState())
 	}
 
 	if service.Config == nil {
@@ -214,8 +214,8 @@ func TestStartSession(t *testing.T) {
 		t.Fatalf("StartSession failed: %v", err)
 	}
 
-	if service.State != ARSessionStateInitializing {
-		t.Errorf("Expected initializing state, got %v", service.State)
+	if service.GetSessionState() != ARSessionStateInitializing {
+		t.Errorf("Expected initializing state, got %v", service.GetSessionState())
 	}
 
 	if service.sessionID == "" {
@@ -243,8 +243,8 @@ func TestPauseSession(t *testing.T) {
 
 	service.PauseSession()
 
-	if service.State != ARSessionStatePaused {
-		t.Errorf("Expected paused state, got %v", service.State)
+	if service.GetSessionState() != ARSessionStatePaused {
+		t.Errorf("Expected paused state, got %v", service.GetSessionState())
 	}
 }
 
@@ -257,8 +257,8 @@ func TestResumeSession(t *testing.T) {
 	service.PauseSession()
 	service.ResumeSession()
 
-	if service.State != ARSessionStateTracking {
-		t.Errorf("Expected tracking state, got %v", service.State)
+	if service.GetSessionState() != ARSessionStateTracking {
+		t.Errorf("Expected tracking state, got %v", service.GetSessionState())
 	}
 }
 
@@ -268,8 +268,8 @@ func TestStopSession(t *testing.T) {
 
 	service.StopSession()
 
-	if service.State != ARSessionStateInactive {
-		t.Errorf("Expected inactive state, got %v", service.State)
+	if service.GetSessionState() != ARSessionStateInactive {
+		t.Errorf("Expected inactive state, got %v", service.GetSessionState())
 	}
 
 	if service.sessionID != "" {

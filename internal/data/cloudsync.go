@@ -43,20 +43,20 @@ type CloudProvider interface {
 
 // CloudMetadata contains information about cloud-stored data
 type CloudMetadata struct {
-	UserID        string    `json:"user_id"`
-	LastModified  time.Time `json:"last_modified"`
-	Version       int       `json:"version"`
-	Size          int64     `json:"size"`
-	Checksum      string    `json:"checksum"`
+	UserID       string    `json:"user_id"`
+	LastModified time.Time `json:"last_modified"`
+	Version      int       `json:"version"`
+	Size         int64     `json:"size"`
+	Checksum     string    `json:"checksum"`
 }
 
 // SyncConflict represents a conflict between local and cloud data
 type SyncConflict struct {
-	LocalData     *SaveData
-	CloudData     *SaveData
-	LocalVersion  int
-	CloudVersion  int
-	DetectedAt    time.Time
+	LocalData    *SaveData
+	CloudData    *SaveData
+	LocalVersion int
+	CloudVersion int
+	DetectedAt   time.Time
 }
 
 // ConflictResolution specifies how to resolve a sync conflict
@@ -73,17 +73,17 @@ type CloudSyncService struct {
 	mu sync.RWMutex
 
 	// Configuration
-	Provider      CloudProvider
-	UserID        string
-	Enabled       bool
-	AutoSync      bool
-	SyncInterval  time.Duration
+	Provider     CloudProvider
+	UserID       string
+	Enabled      bool
+	AutoSync     bool
+	SyncInterval time.Duration
 
 	// State
-	Status        CloudSyncStatus
-	LastSync      time.Time
-	LastError     error
-	PendingSync   bool
+	Status          CloudSyncStatus
+	LastSync        time.Time
+	LastError       error
+	PendingSync     bool
 	CurrentConflict *SyncConflict
 
 	// Callbacks
@@ -91,8 +91,8 @@ type CloudSyncService struct {
 	OnConflict     func(conflict *SyncConflict)
 
 	// Internal
-	stopChan      chan struct{}
-	syncTicker    *time.Ticker
+	stopChan   chan struct{}
+	syncTicker *time.Ticker
 }
 
 // NewCloudSyncService creates a new cloud sync service
