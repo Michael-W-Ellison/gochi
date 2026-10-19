@@ -128,6 +128,9 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	if p.isExploringLocked() {
 		return nil
 	}
+	if p.Injured {
+		return &PetRequest{"medic", "🩹", p.Name + " is hurt and needs to be healed."}
+	}
 
 	v := p.Biology.Vitals
 	switch {

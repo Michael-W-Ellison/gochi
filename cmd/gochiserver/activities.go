@@ -36,6 +36,10 @@ func writeActivityError(w http.ResponseWriter, name string, err error) {
 		message = name + " is too tired. Let it rest or give it some food first."
 	case errors.Is(err, core.ErrNeedsCare):
 		message = name + " needs food, water and energy before an adventure."
+	case errors.Is(err, core.ErrInjured):
+		message = name + " is hurt. Heal it before it goes exploring again."
+	case errors.Is(err, core.ErrNotExploring):
+		message = name + " is already home."
 	case errors.Is(err, core.ErrTrickNotKnown):
 		message = name + " hasn't learned that trick yet."
 	case errors.Is(err, core.ErrNoGame):
@@ -166,6 +170,32 @@ func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 			"text":              s.pet.Name + " sets off to explore!",
 			"exploring_seconds": gameDaysToSeconds(s.pet.ExploringRemaining()),
 		}})
+	})
+}
+
+// handleRecall handles POST /api/explore/recall - calls the pet home
+// early; it brings nothing back
+func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request) {
+	s.withActivePet(w, r, func() {
+		text, err := s.pet.RecallFromExploring()
+		if err != nil {
+			writeActivityError(w, s.pet.Name, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"text": text}})
+	})
+}
+
+// handleHideSeekQuit handles POST /api/hideseek/quit - ends a game early
+// with no gains
+func (s *Server) handleHideSeekQuit(w http.ResponseWriter, r *http.Request) {
+	s.withActivePet(w, r, func() {
+		text, err := s.pet.QuitHideAndSeek()
+		if err != nil {
+			writeActivityError(w, s.pet.Name, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"text": text}})
 	})
 }
 

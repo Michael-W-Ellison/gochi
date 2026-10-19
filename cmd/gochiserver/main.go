@@ -168,6 +168,8 @@ func main() {
 	mux.HandleFunc("/api/hideseek/start", server.handleHideSeekStart)
 	mux.HandleFunc("/api/hideseek/guess", server.handleHideSeekGuess)
 	mux.HandleFunc("/api/explore", server.handleExplore)
+	mux.HandleFunc("/api/explore/recall", server.handleRecall)
+	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -398,6 +400,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .action-btn.play { background: #6bcb77; color: white; }
         .action-btn.groom { background: #74b9ff; color: white; }
         .action-btn.drink { background: #4dabf7; color: white; }
+        .action-btn.medic { background: #ffa8a8; color: #862e2e; }
         .actions .action-btn:last-child:nth-child(odd) { grid-column: span 2; }
         .speech { position: relative; margin: 0 auto 6px; max-width: 280px; padding: 8px 14px; border-radius: 16px; background: #fff3bf; color: #5c4400; font-size: 0.95em; text-align: center; }
         .speech::after { content: ''; position: absolute; left: 50%; bottom: -8px; margin-left: -8px; border: 8px solid transparent; border-top-color: #fff3bf; border-bottom: 0; }
@@ -420,6 +423,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .explore-banner, .adventure-banner { text-align: center; margin: 10px 0; padding: 12px; border-radius: 12px; font-size: 0.9em; }
         .explore-banner { background: #e7f5ff; color: #1864ab; }
         .adventure-banner { background: #ebfbee; color: #2b8a3e; }
+        .adventure-banner.hurt { background: #fff5f5; color: #c92a2a; }
+        .adventure-banner.plain { background: #f8f9fa; color: #495057; }
+        .explore-banner button { display: block; margin: 8px auto 0; }
         .adventure-banner button { display: block; margin: 8px auto 0; }
         .about { margin-top: 16px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; font-size: 0.85em; color: #555; }
         .about div + div { margin-top: 4px; }
@@ -547,7 +553,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn" onclick="explore()">🧭 Explore</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
-            <div class="explore-banner hidden" id="exploreBanner"></div>
+            <div class="explore-banner hidden" id="exploreBanner">
+                <div id="exploreText"></div>
+                <button class="save-btn" onclick="recallPet()">Call home early</button>
+            </div>
             <div class="adventure-banner hidden" id="adventureBanner">
                 <div id="adventureText"></div>
                 <button class="save-btn" onclick="dismissAdventure()">Yay!</button>
@@ -587,6 +596,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="action-btn pet" onclick="interact('pet')">Pet</button>
                 <button class="action-btn play" onclick="interact('play')">Play</button>
                 <button class="action-btn groom" onclick="interact('groom')">Groom</button>
+                <button class="action-btn medic" onclick="interact('medic')">🩹 Heal</button>
             </div>
 
             <div class="save-row">
@@ -1259,9 +1269,31 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function closePanel() {
+            if (panelMode === 'hideseek' && lastStatus && lastStatus.hide_and_seek) quitHideSeek();
             panelMode = null;
             panel().classList.add('hidden');
             panel().replaceChildren();
+        }
+
+        // Ending a game or trip early loses anything it would have earned
+        function quitHideSeek() {
+            postJSON('/api/hideseek/quit')
+                .then(data => {
+                    if (data.success) showPointsToast(data.data.text);
+                    fetchStatus();
+                })
+                .catch(console.error);
+        }
+
+        function recallPet() {
+            const name = lastStatus ? lastStatus.name : 'your pet';
+            if (!confirm('Call ' + name + ' home now? It will come back with nothing from this trip.')) return;
+            postJSON('/api/explore/recall')
+                .then(data => {
+                    showPointsToast(data.success ? data.data.text : (data.error || 'Something went wrong'));
+                    fetchStatus();
+                })
+                .catch(console.error);
         }
 
         function openTricks() {
@@ -1317,6 +1349,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     }
                     panelMode = 'hideseek';
                     hideSpots = data.data.spots;
+                    if (lastStatus) lastStatus.hide_and_seek = true;
                     renderHideSeek(data.data.text, false);
                 })
                 .catch(console.error);
@@ -1351,6 +1384,15 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     spots.append(btn);
                 });
                 p.append(spots);
+
+                const stop = document.createElement('button');
+                stop.className = 'back-btn';
+                stop.textContent = 'Stop playing (no points)';
+                stop.onclick = closePanel;
+                const wrap = document.createElement('div');
+                wrap.style.textAlign = 'center';
+                wrap.append(stop);
+                p.append(wrap);
             }
             p.classList.remove('hidden');
         }
@@ -1364,6 +1406,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         return;
                     }
                     if (data.data.over) {
+                        if (lastStatus) lastStatus.hide_and_seek = false;
                         renderHideSeek(data.data.text, true);
                         showResult(data.data);
                         fetchStatus();
@@ -1410,7 +1453,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const busy = status.hibernating || away;
 
             const banner = document.getElementById('exploreBanner');
-            banner.textContent = away ? '🧭 ' + status.name + ' is out exploring. Back in ' + formatWait(status.exploring_seconds) + '.' : '';
+            document.getElementById('exploreText').textContent = away ?
+                '🧭 ' + status.name + ' is out exploring. Back in ' + formatWait(status.exploring_seconds) + '.' : '';
             banner.classList.toggle('hidden', !away);
 
             document.querySelectorAll('.activity-btn').forEach(b => { b.disabled = busy; });
@@ -1429,6 +1473,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         div.textContent = line;
                         text.append(div);
                     });
+                adventureBanner.classList.toggle('hurt', adventure.outcome === 'injured');
+                adventureBanner.classList.toggle('plain', adventure.outcome === 'nothing');
+                adventureBanner.querySelector('button').textContent = adventure.outcome === 'treasure' ? 'Yay!' : 'OK';
                 adventureBanner.classList.remove('hidden');
             } else {
                 adventureBanner.classList.add('hidden');

@@ -128,12 +128,71 @@ func TestExploreThroughServer(t *testing.T) {
 		server.tick(start.Add(elapsed))
 	}
 
+	// The outcome is random: only a treasure adds a souvenir
 	s := statusOf(t, server)
 	adventure, _ := s["last_adventure"].(map[string]interface{})
-	if s["exploring"] != false || adventure == nil || !strings.Contains(adventure["text"].(string), "came home from exploring") {
-		t.Errorf("Pet should be home with an adventure: exploring=%v adventure=%+v", s["exploring"], adventure)
+	if s["exploring"] != false || adventure == nil || adventure["text"] == "" {
+		t.Fatalf("Pet should be home with an adventure: exploring=%v adventure=%+v", s["exploring"], adventure)
 	}
-	if souvenirs := s["souvenirs"].([]interface{}); len(souvenirs) != 1 {
-		t.Errorf("Status should list one souvenir, got %v", souvenirs)
+	wantSouvenirs := 0
+	if adventure["outcome"] == "treasure" {
+		wantSouvenirs = 1
+	}
+	if souvenirs := s["souvenirs"].([]interface{}); len(souvenirs) != wantSouvenirs {
+		t.Errorf("Outcome %v: status lists %d souvenirs, want %d", adventure["outcome"], len(souvenirs), wantSouvenirs)
+	}
+}
+
+func TestRecallAndQuitThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := post(t, server.handleRecall, ""); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "already home") {
+		t.Errorf("Recall at home: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	post(t, server.handleExplore, "")
+	rec := post(t, server.handleRecall, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "brings nothing back") {
+		t.Errorf("Recall: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if s := statusOf(t, server); s["exploring"] != false || s["last_adventure"] != nil {
+		t.Errorf("Recalled pet should be home with no adventure: %+v", s)
+	}
+
+	if rec := post(t, server.handleHideSeekQuit, ""); rec.Code != http.StatusConflict {
+		t.Errorf("Quit without a game: status %d", rec.Code)
+	}
+	post(t, server.handleHideSeekStart, "")
+	rec = post(t, server.handleHideSeekQuit, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Maybe next time") {
+		t.Errorf("Quit: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if statusOf(t, server)["hide_and_seek"] != false {
+		t.Error("Game should be over")
+	}
+}
+
+func TestHealThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+	server.pet.Injured = true
+
+	if s := statusOf(t, server); s["request"].(map[string]interface{})["action"] != "medic" {
+		t.Errorf("Injured pet should ask to be healed: %+v", s["request"])
+	}
+	if rec := post(t, server.handleExplore, ""); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "is hurt") {
+		t.Errorf("Exploring while injured: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(t, server.handleInteract, `{"action":"medic"}`); rec.Code != http.StatusOK {
+		t.Fatalf("Heal: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if server.pet.Injured {
+		t.Error("Medical care should heal the injury")
 	}
 }

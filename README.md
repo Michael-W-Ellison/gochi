@@ -140,7 +140,7 @@ Only the active pet's time passes; pets that are not loaded wait in their save f
 
 ### Caring for Your Pet
 
-Use **Feed**, **Drink**, **Pet**, **Play** and **Groom** to look after your pet. The bars show its
+Use **Feed**, **Drink**, **Pet**, **Play**, **Groom** and **Heal** to look after your pet. The bars show its
 health, energy, happiness, hunger and water. After each action the page shows what changed, for
 example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
 
@@ -165,11 +165,20 @@ example "Energy −10% · Happiness +20% · Stress −5%". A stat that is alread
   improves the trick; harder tricks take longer, and clever pets learn faster. Once a trick is
   learned, press **Do it!** to have your pet perform it. A tired pet can't train.
 - **🙈 Hide & Seek**: your pet hides in one of four places and you get two guesses. Finding it
-  counts as play and earns a 5-point game bonus (at most once every 3 minutes).
+  counts as play and earns a 5-point game bonus (at most once every 3 minutes). Press **Stop
+  playing** (or close the panel) to end the game early; an unfinished game earns nothing.
 - **🧭 Explore**: send your pet out for about 2 minutes. It needs energy, water and food to go,
-  can't be cared for while it is away, and comes home with a souvenir for its treasure collection
-  (curious pets find rare crystals more often). Pausing time pauses the trip too. A pet that enjoys
-  exploring starts exploring on its own.
+  and can't be cared for while it is away. Pausing time pauses the trip too. Trips don't always
+  go well:
+  - a little over half the time your pet brings home a souvenir for its treasure collection (curious
+    pets find souvenirs, including rare crystals, more often);
+  - about a third of the time it finds nothing of value, though the trip is still fun;
+  - about one trip in nine it gets hurt: it loses health, comes home frightened and becomes warier
+    of exploring. An injured pet asks to be healed and can't explore again until you press
+    **Heal**. Adaptable pets get hurt less often. A badly hurt pet hibernates rather than dying.
+
+  Press **Call home early** to bring your pet back before the trip ends; it comes home with
+  nothing from the trip. A pet that enjoys exploring starts exploring on its own.
 
 ### Friendship Points and the Shop
 

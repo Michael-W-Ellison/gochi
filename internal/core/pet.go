@@ -62,6 +62,7 @@ type DigitalPet struct {
 	Souvenirs         []string           `json:"souvenirs"`
 	LastAdventure     *Adventure         `json:"last_adventure"`
 	LastGameReward    time.Time          `json:"last_game_reward"`
+	Injured           bool               `json:"injured"` // Hurt while exploring; healed by medical care
 	game              *hideAndSeek       // Game in progress (not saved)
 
 	// mu guards concurrent updates, interactions and reads of pet state
@@ -235,6 +236,9 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	p.TotalInteractions++
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
+	if interactionType == types.InteractionMedicalCare {
+		p.Injured = false
+	}
 	before := *p.Biology.Vitals
 
 	// How much the pet enjoys this, from what it has learned, its

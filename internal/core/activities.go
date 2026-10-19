@@ -3,8 +3,10 @@ package core
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 
+	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -17,6 +19,8 @@ var (
 	ErrNeedsCare     = errors.New("pet needs food, water and energy first")
 	ErrNoGame        = errors.New("no game in progress")
 	ErrInvalidSpot   = errors.New("invalid hiding spot")
+	ErrNotExploring  = errors.New("pet is not out exploring")
+	ErrInjured       = errors.New("pet is injured")
 )
 
 // randIntn picks random numbers for games and souvenirs (replaced in tests)
@@ -224,6 +228,20 @@ func (p *DigitalPet) StartHideAndSeek() error {
 	return nil
 }
 
+// QuitHideAndSeek ends a game early. The pet comes out, and the game earns
+// nothing.
+func (p *DigitalPet) QuitHideAndSeek() (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.game == nil {
+		return "", ErrNoGame
+	}
+	spot := hidingSpots[p.game.spot]
+	p.game = nil
+	return fmt.Sprintf("%s comes out from %s. Maybe next time! %s", p.Name, spot.Name, spot.Icon), nil
+}
+
 // PlayingHideAndSeek reports whether a game is in progress
 func (p *DigitalPet) PlayingHideAndSeek() bool {
 	p.mu.Lock()
@@ -294,9 +312,20 @@ var souvenirs = []Souvenir{
 	{ID: "crystal", Name: "a sparkly crystal", Icon: "💎", Rare: true},
 }
 
+// junkFinds are worthless things a pet can bring home; "" means nothing
+var junkFinds = []string{"a muddy stick", "a soggy leaf", "a pocketful of sand", ""}
+
+// Trip outcomes
+const (
+	OutcomeTreasure = "treasure" // Found a souvenir for the collection
+	OutcomeNothing  = "nothing"  // Found nothing of value
+	OutcomeInjured  = "injured"  // Got hurt
+)
+
 // Adventure records a finished exploring trip
 type Adventure struct {
-	Souvenir     Souvenir      `json:"souvenir"`
+	Outcome      string        `json:"outcome"`
+	Souvenir     *Souvenir     `json:"souvenir"` // Only for OutcomeTreasure
 	Text         string        `json:"text"`
 	ReactionText string        `json:"reaction_text"`
 	PointsEarned int           `json:"points_earned"`
@@ -322,6 +351,9 @@ func (p *DigitalPet) SendExploring() error {
 
 	if err := p.checkActiveLocked(); err != nil {
 		return err
+	}
+	if p.Injured {
+		return ErrInjured
 	}
 	v := p.Biology.Vitals
 	if v.Energy < minExploreLevel || v.Hydration < minExploreLevel || v.Nutrition < minExploreLevel {
@@ -380,23 +412,95 @@ func (p *DigitalPet) pickSouvenirLocked() Souvenir {
 	return souvenirs[0]
 }
 
-// finishExploringLocked brings the pet home with a souvenir. Caller must
+// exploreOutcomeLocked decides how a trip went. Curious pets find
+// souvenirs more often and adaptable pets get hurt less often. Caller must
 // hold p.mu.
+func (p *DigitalPet) exploreOutcomeLocked() string {
+	traits := p.Personality.Traits
+	injuryChance := min(max(int(12+(0.5-traits.Adaptability)*10), 5), 20)
+	treasureChance := min(max(int(55+(traits.Curiosity-0.5)*20), 40), 70)
+
+	roll := randIntn(100)
+	switch {
+	case roll < injuryChance:
+		return OutcomeInjured
+	case roll < injuryChance+treasureChance:
+		return OutcomeTreasure
+	default:
+		return OutcomeNothing
+	}
+}
+
+// finishExploringLocked brings the pet home. Caller must hold p.mu.
 func (p *DigitalPet) finishExploringLocked() {
 	p.ExploringUntilAge = 0
-	souvenir := p.pickSouvenirLocked()
-	p.Souvenirs = append(p.Souvenirs, souvenir.ID)
+	adventure := &Adventure{Outcome: p.exploreOutcomeLocked()}
 
-	result := p.interactLocked(types.InteractionEnvironmentalEnrichment, 1.0)
-	p.LastAdventure = &Adventure{
-		Souvenir:     souvenir,
-		Text:         fmt.Sprintf("%s came home from exploring with %s! %s", p.Name, souvenir.Name, souvenir.Icon),
-		ReactionText: result.ReactionText,
-		Reaction:     result.Reaction,
-		PointsEarned: result.PointsEarned,
-		Changes:      result.Changes,
-		ReturnedAge:  p.Biology.GetAgeInDays(),
+	switch adventure.Outcome {
+	case OutcomeInjured:
+		adventure.Text = fmt.Sprintf("%s got hurt while exploring and came home limping. 🩹 It needs to be healed.", p.Name)
+		adventure.Changes = p.injureLocked()
+		adventure.Reaction = ReactionReluctant
+	default:
+		// The trip was fun and good exercise either way
+		result := p.interactLocked(types.InteractionEnvironmentalEnrichment, 1.0)
+		adventure.ReactionText = result.ReactionText
+		adventure.Reaction = result.Reaction
+		adventure.PointsEarned = result.PointsEarned
+		adventure.Changes = result.Changes
+
+		if adventure.Outcome == OutcomeTreasure {
+			souvenir := p.pickSouvenirLocked()
+			p.Souvenirs = append(p.Souvenirs, souvenir.ID)
+			adventure.Souvenir = &souvenir
+			adventure.Text = fmt.Sprintf("%s came home from exploring with %s! %s", p.Name, souvenir.Name, souvenir.Icon)
+		} else if junk := junkFinds[randIntn(len(junkFinds))]; junk != "" {
+			adventure.Text = fmt.Sprintf("%s came home with %s. Not much of a treasure!", p.Name, junk)
+		} else {
+			adventure.Text = fmt.Sprintf("%s came home empty-handed.", p.Name)
+		}
 	}
+
+	adventure.ReturnedAge = p.Biology.GetAgeInDays()
+	p.LastAdventure = adventure
+}
+
+// injureLocked hurts the pet: it loses health and happiness, is frightened,
+// and remembers exploring as a bad experience. It returns the stat
+// changes. Caller must hold p.mu.
+func (p *DigitalPet) injureLocked() []StatChange {
+	v := p.Biology.Vitals
+	before := *v
+	v.Health -= 0.25
+	v.Happiness -= 0.15
+	v.Stress += 0.2
+	v.Energy -= 0.15
+	v.Clamp()
+
+	stimulus := ai.EmotionalStimulus{FearDelta: 0.3, SadnessDelta: 0.15, JoyDelta: -0.1, Source: "injury"}
+	p.Emotions.ApplyEmotionalStimulus(stimulus)
+	valence := stimulus.Valence()
+	p.Memory.RecordInteractionFull(types.InteractionEnvironmentalEnrichment, p.Biology.GetAgeInDays(), 1.0,
+		p.Emotions.DominantEmotion, valence, math.Abs(valence))
+
+	p.Injured = true
+	p.LastInteractionAge = p.Biology.GetAgeInDays()
+	p.updateBehavior() // Hibernates if the injury left health critical
+	return statChanges(before, *v)
+}
+
+// RecallFromExploring calls the pet home before its trip is over. It comes
+// back with nothing: no souvenir, fun, points or learning.
+func (p *DigitalPet) RecallFromExploring() (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.isExploringLocked() {
+		return "", ErrNotExploring
+	}
+	p.ExploringUntilAge = 0
+	p.updateBehavior()
+	return fmt.Sprintf("%s heads home early and brings nothing back.", p.Name), nil
 }
 
 // SouvenirCollection returns the souvenirs the pet has found, with how many

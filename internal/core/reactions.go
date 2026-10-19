@@ -116,6 +116,9 @@ func (p *DigitalPet) reactionLocked(interactionType types.InteractionType) (Reac
 	case types.InteractionMedicalCare:
 		score -= 0.1 + (traits.Neuroticism-0.5)*0.4
 		score += (0.6 - v.Health) * 0.8
+		if p.Injured {
+			score += 0.3 // Relief at being treated
+		}
 	case types.InteractionRewards:
 		score += 0.2
 	case types.InteractionTraining:
