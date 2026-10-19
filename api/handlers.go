@@ -210,7 +210,7 @@ func (h *Handler) HandleGetPets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var responses []PetResponse
+	responses := []PetResponse{}
 	for _, pet := range pets {
 		responses = append(responses, *convertPetToResponse(pet))
 	}
@@ -479,6 +479,9 @@ func (h *Handler) HandleGetNearbyPets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if nearby == nil {
+		nearby = []*NearbyPetResponse{} // An empty list, not null
+	}
 	writeSuccess(w, nearby)
 }
 
@@ -496,6 +499,9 @@ func (h *Handler) HandleGetFriends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if friends == nil {
+		friends = []*FriendResponse{} // An empty list, not null
+	}
 	writeSuccess(w, friends)
 }
 
