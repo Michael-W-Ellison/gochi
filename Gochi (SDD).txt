@@ -1,7 +1,7 @@
 Software Design Document (SDD)
 Advanced Tamagotchi Digital Pet System
-Version: 1.0
-Date: November 2025
+Version: 1.1
+Date: October 2026
 Author: System Architecture Team
 
 1. Introduction
@@ -18,6 +18,11 @@ Social networking capabilities with other digital pets
 Evolutionary mechanics allowing trait inheritance
 Machine learning-driven behavioral adaptation
 Cross-platform synchronization and cloud persistence
+
+Version 1.1 adds the player-facing game systems built on these foundations: care rewards and a
+shop (3.7), activities (3.8), requests, reactions and preferences (3.9), session and lifecycle
+management including optional hibernation (3.10), save slots and backups (4.1), a REST API (4.3),
+and the implemented environment and AR designs (5.1, 5.2).
 
 
 2. System Architecture
@@ -64,14 +69,41 @@ private:
     MemorySystem memory;
     EmotionState emotions;
     SocialRelationships relationships;
+    NeedsManager needs;                // Section 3.2.2
+    Environment environment;           // Section 5.1; each pet has its own
+    Genome genome;                     // Section 3.5.1
+    
+    // Player-facing state (sections 3.7 - 3.10)
+    int friendshipPoints;
+    vector<ItemId> inventory;
+    map<TrickId, float> trickSkill;    // 0.0 - 1.0; learned at 1.0
+    vector<Souvenir> treasures;
+    bool injured;
+    bool hibernating;
+    bool hibernationEnabled;           // Gentle mode; off by default
+    float exploringUntilAge;           // 0 when home
+    float lastBredAge;
     
 public:
-    void update(float deltaTime);
+    void update(float deltaTime);      // deltaTime in game days
+    InteractionResult interact(InteractionType type, float intensity);
     void processUserInteraction(InteractionType type, float intensity);
     void processEnvironmentalInput(EnvironmentData data);
     PetStatus getCurrentStatus();
+    PetRequest getCurrentRequest();    // Section 3.9
+    void revive();                     // Section 3.10
     void save(DataStream& stream);
     void load(DataStream& stream);
+};
+
+struct InteractionResult {
+    bool applied;                      // False if refused or unavailable
+    string refusal;                    // Why the pet turned it down
+    int pointsEarned;
+    vector<StatChange> changes;        // Shown to the player after the action
+    ItemId boostedBy;                  // Toy or brush that strengthened it
+    ReactionLevel reaction;            // Section 3.9
+    float reactionMultiplier;          // 0.6 - 1.4
 };
 3.1.2 BiologicalSystems Class
 cppclass BiologicalSystems {
@@ -96,9 +128,21 @@ cppclass BiologicalSystems {
     void processMetabolism(float deltaTime);
     void processDigestion(FoodItem food);
     void processExercise(ExerciseType type, float duration);
-    void processRest(float sleepQuality);
+    void processRest(float deltaTime, float sleepQuality);
     float calculateLifespan();
+    void checkDeathConditions();
 };
+
+Rest: while the pet sleeps, fatigue falls by 0.5 x quality and energy rises by 0.15 x quality
+per game day. Sleep quality comes from the pet's surroundings (section 5.1) and is multiplied
+by 1.25 with a bed. A pet falls asleep when very tired and wakes only once fatigue is at or below
+0.2 and energy at or above 0.5, so it does not wake and fall asleep repeatedly.
+
+Decay multipliers: the rates at which hunger, thirst, fatigue and energy drain change are
+multiplied by the pet's items (section 3.7) and its environment (section 5.1).
+
+Death: a pet dies when health or hydration reaches 0.0, or nutrition and energy both do. The
+cause of death is recorded and shown to the player. See section 3.10 for hibernation.
 3.1.3 PersonalityMatrix Class
 cppclass PersonalityMatrix {
     struct Traits {
@@ -127,14 +171,22 @@ cppclass TimeManager {
         REAL_TIME,          // 1:1 with real time
         ACCELERATED_4X,     // 1 day = 6 hours real time
         ACCELERATED_24X,    // 1 day = 1 hour real time
+        GAME,               // 1 day = 1 minute real time (default)
         PAUSED
     };
     
     float getDeltaTime();
+    float updateAt(DateTime now);       // Game seconds since the last update
+    void setPaused(bool paused, DateTime now);
     void setTimeScale(TimeScale scale);
     DateTime getSimulationTime();
     float getAgeInDays();
 };
+
+The server keeps one clock, chosen at startup (-time-scale game, 24x, 4x or realtime). Each
+update advances only the active pet, by the clock's game time converted to game days. While the
+game is paused (section 3.10) the clock records the time but advances nothing, so no game time
+passes and nothing is made up later.
 3.2.2 Needs Management System
 cppclass NeedsManager {
     struct Need {
@@ -156,13 +208,21 @@ cppclass NeedsManager {
     float getOverallWellbeing();
     vector<NeedType> getCriticalNeeds();
 };
+
+Physical needs (hunger, thirst, sleep, cleanliness, medical care) are copied from the vital
+stats. Psychological needs (exercise, social, mental stimulation, affection, exploration) decay
+over time and are met by matching care: play (including hide and seek) meets exercise and mental
+stimulation; petting meets affection and social; grooming and treats meet affection; training
+meets mental stimulation and social; exploring meets exploration and exercise; walks (section
+5.2) meet exercise. A low psychological need produces a pet request (section 3.9); each need at
+its critical level lowers happiness by 0.02 per game day.
 3.3 AI Behavior System
 3.3.1 Behavior State Machine
 cppclass BehaviorStateMachine {
     enum BehaviorState {
         IDLE, SLEEPING, EATING, PLAYING, EXPLORING,
         SOCIAL_INTERACTION, GROOMING, EXERCISING,
-        SICK, DISTRESSED, HAPPY, EXCITED
+        SICK, DISTRESSED, HAPPY, EXCITED, HIBERNATING
     };
     
     struct StateTransition {
@@ -177,6 +237,9 @@ cppclass BehaviorStateMachine {
     BehaviorState getCurrentState();
     void forceState(BehaviorState newState);
 };
+
+The state shown to the player as an activity line (for example "Biscuit is playing") is chosen
+from the pet's personality and from what it has learned it enjoys (section 3.3.2).
 3.3.2 Learning System
 cppclass LearningSystem {
     struct ExperienceRecord {
@@ -192,6 +255,22 @@ cppclass LearningSystem {
     void updateBehaviorWeights();
     PersonalityAdjustment getPersonalityShift();
 };
+
+struct InteractionPreference {          // One per interaction type
+    float affinity;                     // Learned like (+) or dislike (-), -1.0 to 1.0
+    int experience;                     // Interactions learned from
+};
+
+Each interaction updates the preference for its type. Early interactions are averaged equally;
+once established, each new interaction moves the preference by at least 2%, so a loved pet's
+behavior stays consistent unless the way it is treated changes over time. A preference has half
+of its full influence on behavior after 10 interactions. Preferences do not decay; they are shown
+to the player as likes (affinity >= 0.25) and dislikes (affinity <= -0.15).
+
+Memories: the long-term store holds up to 5,000 memories. Long-term memories fade at a rate
+scaled by importance; at the default time scale a full-strength memory lasts about 17 hours
+(trivial), 2 weeks (minor), 4 weeks (moderate), 8 weeks (significant) or 6 months (major) of real
+time, and formative memories do not fade.
 3.4 User Interaction System
 3.4.1 Interaction Types
 cppenum class InteractionType {
@@ -204,7 +283,8 @@ cppenum class InteractionType {
     ENVIRONMENTAL_ENRICHMENT,
     SOCIAL_INTRODUCTION,
     DISCIPLINE,
-    REWARDS
+    REWARDS,
+    DRINKING
 };
 
 class InteractionProcessor {
@@ -213,7 +293,18 @@ class InteractionProcessor {
     void processPlay(ToyType toy, float enthusiasm);
     void processTraining(SkillType skill, TrainingMethod method);
     void processEnvironmentChange(EnvironmentModification change);
+    ValidationResult validateInteraction(InteractionType type, InteractionContext context);
+    string getInteractionDescription(InteractionType type);
 };
+
+Validation: before care is applied, it is checked against the pet's state. A full pet is not
+hungry, a clean pet does not need grooming, a very tired pet will not play, a stressed or tired
+pet will not train, and a sleeping pet accepts only food, water and medical care. Refused care
+changes nothing, earns no points and returns the reason (for example "Biscuit is not hungry.").
+The description of each interaction is shown as the tip of its care button.
+
+The player's care actions are Feed, Drink, Pet, Play, Groom, Heal (medical care) and Treat
+(rewards); training and exploring are activities (section 3.8).
 3.5 Evolutionary System
 3.5.1 Genetics and Reproduction
 cppclass GeneticSystem {
@@ -235,6 +326,16 @@ cppclass GeneticSystem {
     float calculateCompatibility(DigitalPet pet1, DigitalPet pet2);
     DigitalPet createOffspring(DigitalPet parent1, DigitalPet parent2);
 };
+
+Each pet has a genome whose personality genes match its personality traits (using the allele
+values, so traits do not drift lower with each generation). The player breeds the active pet with
+another saved pet. Both must be at least 7 game days old, have health of at least 0.6 and
+happiness of at least 0.5, be at least 0.3 compatible, and be neither hibernating, exploring nor
+dead; breeding can still fail by chance, more often for less compatible pairs. The baby's genome
+is a crossover of its parents' with mutation, its personality is inherited from both parents
+(mutation rate 0.05) with the genetically based traits taken from its genome, and it is saved in
+its own slot. Parents, mate and offspring relationships are recorded, the baby's generation is one
+more than its parents', and each parent waits 3 game days before breeding again.
 3.6 Social System
 3.6.1 Multi-Pet Interactions
 cppclass SocialSystem {
@@ -252,6 +353,119 @@ cppclass SocialSystem {
     float calculateGroupHappiness();
     void handleConflict(DigitalPet& pet1, DigitalPet& pet2);
 };
+3.7 Care Rewards and Shop
+3.7.1 Friendship Points
+cppclass CareRewards {
+    const int POINTS_PER_CARE = 5;
+    const Duration REWARD_COOLDOWN = 3 minutes;   // Real time, per kind of care
+    map<InteractionType, DateTime> lastReward;
+    
+    int awardCare(InteractionType type);           // 0 during the cooldown
+};
+
+Each kind of care, including training and exploring, earns 5 Friendship Points at most once per
+cooldown; further care still helps the pet but earns nothing extra. Points belong to the pet that
+earned them.
+3.7.2 Shop
+cppstruct ShopItem {
+    ItemId id;
+    ItemCategory category;   // FOOD_BOWL, WATER_BOWL, TOY, BED, BRUSH, DECORATION
+    int price;
+    float effect;            // Decay multiplier (bowls, bed) or effectiveness multiplier (toys, brush)
+};
+
+Item                      Price   Effect
+Sturdy Food Bowl          100     Hunger builds 20% slower
+Automatic Feeder          250     Hunger builds 40% slower
+Big Water Bowl            100     Thirst builds 20% slower
+Water Fountain            250     Thirst builds 40% slower
+Squeaky Toy               80      Playing is 25% more fun
+Puzzle Ball               200     Playing is 50% more fun
+Cozy Bed                  150     Tiredness builds 25% slower; sleep is 25% more restful
+Soft Brush                80      Grooming is 50% more effective
+Decorations (5)           30-120  Cosmetic only
+
+Items apply automatically once bought. Within a category only the strongest owned item applies.
+Toys make play more fun without making it more tiring.
+
+3.8 Activities
+3.8.1 Tricks
+cppclass TrickTraining {
+    enum Trick { SIT, SHAKE_A_PAW, SPIN, ROLL_OVER, PLAY_DEAD };   // Difficulty 1 - 5
+    
+    float train(Trick trick);      // Returns progress; learned at 1.0
+    string perform(Trick trick);   // Only learned tricks
+};
+
+Each session improves a trick by an amount that is larger for intelligent pets and pets that like
+training and smaller for harder tricks. Training needs energy of at least 0.25 and is subject to
+interaction validation (section 3.4.1).
+3.8.2 Hide and Seek
+The pet hides in one of four places and the player has two guesses. Finding it counts as play
+and earns a 5-point game bonus at most once per reward cooldown. The player can stop the game at
+any time; an unfinished game earns nothing.
+3.8.3 Exploring
+cppclass Exploring {
+    const float TRIP_LENGTH = 2.0;       // Game days
+    const float MIN_LEVEL = 0.4;         // Energy, water and food needed to set out
+    
+    enum Outcome { TREASURE, NOTHING, INJURED };
+    
+    void sendExploring();
+    void callHomeEarly();                // Returns with nothing from the trip
+    Outcome finishTrip();
+};
+
+Outcome chances: injury 12% (5 - 20%, lower for adaptable pets), treasure 55% (40 - 70%, higher
+for curious pets), otherwise nothing of value. Unsafe weather adds 10 points to the injury
+chance; night adds 5 and multiplies the treasure chance by 0.6. Treasures are souvenirs for the
+pet's collection, including a rare crystal found more often by curious pets. An injury costs
+health 0.25, happiness 0.15 and energy 0.15, adds stress 0.2 and fear, and is remembered, making
+the pet warier of exploring. An injured pet asks to be healed and cannot explore until it is.
+A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
+cared for while away, and a pet that enjoys exploring may set out on its own.
+
+3.9 Requests, Reactions and Preferences
+cppstruct PetRequest {
+    string action;      // Care that fulfils it: feed, drink, groom, pet, play, medic, train, explore, revive
+    string message;     // Shown in a speech bubble
+};
+
+enum ReactionLevel { DELIGHTED, HAPPY, OKAY, RELUCTANT };
+
+Requests are chosen most urgent first: revive (hibernating), heal (injured), water, food or
+grooming when below 0.35, attention (play or petting, whichever the pet likes best) when it has
+been alone for 3 game days or its affection or social need is low, then play, training or
+exploring for low exercise, mental stimulation or exploration needs. The matching button is
+highlighted.
+
+Reactions: before care is applied, a reaction score is computed from the learned preference
+(section 3.3.2), personality and current state (for example, hunger for feeding, loneliness and
+affection for petting, energy and playfulness for play). The score selects a reaction level and
+text, and scales the care's benefits by 0.6 to 1.4.
+
+3.10 Session and Lifecycle Management
+3.10.1 Pausing
+Time passes only while the player is playing. Time stops when the player presses Pause, when the
+player has not used the page for the away-pause period (2 minutes by default), and while the
+program is not running. Only the active pet's time passes; other pets wait in their save files.
+3.10.2 Hibernation (Gentle Mode)
+cppclass Hibernation {
+    const float CRITICAL_LEVEL = 0.1;
+    const float REVIVE_LEVEL = 0.5;
+    
+    bool shouldHibernate();   // hibernationEnabled && (health <= 0.1 || hydration <= 0.1 ||
+                              //   (nutrition <= 0.1 && energy <= 0.1))
+    void revive();            // Restores health, hydration, nutrition and energy to >= 0.5
+};
+
+Hibernation is an option the player selects per pet, when creating it or later; it is off by
+default, so a neglected pet dies (section 3.1.2). In gentle mode a pet reaching a critical level
+hibernates instead: its stats, age and mood stay as they are and it does not respond to care
+until the player revives it. Turning gentle mode off does not wake a hibernating pet.
+3.10.3 Deleting Pets
+Deleting a pet asks twice: first to confirm, then to type that pet's name exactly. Deletion
+removes the pet's save and all of its backups.
 
 4. Data Management
 4.1 Persistence Layer
@@ -270,6 +484,12 @@ cppclass DataManager {
     SaveData loadFromCloud();
     void synchronize();
 };
+
+Save slots: each pet has its own save file, and the player can create, switch between and delete
+pets. The active pet is saved automatically (every minute by default), when the player presses
+Save, when switching or creating pets, and when the program exits. The previous five saves of
+each pet are kept as backups. On startup the most recently saved pet is restored; a damaged save
+is replaced by its newest working backup.
 4.2 Cloud Integration
 cppclass CloudService {
     void uploadPetData(string userId, DigitalPet pet);
@@ -278,6 +498,17 @@ cppclass CloudService {
     vector<DigitalPet> getNearbyPets(Location userLocation);
     void shareAchievement(Achievement achievement);
 };
+4.3 REST API
+cppclass RestAPI {   // /api/v1, enabled with -api-token; Bearer token required
+    GET    /pets;  POST /pets;  GET /pets/{id};  PUT /pets/{id};  GET /pets/{id}/status;
+    POST   /pets/{id}/interactions;  POST /pets/{id}/interactions/feed;  .../play;
+    GET    /social/friends;
+};
+
+The API works on copies of the saved pets and follows the game's rules: refused care returns
+status 409 with the reason, and pets cannot be deleted through it (deletion needs the
+confirmations in section 3.10.3). Social features that need other players and cloud sync are not
+available without a cloud service.
 
 5. Advanced Features
 5.1 Environmental Simulation
@@ -286,11 +517,25 @@ Weather System: Affects pet mood, energy, and activity preferences
 Seasonal Changes: Breeding cycles, food availability, behavior patterns
 Location-Based Features: Different environments offer unique challenges and opportunities
 
+Implementation: each pet has its own environment with weather, temperature, season and time of
+day, which advance with that pet's game time (and so pause with it); weather changes are timed in
+game hours. The environment multiplies the rates at which hunger, thirst and energy change,
+nudges mood and stress, sets sleep quality (section 3.1.2) and changes exploring outcomes
+(section 3.8.3). The page shows the surroundings under the pet's name.
+
 5.2 Augmented Reality Integration
 
 Real-World Interaction: Use device camera to place pet in real environments
 Exercise Tracking: Encourage physical activity that benefits both user and pet
 Social AR: Virtual pet playdates in shared physical spaces
+
+Implementation: the server keeps the AR scene; an AR client (camera, plane detection, WebXR or
+a phone app) reports what it sees through /api/ar endpoints: session control, detected surfaces,
+camera pose and light estimates. The active pet is placed on a surface and its animation follows
+its behavior. Gestures on the pet are care: tap = petting, double tap = play, long press =
+feeding, swipe = throwing a ball (play), subject to the same validation as the care buttons.
+Exercise tracking records the player's walk; every 500 m counts towards the pet's exercise need
+as one play session (at most two per walk). A client using these endpoints is not yet built.
 
 5.3 Machine Learning Adaptation
 
