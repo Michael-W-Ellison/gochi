@@ -637,3 +637,30 @@ func TestInteractionEffectsThroughServer(t *testing.T) {
 		t.Errorf("Status should list the active effect: %s", statusRec.Body.String())
 	}
 }
+
+func TestStatusShowsPersonalityAndPreferences(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false); err != nil {
+		t.Fatal(err)
+	}
+
+	statusBody := func() string {
+		rec := httptest.NewRecorder()
+		server.handleStatus(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+		return rec.Body.String()
+	}
+
+	body := statusBody()
+	for _, want := range []string{`"personality":"Biscuit is well-balanced."`, `"likes":[]`, `"dislikes":[]`, `"activity":"is relaxing"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Status missing %s: %s", want, body)
+		}
+	}
+
+	for i := 0; i < 10; i++ {
+		server.pet.ProcessUserInteraction(types.InteractionPetting, 1.0)
+	}
+	if body := statusBody(); !strings.Contains(body, `"likes":["being petted"]`) {
+		t.Errorf("Status should list the learned like: %s", body)
+	}
+}

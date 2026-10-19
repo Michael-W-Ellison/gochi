@@ -51,23 +51,25 @@ type APIResponse struct {
 
 // PetStatus represents the pet's current state for the frontend
 type PetStatus struct {
-	Name        string  `json:"name"`
-	Age         float64 `json:"age"`
-	IsAlive     bool    `json:"is_alive"`
-	Behavior    string  `json:"behavior"`
-	Activity    string  `json:"activity"` // What the pet is doing, e.g. "is playing"
-	Mood        string  `json:"mood"`
-	Health      float64 `json:"health"`
-	Energy      float64 `json:"energy"`
-	Happiness   float64 `json:"happiness"`
-	Hunger      float64 `json:"hunger"`
-	Water       float64 `json:"water"`
-	Wellbeing   float64 `json:"wellbeing"`
-	Personality string  `json:"personality"`
-	Slot        string  `json:"slot"`
-	Hibernating bool    `json:"hibernating"`
-	Paused      bool    `json:"paused"`
-	PauseReason string  `json:"pause_reason,omitempty"`
+	Name        string   `json:"name"`
+	Age         float64  `json:"age"`
+	IsAlive     bool     `json:"is_alive"`
+	Behavior    string   `json:"behavior"`
+	Activity    string   `json:"activity"` // What the pet is doing, e.g. "is playing"
+	Mood        string   `json:"mood"`
+	Health      float64  `json:"health"`
+	Energy      float64  `json:"energy"`
+	Happiness   float64  `json:"happiness"`
+	Hunger      float64  `json:"hunger"`
+	Water       float64  `json:"water"`
+	Wellbeing   float64  `json:"wellbeing"`
+	Personality string   `json:"personality"`
+	Likes       []string `json:"likes"`
+	Dislikes    []string `json:"dislikes"`
+	Slot        string   `json:"slot"`
+	Hibernating bool     `json:"hibernating"`
+	Paused      bool     `json:"paused"`
+	PauseReason string   `json:"pause_reason,omitempty"`
 
 	FriendshipPoints int             `json:"friendship_points"`
 	Items            []core.ShopItem `json:"items"`   // Owned items
@@ -384,6 +386,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .action-btn.groom { background: #74b9ff; color: white; }
         .action-btn.drink { background: #4dabf7; color: white; }
         .actions .action-btn:last-child:nth-child(odd) { grid-column: span 2; }
+        .about { margin-top: 16px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; font-size: 0.85em; color: #555; }
+        .about div + div { margin-top: 4px; }
+        .about-label { font-weight: 600; color: #333; }
         .activity { text-align: center; color: #555; font-size: 1.05em; margin-top: -8px; margin-bottom: 4px; }
         .friendship { text-align: center; color: #d6336c; font-weight: 600; margin-top: -12px; margin-bottom: 6px; }
         .belongings { text-align: center; font-size: 1.6em; min-height: 1.2em; letter-spacing: 4px; }
@@ -544,6 +549,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
+            </div>
+
+            <div class="about" id="about">
+                <div id="aboutPersonality"></div>
+                <div id="aboutLikes"></div>
+                <div id="aboutDislikes"></div>
             </div>
 
             <div class="status-text" id="statusText">Age: 0 days | Wellbeing: 100%</div>
@@ -1003,6 +1014,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         function updateUI(status) {
             document.getElementById('petName').textContent = status.name;
+            document.getElementById('aboutPersonality').textContent = status.personality;
+            const setList = (id, label, items, none) => {
+                const el = document.getElementById(id);
+                el.replaceChildren();
+                const strong = document.createElement('span');
+                strong.className = 'about-label';
+                strong.textContent = label + ': ';
+                el.append(strong, items.length ? items.join(', ') : none);
+            };
+            setList('aboutLikes', 'Likes', status.likes || [], 'nothing yet');
+            setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
             document.getElementById('activity').textContent =
                 status.is_alive ? status.name + ' ' + status.activity : status.name + ' has passed away';
             document.getElementById('healthBar').style.width = (status.health * 100) + '%';
@@ -1620,7 +1642,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Hunger:      1.0 - s.pet.Biology.Vitals.Nutrition,
 		Water:       s.pet.Biology.Vitals.Hydration,
 		Wellbeing:   status.Wellbeing,
-		Personality: s.pet.GetPersonalityDescription(),
+		Personality: s.pet.PersonalityDescription(),
 		Slot:        s.slot,
 		Hibernating: status.Hibernating,
 
@@ -1630,6 +1652,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if petStatus.Items == nil {
 		petStatus.Items = []core.ShopItem{}
+	}
+	petStatus.Likes, petStatus.Dislikes = s.pet.LikesAndDislikes()
+	if petStatus.Likes == nil {
+		petStatus.Likes = []string{}
+	}
+	if petStatus.Dislikes == nil {
+		petStatus.Dislikes = []string{}
 	}
 	petStatus.PauseReason = s.pauseReasonLocked(now)
 	petStatus.Paused = petStatus.PauseReason != ""
