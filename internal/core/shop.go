@@ -301,13 +301,16 @@ func (p *DigitalPet) bestItemLocked(category ItemCategory, lower bool) (ShopItem
 	return best, found
 }
 
-// decayMultipliersLocked returns how the pet's belongings slow its needs.
+// decayMultipliersLocked returns how the pet's belongings and surroundings
+// change how fast its needs build up.
 // Caller must hold p.mu.
 func (p *DigitalPet) decayMultipliersLocked() biology.DecayMultipliers {
+	hunger, thirst, energy := p.environmentRatesLocked()
 	return biology.DecayMultipliers{
-		Nutrition: p.bestEffectLocked(CategoryFoodBowl, true),
-		Hydration: p.bestEffectLocked(CategoryWaterBowl, true),
+		Nutrition: p.bestEffectLocked(CategoryFoodBowl, true) * hunger,
+		Hydration: p.bestEffectLocked(CategoryWaterBowl, true) * thirst,
 		Fatigue:   p.bestEffectLocked(CategoryBed, true),
+		Energy:    energy,
 	}
 }
 

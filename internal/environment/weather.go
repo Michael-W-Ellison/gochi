@@ -47,6 +47,7 @@ type WeatherSystem struct {
 	TransitionTarget *WeatherConditions `json:"transition_target,omitempty"`
 	TransitionRate   float64           `json:"transition_rate"`
 	LastUpdate       time.Time         `json:"last_update"`
+	HoursSinceCheck  float64           `json:"hours_since_check"` // Game hours since the last chance to change
 
 	// Configuration
 	BaseTemperature  float64 `json:"base_temperature"`
@@ -84,12 +85,14 @@ func NewWeatherSystemWithConfig(baseTemp, tempRange, changeFreq float64) *Weathe
 
 // Update advances the weather simulation
 func (ws *WeatherSystem) Update(deltaTime float64, season Season, timeOfDay float64) {
-	// Check if we should start a weather transition
-	hoursSinceUpdate := time.Since(ws.LastUpdate).Hours()
-	if ws.TransitionTarget == nil && hoursSinceUpdate >= ws.ChangeFrequency {
+	// Check if we should start a weather transition, counting game hours
+	// so weather changes at the game's pace rather than the real clock's
+	ws.HoursSinceCheck += deltaTime
+	if ws.TransitionTarget == nil && ws.HoursSinceCheck >= ws.ChangeFrequency {
 		if rand.Float64() < 0.3 { // 30% chance to change weather
 			ws.startWeatherTransition(season)
 		}
+		ws.HoursSinceCheck = 0
 		ws.LastUpdate = time.Now()
 	}
 

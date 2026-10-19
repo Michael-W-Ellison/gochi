@@ -144,6 +144,12 @@ Only the active pet's time passes; pets that are not loaded wait in their save f
 Use **Feed**, **Drink**, **Pet**, **Play**, **Groom** and **Heal** to look after your pet. The bars show its
 health, energy, happiness, hunger and water.
 
+Under its name, the page shows your pet's surroundings: the weather, temperature, season and time
+of day. Each pet has its own weather and seasons, which move on with its own time (so they pause
+when the game is paused). Hot or stormy weather and the seasons change how quickly your pet gets
+hungry, thirsty and tired and can lift or lower its mood. Exploring in storms or extreme
+temperatures is riskier, and trips at night find fewer souvenirs.
+
 Below the bars, five smaller bars show needs that build up over time: **Exercise** (met by play,
 hide and seek and exploring), **Company** and **Affection** (petting, grooming, treats and
 training), **Learning** (training and play) and **Adventure** (exploring). A pet asks for help when

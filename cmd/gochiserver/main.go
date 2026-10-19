@@ -59,29 +59,30 @@ type PetStatus struct {
 	Activity string           `json:"activity"` // What the pet is doing, e.g. "is playing"
 	Request  *core.PetRequest `json:"request"`  // What the pet is asking for, or null
 
-	Tricks           []core.TrickProgress `json:"tricks"`
-	Exploring        bool                 `json:"exploring"`
-	ExploringSeconds int                  `json:"exploring_seconds"` // Real seconds until home
-	HideAndSeek      bool                 `json:"hide_and_seek"`     // A game is in progress
-	Souvenirs        []core.SouvenirCount `json:"souvenirs"`
-	Needs            []core.NeedLevel     `json:"needs"`          // Needs not shown as stat bars
-	LastAdventure    *core.Adventure      `json:"last_adventure"` // Most recent trip, if it ended recently
-	Mood             string               `json:"mood"`
-	Health           float64              `json:"health"`
-	Energy           float64              `json:"energy"`
-	Happiness        float64              `json:"happiness"`
-	Hunger           float64              `json:"hunger"`
-	Water            float64              `json:"water"`
-	Wellbeing        float64              `json:"wellbeing"`
-	Personality      string               `json:"personality"`
-	Likes            []string             `json:"likes"`
-	Dislikes         []string             `json:"dislikes"`
-	Slot             string               `json:"slot"`
-	Hibernating      bool                 `json:"hibernating"`
-	HibernationOn    bool                 `json:"hibernation_enabled"` // Hibernate instead of dying
-	CauseOfDeath     string               `json:"cause_of_death,omitempty"`
-	Paused           bool                 `json:"paused"`
-	PauseReason      string               `json:"pause_reason,omitempty"`
+	Tricks           []core.TrickProgress   `json:"tricks"`
+	Exploring        bool                   `json:"exploring"`
+	ExploringSeconds int                    `json:"exploring_seconds"` // Real seconds until home
+	HideAndSeek      bool                   `json:"hide_and_seek"`     // A game is in progress
+	Souvenirs        []core.SouvenirCount   `json:"souvenirs"`
+	Needs            []core.NeedLevel       `json:"needs"` // Needs not shown as stat bars
+	Environment      core.EnvironmentStatus `json:"environment"`
+	LastAdventure    *core.Adventure        `json:"last_adventure"` // Most recent trip, if it ended recently
+	Mood             string                 `json:"mood"`
+	Health           float64                `json:"health"`
+	Energy           float64                `json:"energy"`
+	Happiness        float64                `json:"happiness"`
+	Hunger           float64                `json:"hunger"`
+	Water            float64                `json:"water"`
+	Wellbeing        float64                `json:"wellbeing"`
+	Personality      string                 `json:"personality"`
+	Likes            []string               `json:"likes"`
+	Dislikes         []string               `json:"dislikes"`
+	Slot             string                 `json:"slot"`
+	Hibernating      bool                   `json:"hibernating"`
+	HibernationOn    bool                   `json:"hibernation_enabled"` // Hibernate instead of dying
+	CauseOfDeath     string                 `json:"cause_of_death,omitempty"`
+	Paused           bool                   `json:"paused"`
+	PauseReason      string                 `json:"pause_reason,omitempty"`
 
 	FriendshipPoints int             `json:"friendship_points"`
 	Items            []core.ShopItem `json:"items"`   // Owned items
@@ -459,6 +460,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .about { margin-top: 16px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; font-size: 0.85em; color: #555; }
         .about div + div { margin-top: 4px; }
         .about-label { font-weight: 600; color: #333; }
+        .environment { text-align: center; color: #777; font-size: 0.85em; margin-bottom: 4px; }
         .activity { text-align: center; color: #555; font-size: 1.05em; margin-top: -8px; margin-bottom: 4px; }
         .friendship { text-align: center; color: #d6336c; font-weight: 600; margin-top: -12px; margin-bottom: 6px; }
         .belongings { text-align: center; font-size: 1.6em; min-height: 1.2em; letter-spacing: 4px; }
@@ -578,6 +580,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="speech hidden" id="speech"></div>
             <div class="pet-display" id="petSprite">🐱</div>
             <div class="activity" id="activity"></div>
+            <div class="environment" id="environment"></div>
             <div class="mood" id="mood">Mood: Happy</div>
             <div class="pause-banner hidden" id="pauseBanner"></div>
             <div class="activities">
@@ -1137,6 +1140,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('backBtn').textContent = backLabel;
             document.getElementById('shopBackBtn').textContent = backLabel;
             document.getElementById('shopTitle').textContent = 'Shop for ' + status.name;
+
+            const env = status.environment;
+            document.getElementById('environment').textContent = env ?
+                env.icon + ' ' + env.weather + ', ' + env.temperature + '°C · ' + env.season + ' ' + env.day_phase.toLowerCase() +
+                (env.outdoor_safe ? '' : ' · risky for exploring') : '';
 
             document.getElementById('aboutPersonality').textContent = status.personality;
             const setList = (id, label, items, none) => {
@@ -2103,6 +2111,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		petStatus.Items = []core.ShopItem{}
 	}
 	petStatus.Needs = s.pet.PsychologicalNeeds()
+	petStatus.Environment = s.pet.EnvironmentStatus()
 	petStatus.HibernationOn = s.pet.HibernationEnabled
 	petStatus.CauseOfDeath = s.pet.Biology.CauseOfDeath
 	petStatus.Tricks = s.pet.Tricks()

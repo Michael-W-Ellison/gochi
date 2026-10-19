@@ -416,12 +416,17 @@ func (p *DigitalPet) pickSouvenirLocked() Souvenir {
 }
 
 // exploreOutcomeLocked decides how a trip went. Curious pets find
-// souvenirs more often and adaptable pets get hurt less often. Caller must
-// hold p.mu.
+// souvenirs more often and adaptable pets get hurt less often; bad weather
+// and night make trips riskier and less rewarding. Caller must hold p.mu.
 func (p *DigitalPet) exploreOutcomeLocked() string {
 	traits := p.Personality.Traits
 	injuryChance := min(max(int(12+(0.5-traits.Adaptability)*10), 5), 20)
 	treasureChance := min(max(int(55+(traits.Curiosity-0.5)*20), 40), 70)
+
+	// Storms, extreme temperatures and darkness make trips worse
+	extraInjury, treasureFactor := p.explorationConditionsLocked()
+	injuryChance += extraInjury
+	treasureChance = int(float64(treasureChance) * treasureFactor)
 
 	roll := randIntn(100)
 	switch {

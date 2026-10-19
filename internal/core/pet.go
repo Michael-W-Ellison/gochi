@@ -10,6 +10,7 @@ import (
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/internal/biology"
+	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/internal/social"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -28,6 +29,7 @@ type DigitalPet struct {
 	Emotions      *ai.EmotionState             `json:"emotions"`
 	Relationships *social.SocialRelationships  `json:"relationships"`
 	Needs         *simulation.NeedsManager     `json:"needs"`
+	Environment   *environment.Environment     `json:"environment"`
 
 	// Current State
 	CurrentBehavior types.BehaviorState `json:"current_behavior"`
@@ -88,6 +90,7 @@ func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 		Emotions:        ai.NewEmotionState(),
 		Relationships:   social.NewSocialRelationships(20),
 		Needs:           simulation.NewNeedsManager(),
+		Environment:     environment.NewEnvironment(),
 		CurrentBehavior: types.BehaviorIdle,
 		Location:        "home",
 		CreatedAt:       now,
@@ -162,8 +165,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		return
 	}
 
-	// Needs build up over time
+	// Needs build up over time, and the weather and season affect the pet
 	p.updateNeedsLocked(deltaTime)
+	p.updateEnvironmentLocked(deltaTime)
 
 	// Come home from exploring once the trip's time has passed
 	if p.isExploringLocked() && p.Biology.GetAgeInDays() >= p.ExploringUntilAge {

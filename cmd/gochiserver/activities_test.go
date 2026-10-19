@@ -310,3 +310,14 @@ func TestStatusShowsNeeds(t *testing.T) {
 		t.Errorf("Status should list five needs: %v", needs)
 	}
 }
+
+func TestStatusShowsEnvironment(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false, false); err != nil {
+		t.Fatal(err)
+	}
+	env, ok := statusOf(t, server)["environment"].(map[string]interface{})
+	if !ok || env["weather"] == "" || env["season"] == "" || env["day_phase"] == "" {
+		t.Errorf("Status should describe the environment: %v", env)
+	}
+}

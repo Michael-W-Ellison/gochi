@@ -142,6 +142,7 @@ type DecayMultipliers struct {
 	Nutrition float64
 	Hydration float64
 	Fatigue   float64
+	Energy    float64
 }
 
 // rate returns the multiplier to apply, treating 0 as the normal rate
@@ -212,7 +213,7 @@ func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	// Natural decay rates (per game day)
 	b.Vitals.Hydration -= deltaTime * 0.05 * rate(b.DecayMultipliers.Hydration)
 	b.Vitals.Nutrition -= deltaTime * 0.03 * rate(b.DecayMultipliers.Nutrition)
-	b.Vitals.Energy -= deltaTime * 0.02
+	b.Vitals.Energy -= deltaTime * 0.02 * rate(b.DecayMultipliers.Energy)
 
 	// Fatigue builds up over time awake
 	b.Vitals.Fatigue += deltaTime * 0.01 * rate(b.DecayMultipliers.Fatigue)

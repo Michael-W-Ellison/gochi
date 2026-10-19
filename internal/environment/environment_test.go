@@ -2,6 +2,7 @@ package environment
 
 import (
 	"testing"
+	"time"
 )
 
 // Weather tests
@@ -615,5 +616,20 @@ func TestClamp(t *testing.T) {
 			t.Errorf("clamp(%f, %f, %f) = %f, expected %f",
 				test.value, test.min, test.max, result, test.expected)
 		}
+	}
+}
+
+func TestWeatherChangesWithGameTime(t *testing.T) {
+	ws := NewWeatherSystem()
+	ws.LastUpdate = time.Now() // The real clock has not moved
+
+	// Many game days pass in a single real moment
+	changed := false
+	for i := 0; i < 200 && !changed; i++ {
+		ws.Update(24, SeasonSpring, 12)
+		changed = ws.TransitionTarget != nil || ws.Current.Type != WeatherClear
+	}
+	if !changed {
+		t.Error("Weather should change as game time passes, regardless of the real clock")
 	}
 }
