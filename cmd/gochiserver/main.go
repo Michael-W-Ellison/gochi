@@ -96,6 +96,7 @@ type PetStatus struct {
 	Water            float64                `json:"water"`
 	Wellbeing        float64                `json:"wellbeing"`
 	Personality      string                 `json:"personality"`
+	Changes          []string               `json:"personality_changes"` // How its personality has changed
 	Likes            []string               `json:"likes"`
 	Dislikes         []string               `json:"dislikes"`
 	Slot             string                 `json:"slot"`
@@ -809,6 +810,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutPersonality"></div>
                 <div id="aboutLikes"></div>
                 <div id="aboutDislikes"></div>
+                <div id="aboutChanges"></div>
                 <div id="aboutTreasures"></div>
                 <div id="aboutGeneration"></div>
             </div>
@@ -1328,6 +1330,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             };
             setList('aboutLikes', 'Likes', status.likes || [], 'nothing yet');
             setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
+            setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
             document.getElementById('activity').textContent =
                 status.is_alive ? status.name + ' ' + status.activity :
                 status.name + ' has passed away' + (status.cause_of_death ? ' (' + status.cause_of_death.toLowerCase() + ')' : '') + '.';
@@ -2508,6 +2511,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if a := s.pet.LastAdventure; a != nil && status.Age-a.ReturnedAge < recentAdventureDays {
 		petStatus.LastAdventure = a
 	}
+	petStatus.Changes = s.pet.PersonalityChanges()
 	petStatus.Likes, petStatus.Dislikes = s.pet.LikesAndDislikes()
 	if petStatus.Likes == nil {
 		petStatus.Likes = []string{}

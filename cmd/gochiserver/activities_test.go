@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -458,5 +459,24 @@ func TestPetCareThroughServer(t *testing.T) {
 	server.handleGuide(rec, httptest.NewRequest(http.MethodGet, "/api/guide?species=cat", nil))
 	if !strings.Contains(rec.Body.String(), "Litter box") {
 		t.Errorf("A cat's guide should cover the litter box: %s", rec.Body.String())
+	}
+}
+
+func TestStatusShowsPersonalityChanges(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if changes, ok := statusOf(t, server)["personality_changes"].([]interface{}); !ok || len(changes) != 0 {
+		t.Errorf("A new pet hasn't changed: %v", changes)
+	}
+	for i := 0; i < 40; i++ {
+		v := server.pet.Biology.Vitals
+		v.Energy, v.Fatigue, v.Stress = 1, 0, 0
+		server.pet.Interact(types.InteractionPlaying, 1.0)
+	}
+	changes, _ := statusOf(t, server)["personality_changes"].([]interface{})
+	if !slices.Contains(changes, interface{}("more playful")) {
+		t.Errorf("Status should say how the pet has changed: %v", changes)
 	}
 }

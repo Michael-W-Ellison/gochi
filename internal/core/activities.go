@@ -517,6 +517,7 @@ func (p *DigitalPet) injureLocked() []StatChange {
 		p.Emotions.DominantEmotion, valence, math.Abs(valence))
 
 	p.Injured = true
+	p.evolveFromHardshipLocked(0.5) // A painful scare leaves the pet more anxious
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
 	if !p.HibernationEnabled {
 		p.Biology.CheckDeathConditions() // A severe injury can be fatal

@@ -1,6 +1,6 @@
 Software Design Document (SDD)
 Advanced Tamagotchi Digital Pet System
-Version: 1.2
+Version: 1.3
 Date: October 2026
 Author: System Architecture Team
 
@@ -261,10 +261,19 @@ cppclass BehaviorStateMachine {
     void forceState(BehaviorState newState);
 };
 
+Implementation: each pet has a state machine (built when needed, not saved) whose transitions all
+start from any state and have probability 1.0, so behavior is deterministic and consistent. In
+priority order: EXPLORING (on a trip), SICK (health below 0.3 or a serious illness), DISTRESSED
+(wellbeing below 0.3), SLEEPING (tired, or asleep and not yet rested), EXCITED and HAPPY (good mood
+and energy), EATING (hungry), then a discretionary behavior (PLAYING, SOCIAL_INTERACTION or
+INVESTIGATING) when its score passes 0.6, else IDLE. A discretionary behavior's score combines
+personality, the learned liking for the matching care (section 3.3.2) and the learned reward for
+the behavior itself (reinforcement learning). Hibernation is applied before the state machine.
+The machine records its transitions.
+
 The state shown to the player as an activity line (for example "Biscuit is playing by itself") is
-chosen from the pet's personality and from what it has learned it enjoys (section 3.3.2). A
-hibernating pet, a trip ("is out exploring") and a game of hide and seek ("is hiding somewhere")
-take precedence over the behavior state.
+chosen this way. A hibernating pet, a trip ("is out exploring") and a game of hide and seek ("is
+hiding somewhere") take precedence over the behavior state.
 3.3.2 Learning System
 cppclass LearningSystem {
     struct ExperienceRecord {
@@ -291,6 +300,23 @@ once established, each new interaction moves the preference by at least 2%, so a
 behavior stays consistent unless the way it is treated changes over time. A preference has half
 of its full influence on behavior after 10 interactions. Preferences do not decay; they are shown
 to the player as likes (affinity >= 0.25) and dislikes (affinity <= -0.15).
+
+Reinforcement learning: each pet has a Q-learning system (saved with the pet). When the owner
+gives care while the pet is in a discretionary behavior, the pet learns Q(context, behavior) with
+the care's emotional valence as the reward (-1.0 to 1.0); the context is the pet's mood (excited,
+happy, neutral or upset). Rewarded behaviors are chosen more often, discouraged ones less, through
+the learned reward term in the discretionary score (clamped to -1.0 to 1.0, weight 0.3). The
+learned values are used directly rather than through epsilon-greedy exploration, so behavior stays
+consistent.
+
+Personality development (evolveTraits): experiences move traits by intensity x 0.01. Enjoyed care
+develops matching traits (play: playfulness, energy; petting: affection, loyalty; training:
+conscientiousness, intelligence; exploring: curiosity, openness; walks: energy), and any enjoyed
+care makes the pet slightly calmer and more loyal. Scolding raises neuroticism and lowers
+agreeableness; injuries, illness, accidents and throwing up raise neuroticism; loneliness and
+neglect raise independence and neuroticism and lower loyalty over time. The traits at the first
+change are kept as a baseline, and the player is shown traits that have moved 0.05 or more from
+it. Babies inherit genes, not their parents' acquired changes.
 
 Memories: the long-term store holds up to 5,000 memories. Long-term memories fade at a rate
 scaled by importance; at the default time scale a full-strength memory lasts about 17 hours

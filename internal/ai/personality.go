@@ -167,6 +167,16 @@ func (p *PersonalityMatrix) applyExperience(exp ExperienceData) {
 		p.Traits.Curiosity += changeAmount
 	case "adaptability":
 		p.Traits.Adaptability += changeAmount
+	case "intelligence":
+		p.Traits.Intelligence += changeAmount
+	case "energy_level":
+		p.Traits.EnergyLevel += changeAmount
+	case "affectionate":
+		p.Traits.Affectionate += changeAmount
+	case "vocalization":
+		p.Traits.Vocalization += changeAmount
+	case "territoriality":
+		p.Traits.Territoriality += changeAmount
 	}
 }
 

@@ -83,6 +83,7 @@ func (p *DigitalPet) careRefusalLocked(interactionType types.InteractionType) st
 // throw up. Caller must hold p.mu.
 func (p *DigitalPet) eatLocked(amount float64) {
 	if p.Biology.Eat(amount) {
+		p.evolveFromHardshipLocked(0.1)
 		p.recordHealthEventLocked("feeding", "%s ate too much and threw up. "+
 			"Smaller, measured meals and fewer treats are easier on the stomach.", p.Name)
 	}

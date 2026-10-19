@@ -86,6 +86,12 @@ type DigitalPet struct {
 	Checklist       *CareChecklist `json:"checklist"`
 	game            *hideAndSeek   // Game in progress (not saved)
 
+	// What the pet has learned about how its owner responds to its
+	// behaviors (reinforcement learning), and the state machine that
+	// chooses its behavior (built when needed, not saved)
+	Learning *ai.LearningSystem `json:"learning"`
+	behavior *ai.BehaviorStateMachine
+
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
 }
@@ -213,6 +219,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	// Update relationships
 	p.Relationships.UpdateAll(deltaTime)
 
+	// Loneliness and neglect change the pet's personality
+	p.evolveFromNeglectLocked(deltaTime)
+
 	// Update current behavior based on state
 	p.updateBehavior()
 
@@ -303,6 +312,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	if refusal := p.careRefusalLocked(interactionType); refusal != "" {
 		return InteractionResult{Refusal: refusal}
 	}
+	behaviorBefore, contextBefore := p.CurrentBehavior, p.learningContextLocked()
 
 	// The interaction rules can turn care down (a full pet is not hungry,
 	// a sleeping pet won't play); nothing happens and nothing is earned
@@ -346,6 +356,14 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	// for this interaction type, which shapes future behavior
 	valence := stimulus.Valence()
 	p.Memory.RecordInteractionFull(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion, valence, math.Abs(valence))
+
+	// The pet learns how its owner responds to what it was doing, and its
+	// personality slowly changes with how it is treated (cleaning the
+	// living area doesn't involve the pet)
+	if interactionType != types.InteractionCleaning {
+		p.learnFromResponseLocked(behaviorBefore, contextBefore, valence)
+		p.evolveFromCareLocked(interactionType, valence)
+	}
 
 	p.meetNeedsLocked(interactionType, intensity)
 	result.PointsEarned = p.awardCareLocked(interactionType)
@@ -432,53 +450,18 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 
 // updateBehavior determines the current behavior based on state
 func (p *DigitalPet) updateBehavior() {
-	vitals := p.Biology.Vitals
-
 	// An interaction (such as tiring play) can leave a stat critical
 	if p.Hibernating || p.shouldHibernateLocked() {
 		p.hibernateLocked()
 		return
 	}
-	if p.isExploringLocked() {
-		p.CurrentBehavior = types.BehaviorExploring
-		return
+	// The behavior state machine chooses from the pet's state
+	m := p.behaviorMachineLocked()
+	if m.GetCurrentState() != p.CurrentBehavior {
+		m.ForceState(p.CurrentBehavior) // Set elsewhere, such as by hibernation
 	}
-
-	// Critical needs and illness override other behaviors
-	if vitals.Health < 0.3 || (p.Illness != nil && p.Illness.Severity >= illnessSicknessLevel) {
-		p.CurrentBehavior = types.BehaviorSick
-		return
-	}
-
-	if vitals.GetOverallWellbeing() < 0.3 {
-		p.CurrentBehavior = types.BehaviorDistressed
-		return
-	}
-
-	// A pet falls asleep when tired and sleeps until rested
-	asleep := p.CurrentBehavior == types.BehaviorSleeping
-	if vitals.Fatigue > 0.7 || vitals.Energy < 0.3 ||
-		(asleep && (vitals.Fatigue > wakeFatigue || vitals.Energy < wakeEnergy)) {
-		p.CurrentBehavior = types.BehaviorSleeping
-		return
-	}
-
-	// Use emotions and personality to determine behavior
-	moodScore := p.Emotions.GetMoodScore()
-
-	if moodScore > 0.6 && vitals.Energy > 0.5 {
-		if p.Emotions.Excitement > 0.7 {
-			p.CurrentBehavior = types.BehaviorExcited
-		} else {
-			p.CurrentBehavior = types.BehaviorHappy
-		}
-	} else if vitals.Nutrition < 0.3 {
-		p.CurrentBehavior = types.BehaviorEating
-	} else if vitals.Energy > 0.4 {
-		p.CurrentBehavior = p.chooseDiscretionaryBehavior()
-	} else {
-		p.CurrentBehavior = types.BehaviorIdle
-	}
+	m.Update()
+	p.CurrentBehavior = m.GetCurrentState()
 }
 
 const (
@@ -491,7 +474,9 @@ const (
 )
 
 // chooseDiscretionaryBehavior picks the strongest optional behavior from
-// personality plus what the pet has learned from past interactions.
+// personality plus what the pet has learned from past interactions: how
+// much it likes each kind of care, and how its owner has responded when
+// it behaved this way before (reinforcement learning).
 // It is deterministic, so behavior stays consistent until interactions
 // gradually change the learned preferences.
 func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
@@ -504,19 +489,22 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 		{
 			// Enjoying play makes a pet more playful
 			types.BehaviorPlaying,
-			p.Personality.GetTraitInfluence("play") + learnedBehaviorWeight*learned(types.InteractionPlaying),
+			p.Personality.GetTraitInfluence("play") + learnedBehaviorWeight*learned(types.InteractionPlaying) +
+				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorPlaying),
 		},
 		{
 			// Enjoying petting draws a pet toward its owner; discipline
 			// (always negative) makes it more withdrawn
 			types.BehaviorSocialInteraction,
 			p.Personality.GetTraitInfluence("social") +
-				learnedBehaviorWeight*(learned(types.InteractionPetting)+learned(types.InteractionDiscipline)),
+				learnedBehaviorWeight*(learned(types.InteractionPetting)+learned(types.InteractionDiscipline)) +
+				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorSocialInteraction),
 		},
 		{
 			// Enjoying exploring trips makes a pet more curious at home
 			types.BehaviorInvestigating,
-			p.Personality.GetTraitInfluence("explore") + learnedBehaviorWeight*learned(types.InteractionEnvironmentalEnrichment),
+			p.Personality.GetTraitInfluence("explore") + learnedBehaviorWeight*learned(types.InteractionEnvironmentalEnrichment) +
+				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorInvestigating),
 		},
 	}
 

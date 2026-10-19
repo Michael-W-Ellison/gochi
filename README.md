@@ -220,12 +220,24 @@ The lessons and guide give general care advice. For a real pet, follow your vete
 - **What it is doing**: the line under the picture says what your pet is doing, such as
   "Biscuit is playing by itself", "Biscuit wants your attention", "Biscuit is out exploring"
   (only during a trip) or "Biscuit is hiding somewhere" (during hide and seek). What a pet
-  chooses to do depends on its personality and on what it has learned it enjoys.
+  chooses to do depends on its personality, on what it has learned it enjoys, and on how you have
+  responded when it did the same thing before.
+- **Learning from you**: when you respond to what your pet is doing, it learns from it. Petting a
+  pet that wants your attention teaches it that seeking attention is rewarded, so it does it more;
+  scolding a pet while it plays teaches it to play less. What it learns depends on its mood at the
+  time, and it builds up gradually.
 - **Requests**: your pet asks for what it needs in a speech bubble (a drink, food, grooming,
   attention or play), the matching button is highlighted, and the browser tab title shows 💬.
   A pet left alone for a while asks for the kind of attention it likes best.
 - **About**: shows your pet's personality, its likes and dislikes (learned from how you care for
-  it) and the treasures it has found.
+  it), how its personality has changed since you adopted it, and the treasures it has found.
+- **A personality that grows**: a pet's personality changes slowly with how it is treated.
+  Enjoyed play makes it more playful, enjoyed petting more affectionate, good trips more curious,
+  and consistent care calmer and more attached to you. Scolding, injuries, illness and accidents
+  make it more anxious, and a pet left lonely or neglected becomes more independent, more anxious
+  and less attached. Each experience changes it only a little, so changes show after many
+  experiences (for example, about 30 enjoyed play sessions to become noticeably more playful).
+  Personality changes are not passed on to babies, which inherit their parents' genes.
 - **Reactions**: each pet reacts in its own way. A hungry pet gobbles up its food while a full one
   barely eats; an affectionate pet loves being petted while an independent one wants space; a pet
   that has learned to love something enjoys it even more. How much your pet enjoys an action

@@ -1,8 +1,10 @@
 package ai
 
 import (
+	"encoding/json"
 	"math"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -149,13 +151,10 @@ func (ls *LearningSystem) updateQValue(
 func (ls *LearningSystem) getMaxQValue(state types.BehaviorState) float64 {
 	maxQ := -math.MaxFloat64
 
-	// Check all possible actions
-	for action := types.BehaviorIdle; action <= types.BehaviorExcited; action++ {
-		pair := StateActionPair{State: state, Action: action}
-		if q, exists := ls.QTable[pair]; exists {
-			if q > maxQ {
-				maxQ = q
-			}
+	// Check every action learned in this state
+	for pair, q := range ls.QTable {
+		if pair.State == state && q > maxQ {
+			maxQ = q
 		}
 	}
 
@@ -416,4 +415,80 @@ type LearningStats struct {
 	QTableSize           int
 	ExperienceBufferSize int
 	SuccessRate          float64
+}
+
+// learningJSON is how a LearningSystem is saved: the Q-table as a list,
+// since its keys are not strings, and the running statistics. The
+// experience buffer and derived preferences are not saved.
+type learningJSON struct {
+	QValues           []qValueJSON `json:"q_values"`
+	LearningRate      float64      `json:"learning_rate"`
+	DiscountFactor    float64      `json:"discount_factor"`
+	ExplorationRate   float64      `json:"exploration_rate"`
+	TotalExperiences  int          `json:"total_experiences"`
+	SuccessfulActions int          `json:"successful_actions"`
+	FailedActions     int          `json:"failed_actions"`
+	AverageReward     float64      `json:"average_reward"`
+}
+
+type qValueJSON struct {
+	State  types.BehaviorState `json:"state"`
+	Action types.BehaviorState `json:"action"`
+	Value  float64             `json:"value"`
+}
+
+// MarshalJSON saves the learning system
+func (ls *LearningSystem) MarshalJSON() ([]byte, error) {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+
+	saved := learningJSON{
+		QValues:           make([]qValueJSON, 0, len(ls.QTable)),
+		LearningRate:      ls.LearningRate,
+		DiscountFactor:    ls.DiscountFactor,
+		ExplorationRate:   ls.ExplorationRate,
+		TotalExperiences:  ls.TotalExperiences,
+		SuccessfulActions: ls.SuccessfulActions,
+		FailedActions:     ls.FailedActions,
+		AverageReward:     ls.AverageReward,
+	}
+	for pair, q := range ls.QTable {
+		saved.QValues = append(saved.QValues, qValueJSON{pair.State, pair.Action, q})
+	}
+	sort.Slice(saved.QValues, func(i, j int) bool {
+		a, b := saved.QValues[i], saved.QValues[j]
+		return a.State < b.State || (a.State == b.State && a.Action < b.Action)
+	})
+	return json.Marshal(saved)
+}
+
+// UnmarshalJSON restores a saved learning system
+func (ls *LearningSystem) UnmarshalJSON(data []byte) error {
+	var saved learningJSON
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return err
+	}
+
+	restored := NewLearningSystem()
+	restored.LearningRate = saved.LearningRate
+	restored.DiscountFactor = saved.DiscountFactor
+	restored.ExplorationRate = saved.ExplorationRate
+	restored.TotalExperiences = saved.TotalExperiences
+	restored.SuccessfulActions = saved.SuccessfulActions
+	restored.FailedActions = saved.FailedActions
+	restored.AverageReward = saved.AverageReward
+	for _, q := range saved.QValues {
+		restored.QTable[StateActionPair{q.State, q.Action}] = q.Value
+	}
+
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	ls.QTable = restored.QTable
+	ls.LearningRate, ls.DiscountFactor, ls.ExplorationRate = restored.LearningRate, restored.DiscountFactor, restored.ExplorationRate
+	ls.ExplorationDecay, ls.MinExplorationRate = restored.ExplorationDecay, restored.MinExplorationRate
+	ls.ExperienceBuffer, ls.BufferSize = restored.ExperienceBuffer, restored.BufferSize
+	ls.TotalExperiences, ls.SuccessfulActions, ls.FailedActions = restored.TotalExperiences, restored.SuccessfulActions, restored.FailedActions
+	ls.AverageReward = restored.AverageReward
+	ls.BestAction, ls.ActionPreferences = restored.BestAction, restored.ActionPreferences
+	return nil
 }

@@ -137,6 +137,7 @@ func (p *DigitalPet) relieveLocked() {
 			ph.Bowel, ph.Bladder = 0, 0
 			p.Biology.Vitals.Stress += 0.1
 			p.Biology.Vitals.Clamp()
+			p.evolveFromHardshipLocked(0.2)
 			p.recordHealthEventLocked("bathroom", "%s couldn't wait any longer and had an accident in the house. "+
 				"Dogs need to go outside several times a day.", p.Name)
 		}
@@ -156,6 +157,7 @@ func (p *DigitalPet) relieveLocked() {
 			p.Biology.Vitals.Stress += 0.15
 			p.Biology.Vitals.Happiness -= 0.1
 			p.Biology.Vitals.Clamp()
+			p.evolveFromHardshipLocked(0.2)
 			p.recordHealthEventLocked("litter", "%s went outside the litter box because it was too dirty. "+
 				"Cats avoid a dirty box.", p.Name)
 		}
@@ -194,6 +196,7 @@ func (p *DigitalPet) catchIllnessLocked(deltaTime float64) {
 	}
 
 	p.Illness = &Illness{Kind: kind, Severity: 0.1, SinceAge: p.Biology.GetAgeInDays()}
+	p.evolveFromHardshipLocked(0.2)
 	p.recordHealthEventLocked(illnessTopics[kind], "%s is coming down with an illness.", p.Name)
 }
 
