@@ -22,7 +22,19 @@ var (
 	ErrNotExploring  = errors.New("pet is not out exploring")
 	ErrInjured       = errors.New("pet is injured")
 	ErrHibernating   = errors.New("pet is hibernating")
+	ErrSleeping      = errors.New("pet is sleeping")
 )
+
+// RefusedError reports that the pet turned an activity down, with the
+// reason in its own words (for example "Biscuit is too stressed for
+// training.")
+type RefusedError struct {
+	Reason string
+}
+
+func (e RefusedError) Error() string {
+	return e.Reason
+}
 
 // randIntn picks random numbers for games and souvenirs (replaced in tests)
 var randIntn = rand.Intn
@@ -100,6 +112,8 @@ func (p *DigitalPet) checkActiveLocked() error {
 		return ErrHibernating
 	case p.isExploringLocked():
 		return ErrExploring
+	case p.CurrentBehavior == types.BehaviorSleeping:
+		return ErrSleeping
 	case p.Biology.Vitals.Energy < minTrainingEnergy:
 		return ErrTooTired
 	}
@@ -131,6 +145,9 @@ func (p *DigitalPet) TrainTrick(trickID string) (TrickResult, error) {
 
 	result := TrickResult{Trick: t}
 	result.InteractionResult = p.interactLocked(types.InteractionTraining, 1.0)
+	if !result.Applied {
+		return TrickResult{}, RefusedError{result.Refusal}
+	}
 
 	if p.TrickSkills == nil {
 		p.TrickSkills = make(map[string]float64)
@@ -169,6 +186,9 @@ func (p *DigitalPet) PerformTrick(trickID string) (TrickResult, error) {
 
 	result := TrickResult{Trick: t, Skill: 1.0}
 	result.InteractionResult = p.interactLocked(types.InteractionTraining, 0.5)
+	if !result.Applied {
+		return TrickResult{}, RefusedError{result.Refusal}
+	}
 	result.Text = fmt.Sprintf(t.Performed, p.Name)
 	return result, nil
 }
@@ -270,6 +290,11 @@ func (p *DigitalPet) GuessHidingSpot(spot int) (GameResult, error) {
 		p.game = nil
 		result := GameResult{Found: true, Over: true, Spot: hiding.Name}
 		result.InteractionResult = p.interactLocked(types.InteractionPlaying, 1.0)
+		if !result.Applied {
+			// The pet is too tired to carry on (it may have fallen asleep)
+			result.Text = fmt.Sprintf("You found %s %s, but it's too tired to play. %s", p.Name, hiding.Name, hiding.Icon)
+			return result, nil
+		}
 		if t := now(); t.Sub(p.LastGameReward) >= CareRewardCooldown {
 			p.LastGameReward = t
 			p.FriendshipPoints += GameBonusPoints

@@ -127,6 +127,9 @@ type InteractionResult struct {
 	Changes      []StatChange // How the pet's stats changed
 	BoostedBy    *ShopItem    // Item that made this interaction more effective, if any
 
+	// Why the pet turned the interaction down, if it did (Applied is false)
+	Refusal string
+
 	// How the pet reacted, which scales the interaction's benefits by
 	// ReactionMultiplier (see reactionLocked)
 	Reaction           ReactionLevel

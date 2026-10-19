@@ -47,7 +47,7 @@ var reactionTexts = map[types.InteractionType]map[ReactionLevel]string{
 		ReactionDelighted: "%s bounces around, overjoyed!",
 		ReactionHappy:     "%s plays happily.",
 		ReactionOkay:      "%s plays for a little while.",
-		ReactionReluctant: "%s is too tired to play much.",
+		ReactionReluctant: "%s isn't in the mood to play.",
 	},
 	types.InteractionGrooming: {
 		ReactionDelighted: "%s loves being brushed and looks so shiny!",

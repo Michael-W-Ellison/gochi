@@ -616,6 +616,7 @@ func GetInteractionDescription(interactionType types.InteractionType) string {
 		types.InteractionDiscipline:              "Discipline to correct unwanted behavior",
 		types.InteractionEnvironmentalEnrichment: "Add enrichment to stimulate curiosity",
 		types.InteractionSocialIntroduction:      "Introduce your pet to others for socialization",
+		types.InteractionDrinking:                "Give your pet fresh water to quench its thirst",
 	}
 
 	if desc, exists := descriptions[interactionType]; exists {

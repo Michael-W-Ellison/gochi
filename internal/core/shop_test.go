@@ -34,10 +34,13 @@ func TestDrinkRestoresHydration(t *testing.T) {
 func TestCareEarnsPointsWithCooldown(t *testing.T) {
 	clock := useClock(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
 	pet := NewDigitalPet("TestPet", "user123")
+	hungry := func() { pet.Biology.Vitals.Nutrition = 0.3 }
 
+	hungry()
 	if r := pet.Interact(types.InteractionFeeding, 1.0); r.PointsEarned != PointsPerCare || !r.Applied {
 		t.Errorf("First feeding should earn %d points, got %+v", PointsPerCare, r)
 	}
+	hungry()
 	if r := pet.Interact(types.InteractionFeeding, 1.0); r.PointsEarned != 0 || !r.Applied {
 		t.Errorf("Feeding again within the cooldown should still apply but earn nothing, got %+v", r)
 	}
@@ -48,6 +51,7 @@ func TestCareEarnsPointsWithCooldown(t *testing.T) {
 	}
 
 	*clock = clock.Add(CareRewardCooldown)
+	hungry()
 	if r := pet.Interact(types.InteractionFeeding, 1.0); r.PointsEarned != PointsPerCare {
 		t.Errorf("Feeding after the cooldown should earn points, got %+v", r)
 	}

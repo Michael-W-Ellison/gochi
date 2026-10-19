@@ -383,7 +383,7 @@ func TestInteractionLeavingStatCriticalHibernates(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 	pet.HibernationEnabled = true
 	pet.Biology.Vitals.Nutrition = 0.05
-	pet.Biology.Vitals.Energy = 0.15
+	pet.Biology.Vitals.Energy = 0.2 // Just enough to agree to play
 
 	// Play uses energy, leaving food and energy both critical
 	pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)

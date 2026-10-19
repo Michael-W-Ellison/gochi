@@ -11,7 +11,7 @@ func TestReactionDependsOnNeed(t *testing.T) {
 	hungry := NewDigitalPet("Biscuit", "user123")
 	hungry.Biology.Vitals.Nutrition = 0.1
 	full := NewDigitalPet("Biscuit", "user123")
-	full.Biology.Vitals.Nutrition = 1.0
+	full.Biology.Vitals.Nutrition = 0.85 // Full, but not too full to eat
 
 	h := hungry.Interact(types.InteractionFeeding, 1.0)
 	f := full.Interact(types.InteractionFeeding, 1.0)
@@ -65,13 +65,13 @@ func TestReactionGrowsWithLearnedLiking(t *testing.T) {
 	}
 }
 
-func TestTiredPetIsReluctantToPlay(t *testing.T) {
+func TestUnplayfulTiredPetIsReluctantToPlay(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
-	pet.Biology.Vitals.Energy = 0.05
-	pet.Biology.Vitals.Nutrition = 0.8 // Not critical
+	pet.Personality.Traits.Playfulness = 0.0
+	pet.Biology.Vitals.Energy = 0.35
 
 	r := pet.Interact(types.InteractionPlaying, 1.0)
-	if r.Reaction != ReactionReluctant || r.ReactionText != "Biscuit is too tired to play much." {
+	if r.Reaction != ReactionReluctant || r.ReactionText != "Biscuit isn't in the mood to play." {
 		t.Errorf("Got %s: %q", r.Reaction, r.ReactionText)
 	}
 }

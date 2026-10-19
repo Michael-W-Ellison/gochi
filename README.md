@@ -144,6 +144,15 @@ Only the active pet's time passes; pets that are not loaded wait in their save f
 Use **Feed**, **Drink**, **Pet**, **Play**, **Groom** and **Heal** to look after your pet. The bars show its
 health, energy, happiness, hunger and water.
 
+Pets don't accept every kind of care at every moment: a full pet isn't hungry, a clean pet doesn't
+need grooming, a very tired pet won't play, and a stressed or tired pet won't train. When your pet
+turns something down nothing happens and no points are earned. Hover over a care button to see
+what it does.
+
+When your pet gets very tired it falls asleep. A sleeping pet only accepts food, water and medical
+care; it sleeps until it is rested, recovering energy and losing tiredness, and wakes on its own.
+Good weather for sleeping and a **Cozy Bed** make its sleep more restful.
+
 Under its name, the page shows your pet's surroundings: the weather, temperature, season and time
 of day. Each pet has its own weather and seasons, which move on with its own time (so they pause
 when the game is paused). Hot or stormy weather and the seasons change how quickly your pet gets

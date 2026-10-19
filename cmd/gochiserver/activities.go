@@ -27,7 +27,12 @@ func (s *Server) interactionData(result core.InteractionResult) map[string]inter
 // writeActivityError reports why the pet cannot do an activity
 func writeActivityError(w http.ResponseWriter, name string, err error) {
 	status, message := http.StatusConflict, ""
+	var refused core.RefusedError
 	switch {
+	case errors.As(err, &refused):
+		message = refused.Reason
+	case errors.Is(err, core.ErrSleeping):
+		message = name + " is sleeping. Let it rest."
 	case errors.Is(err, core.ErrHibernating):
 		message = name + " is hibernating. Revive it first."
 	case errors.Is(err, core.ErrPetNotAvailable):

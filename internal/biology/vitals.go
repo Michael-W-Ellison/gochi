@@ -189,6 +189,18 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 	b.Vitals.Clamp()
 }
 
+// ProcessRest lets a sleeping pet recover over deltaTime game days:
+// tiredness falls and energy returns, faster with better sleep quality
+// (1.0 is normal)
+func (b *BiologicalSystems) ProcessRest(deltaTime, sleepQuality float64) {
+	if !b.IsAlive {
+		return
+	}
+	b.Vitals.Fatigue -= 0.5 * sleepQuality * deltaTime
+	b.Vitals.Energy += 0.15 * sleepQuality * deltaTime
+	b.Vitals.Clamp()
+}
+
 // processMetabolism handles energy conversion and consumption
 func (b *BiologicalSystems) processMetabolism(deltaTime float64) {
 	// Base metabolic rate consumption

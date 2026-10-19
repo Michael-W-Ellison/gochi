@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
+	"github.com/Michael-W-Ellison/gochi/internal/interaction"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/internal/social"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -165,6 +167,11 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		return
 	}
 
+	// A sleeping pet rests and recovers
+	if p.CurrentBehavior == types.BehaviorSleeping {
+		p.Biology.ProcessRest(deltaTime, p.sleepQualityLocked())
+	}
+
 	// Needs build up over time, and the weather and season affect the pet
 	p.updateNeedsLocked(deltaTime)
 	p.updateEnvironmentLocked(deltaTime)
@@ -269,6 +276,12 @@ func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionTyp
 func (p *DigitalPet) interactLocked(interactionType types.InteractionType, intensity float64) InteractionResult {
 	if !p.Biology.IsAlive || p.Hibernating || p.isExploringLocked() {
 		return InteractionResult{}
+	}
+
+	// The interaction rules can turn care down (a full pet is not hungry,
+	// a sleeping pet won't play); nothing happens and nothing is earned
+	if ok, reason := interaction.ValidateInteraction(interactionType, p.interactionContextLocked()); !ok {
+		return InteractionResult{Refusal: strings.Replace(reason, "Pet", p.Name, 1) + "."}
 	}
 
 	p.TotalInteractions++
@@ -392,7 +405,10 @@ func (p *DigitalPet) updateBehavior() {
 		return
 	}
 
-	if vitals.Fatigue > 0.7 || vitals.Energy < 0.3 {
+	// A pet falls asleep when tired and sleeps until rested
+	asleep := p.CurrentBehavior == types.BehaviorSleeping
+	if vitals.Fatigue > 0.7 || vitals.Energy < 0.3 ||
+		(asleep && (vitals.Fatigue > wakeFatigue || vitals.Energy < wakeEnergy)) {
 		p.CurrentBehavior = types.BehaviorSleeping
 		return
 	}

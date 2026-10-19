@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -110,5 +111,87 @@ func TestNeedsSurviveSaveLoad(t *testing.T) {
 	loaded.Needs = nil
 	if levels := loaded.PsychologicalNeeds(); levels[0].Level != 1.0 {
 		t.Errorf("Missing needs should start met, got %+v", levels[0])
+	}
+}
+
+func TestCareRulesCanRefuse(t *testing.T) {
+	pet := NewDigitalPet("Biscuit", "user123")
+	pet.Biology.Vitals.Nutrition = 0.95
+
+	r := pet.Interact(types.InteractionFeeding, 1.0)
+	if r.Applied || r.Refusal != "Biscuit is not hungry." || pet.TotalInteractions != 0 || r.PointsEarned != 0 {
+		t.Errorf("A full pet should turn food down with nothing applied: %+v", r)
+	}
+
+	pet.Biology.Vitals.Cleanliness = 1.0
+	if r := pet.Interact(types.InteractionGrooming, 1.0); r.Applied || r.Refusal != "Biscuit is already clean." {
+		t.Errorf("A clean pet should not need grooming: %+v", r)
+	}
+}
+
+func TestSleepingPetRestsAndWakes(t *testing.T) {
+	pet := NewDigitalPet("Biscuit", "user123")
+	setCalmHealthyState(pet)
+	pet.Biology.Vitals.Fatigue = 0.9
+	pet.Update(0.01)
+	if pet.CurrentBehavior != types.BehaviorSleeping {
+		t.Fatalf("A tired pet should sleep, got %s", pet.CurrentBehavior)
+	}
+
+	if r := pet.Interact(types.InteractionPlaying, 1.0); r.Applied || r.Refusal != "Biscuit is sleeping." {
+		t.Errorf("A sleeping pet should not play: %+v", r)
+	}
+	if err := pet.StartHideAndSeek(); err != ErrSleeping {
+		t.Errorf("A sleeping pet should not play hide and seek: %v", err)
+	}
+
+	// Sleep continues until rested, then the pet wakes
+	slept := 0
+	for pet.CurrentBehavior == types.BehaviorSleeping && slept < 100 {
+		pet.Update(0.1)
+		pet.Biology.Vitals.Hydration, pet.Biology.Vitals.Nutrition = 1, 1
+		slept++
+	}
+	if pet.CurrentBehavior == types.BehaviorSleeping {
+		t.Fatal("A sleeping pet should eventually wake up")
+	}
+	if slept < 5 {
+		t.Errorf("The pet should sleep until rested, but woke after %d updates", slept)
+	}
+	if pet.Biology.Vitals.Fatigue > wakeFatigue {
+		t.Errorf("A rested pet should have low fatigue, got %f", pet.Biology.Vitals.Fatigue)
+	}
+}
+
+func TestBedImprovesSleep(t *testing.T) {
+	rest := func(withBed bool) float64 {
+		pet := NewDigitalPet("Biscuit", "user123")
+		if withBed {
+			pet.FriendshipPoints = 1000
+			pet.BuyItem("cozy_bed")
+		}
+		pet.CurrentBehavior = types.BehaviorSleeping
+		pet.Biology.Vitals.Fatigue = 0.9
+		pet.mu.Lock()
+		pet.Biology.ProcessRest(0.1, pet.sleepQualityLocked())
+		pet.mu.Unlock()
+		return 0.9 - pet.Biology.Vitals.Fatigue
+	}
+	if rest(true) <= rest(false) {
+		t.Error("A bed should make sleep more restful")
+	}
+}
+
+func TestRefusedTrainingTeachesNothing(t *testing.T) {
+	pet := NewDigitalPet("Biscuit", "user123")
+	pet.Biology.Vitals.Stress = 0.9
+
+	_, err := pet.TrainTrick("sit")
+	var refused RefusedError
+	if !errors.As(err, &refused) || refused.Reason != "Biscuit is too stressed for training." {
+		t.Errorf("A stressed pet should refuse training: %v", err)
+	}
+	if pet.Tricks()[0].Skill != 0 {
+		t.Error("Refused training should not improve the trick")
 	}
 }

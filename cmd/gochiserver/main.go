@@ -66,6 +66,7 @@ type PetStatus struct {
 	Souvenirs        []core.SouvenirCount   `json:"souvenirs"`
 	Needs            []core.NeedLevel       `json:"needs"` // Needs not shown as stat bars
 	Environment      core.EnvironmentStatus `json:"environment"`
+	CareTips         map[string]string      `json:"care_tips"`      // What each care button does
 	LastAdventure    *core.Adventure        `json:"last_adventure"` // Most recent trip, if it ended recently
 	Mood             string                 `json:"mood"`
 	Health           float64                `json:"health"`
@@ -288,6 +289,25 @@ func (s *Server) tick(now time.Time) {
 
 	// The pet's simulation counts time in game days
 	s.pet.Update(gameSeconds / secondsPerGameDay)
+}
+
+// careActions maps the page's care buttons to interactions
+var careActions = map[string]types.InteractionType{
+	"feed":  types.InteractionFeeding,
+	"drink": types.InteractionDrinking,
+	"pet":   types.InteractionPetting,
+	"play":  types.InteractionPlaying,
+	"groom": types.InteractionGrooming,
+	"medic": types.InteractionMedicalCare,
+}
+
+// careTips describes what each care button does
+func careTips() map[string]string {
+	tips := make(map[string]string, len(careActions))
+	for action, interactionType := range careActions {
+		tips[action] = core.CareDescription(interactionType)
+	}
+	return tips
 }
 
 // secondsPerGameDay converts the clock's game seconds to game days
@@ -1140,6 +1160,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('backBtn').textContent = backLabel;
             document.getElementById('shopBackBtn').textContent = backLabel;
             document.getElementById('shopTitle').textContent = 'Shop for ' + status.name;
+
+            Object.entries(status.care_tips || {}).forEach(([action, tip]) => {
+                const btn = document.querySelector('.action-btn.' + action);
+                if (btn) btn.title = tip;
+            });
 
             const env = status.environment;
             document.getElementById('environment').textContent = env ?
@@ -2112,6 +2137,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	petStatus.Needs = s.pet.PsychologicalNeeds()
 	petStatus.Environment = s.pet.EnvironmentStatus()
+	petStatus.CareTips = careTips()
 	petStatus.HibernationOn = s.pet.HibernationEnabled
 	petStatus.CauseOfDeath = s.pet.Biology.CauseOfDeath
 	petStatus.Tricks = s.pet.Tricks()
@@ -2188,6 +2214,14 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 
 	s.markActiveLocked(time.Now())
 	result := s.pet.Interact(interactionType, 1.0)
+	if !result.Applied {
+		message := result.Refusal
+		if message == "" {
+			message = s.pet.Name + " can't do that right now."
+		}
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: message})
+		return
+	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.interactionData(result)})
 }
 

@@ -117,6 +117,7 @@ func TestPetStoreRestoresMostRecentSave(t *testing.T) {
 
 	pet := core.NewDigitalPet("Mochi", "web_user")
 	savePet(t, store, "mochi", pet)
+	pet.Biology.Vitals.Nutrition = 0.5 // Hungry enough to eat
 	pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
 	savePet(t, store, "mochi", pet)
 
@@ -285,6 +286,7 @@ func TestHandleLoadSwitchesPets(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondSlot := server.slot
+	server.pet.Biology.Vitals.Nutrition = 0.5 // Hungry enough to eat
 	server.pet.ProcessUserInteraction(types.InteractionFeeding, 1.0)
 
 	rec := post(t, server.handleLoad, `{"slot":"`+firstSlot+`"}`)

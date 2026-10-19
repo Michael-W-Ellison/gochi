@@ -321,3 +321,21 @@ func TestStatusShowsEnvironment(t *testing.T) {
 		t.Errorf("Status should describe the environment: %v", env)
 	}
 }
+
+func TestRefusedCareThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", false, false); err != nil {
+		t.Fatal(err)
+	}
+	server.pet.Biology.Vitals.Nutrition = 0.95
+
+	rec := post(t, server.handleInteract, `{"action":"feed"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "Biscuit is not hungry.") {
+		t.Errorf("Feeding a full pet: status %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	tips, _ := statusOf(t, server)["care_tips"].(map[string]interface{})
+	if tips["drink"] == "" || tips["feed"] == nil {
+		t.Errorf("Status should describe each care button: %v", tips)
+	}
+}
