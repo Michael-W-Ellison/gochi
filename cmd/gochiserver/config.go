@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,7 +24,14 @@ type Config struct {
 		DataDir      string `yaml:"data_dir"`       // Saves and backups; "" means ~/.gochi
 		APIToken     string `yaml:"api_token"`      // Turns on the REST API; "" leaves it off
 		APIRateLimit int    `yaml:"api_rate_limit"` // REST API requests per minute per client; 0 turns the limit off
+		TLSCert      string `yaml:"tls_cert"`       // Certificate (PEM) for HTTPS; with tls_key turns HTTPS on
+		TLSKey       string `yaml:"tls_key"`        // The certificate's private key (PEM)
 	} `yaml:"server"`
+
+	Hub struct {
+		Enabled  bool   `yaml:"enabled"`   // Also run as a cloud hub
+		JoinCode string `yaml:"join_code"` // Players need it to register; "" closes registration
+	} `yaml:"hub"`
 
 	Simulation struct {
 		TimeScale string        `yaml:"time_scale"` // game, 24x, 4x or realtime
@@ -70,8 +79,10 @@ func loadConfig(path string) (Config, error) {
 		return c, fmt.Errorf("%s: %w", path, err)
 	}
 
-	if c.Server.DataDir != "" && !filepath.IsAbs(c.Server.DataDir) {
-		c.Server.DataDir = filepath.Join(filepath.Dir(path), c.Server.DataDir)
+	for _, file := range []*string{&c.Server.DataDir, &c.Server.TLSCert, &c.Server.TLSKey} {
+		if *file != "" && !filepath.IsAbs(*file) {
+			*file = filepath.Join(filepath.Dir(path), *file)
+		}
 	}
 	if err := c.validate(); err != nil {
 		return c, fmt.Errorf("%s: %w", path, err)
@@ -90,7 +101,38 @@ func (c Config) validate() error {
 	if c.Server.APIRateLimit < 0 {
 		return errors.New("api_rate_limit can't be negative")
 	}
+	if (c.Server.TLSCert == "") != (c.Server.TLSKey == "") {
+		return errors.New("HTTPS needs both tls_cert and tls_key")
+	}
+	if c.Server.TLSCert != "" {
+		if _, err := tls.LoadX509KeyPair(c.Server.TLSCert, c.Server.TLSKey); err != nil {
+			return fmt.Errorf("can't use the HTTPS certificate: %w", err)
+		}
+	}
 	return nil
+}
+
+// usesTLS reports whether the server serves HTTPS
+func (c Config) usesTLS() bool {
+	return c.Server.TLSCert != ""
+}
+
+// tlsConfig is the HTTPS configuration: TLS 1.2 or later
+func tlsConfig() *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS12}
+}
+
+// securityHeaders adds headers that make browsers stricter with the
+// server's pages: no guessing content types, no framing by other sites,
+// and no referrer sent to other sites
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // defaultConfigPath returns configs/config.yaml in the project directory

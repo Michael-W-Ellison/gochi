@@ -44,7 +44,8 @@ Gochi is a sophisticated digital organism simulator featuring:
 ```
 gochi/
 ├── cmd/
-│   └── gochiserver/    # Web server and game (main application)
+│   ├── gochiserver/    # Web server and game (main application)
+│   └── gochihub/       # The cloud hub on its own, without the game
 ├── internal/           # Private application code
 │   ├── core/           # Core pet logic
 │   ├── biology/        # Biological simulation systems
@@ -82,7 +83,7 @@ cd gochi
 # Install dependencies
 make install
 
-# Build the application (creates ./bin/gochi)
+# Build the game and the standalone hub (creates ./bin/gochi and ./bin/gochihub)
 make build
 
 # Run the application
@@ -90,6 +91,11 @@ make run
 ```
 
 Then open http://localhost:8080 in a browser.
+
+**Platforms**: the game runs on Windows, macOS and Linux. `make release` builds the game and the hub
+for each (64-bit Intel/AMD and ARM) into `dist/`, one folder per platform with the `web/` and
+`configs/` folders the program needs beside it. Phones and tablets (iOS and Android) play in their
+browser, connected to a computer running the game on the same network; AR uses the phone's camera.
 
 ### Command-Line Options
 
@@ -105,6 +111,9 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | `-away-pause` | `2m` | Pause time once the player has been away this long; `0` turns the away pause off |
 | `-api-token` | (none) | Turn on the REST API at `/api/v1` for requests carrying this token (see [REST API](#rest-api)) |
 | `-time-scale` | `game` | Game speed: `game` (one game day per real minute), `24x` (one game day per real hour), `4x` (one game day per six real hours) or `realtime` |
+| `-hub` | off | Also run as a cloud hub (see [Cloud](#cloud-backup-sync-and-sharing)) |
+| `-hub-join-code` | (none) | The code players need to register with the hub |
+| `-tls-cert`, `-tls-key` | (none) | Serve HTTPS with this certificate and private key (PEM files); set both |
 
 Durations use Go syntax, such as `30s`, `5m` or `1h`.
 
@@ -126,6 +135,96 @@ instead.
 To play with a different pet, press **Switch Pet**. The pet list shows every saved pet; press **Load**
 to switch to one, or create a new pet below the list. Your current pet is saved first, so no
 progress is lost.
+
+Each save file also records the pet's **history** (the last 500 kinds of care it was given, how it
+took them, and what happened to it on its own), its **achievements**, what it has **unlocked** (places
+discovered, shop items, foods and toys in its pantry, tricks learned) and lifetime **statistics**,
+along with the game speed and autosave interval it was played with.
+
+**Achievements** are milestones a pet reaches: learning a first trick or every trick, finding a first
+souvenir or a crystal, discovering every place, growing up, becoming a senior, living past a typical
+lifespan, a best friend, a baby, 500 Friendship Points earned, and owning five shop items. They are
+listed under **About** and announced under **Recently** when earned.
+
+### Cloud: Backup, Sync and Sharing
+
+A Gochi server can also run as a **cloud hub** that other Gochi servers connect to, so you can back up
+your pets, play them on other devices, see other players' pets nearby and share achievements. The hub
+is self-hosted: it is just another Gochi server, and nothing is sent anywhere else.
+
+**Running a hub**: start a server with `-hub -hub-join-code SOMECODE` (or `hub.enabled` and
+`hub.join_code` in the config file) and give the join code to the people who may register. The hub
+answers at `/hub/v1` on the same address as the game; its data is kept in `<data-dir>/hub/`
+(accounts, with account keys stored only as hashes, each player's pets, and the shared achievements).
+With no join code, nobody new can register. The hub allows each player 120 requests a minute (and
+requests without an account, such as registering, 120 a minute from each address) and each player
+50 pets. To use a hub over the internet, serve it over HTTPS, with `-tls-cert` and `-tls-key` (for
+example a certificate from Let's Encrypt) or behind an HTTPS reverse proxy, so account keys aren't
+sent in the clear; the hub accepts TLS 1.2 and later. The hub keeps an index of pets in memory, so
+listing pets and finding nearby ones don't read saves from disk.
+
+To run a hub as its own service, without the game, use `gochihub` (`make build` puts it in `bin/`):
+`gochihub -join-code SOMECODE -dir /var/lib/gochi-hub -addr :8090 -tls-cert cert.pem -tls-key key.pem`.
+It serves only `/hub/v1` and keeps its data in `-dir` (default `~/.gochi-hub`).
+
+**Encryption**: your game encrypts each pet's save (AES-256-GCM, with a key made from your account
+key) before uploading it, and decrypts it after downloading. The hub stores only a hash of your
+account key, so its files alone, or a copy of them, can't be read. Whoever runs the hub could still
+change it to record account keys as they arrive, so use a hub run by someone you trust. Pets'
+names, species and age groups stay readable on the hub, since nearby pets need them. Saves uploaded
+by older versions are read as before and are encrypted when next uploaded.
+
+**Connecting**: press **☁️ Cloud**, enter the hub's address, a username and the join code, and press
+**Connect**. Your pets are uploaded straight away. To connect another device to the same account, press
+**Show account key** on the first device and enter that key (with the same username) on the other
+device instead of the join code. The connection is kept in `<data-dir>/cloud.json`, readable only by
+you.
+
+**Syncing** happens when the program starts (before your last pet is restored; if the hub can't be
+reached within 15 seconds, the game starts with the saves on this device), every 5 minutes, when
+you press **Sync now**, and when you exit. Everything but the cloud features works without a
+network connection. For each pet:
+
+- a pet that changed only on this device is uploaded, and one that changed only on the hub is
+  downloaded (the previous local save is kept as a backup). Saving a pet that hasn't changed (for
+  example while the game is paused) doesn't count as a change;
+- a pet that changed on both is resolved in favour of the copy that was played most recently; the
+  other stays as a backup on its side (the hub keeps one previous version of each pet);
+- a pet new on the hub is downloaded into a new slot, and your active pet is reloaded if a newer copy
+  was downloaded;
+- deleting a pet removes it from the hub. Your other devices then report that it was deleted on
+  another device and stop syncing it, but keep their copy until you delete it there too.
+
+**Nearby pets and sharing**: in the Cloud panel, type your town or area and choose what to share;
+both choices start off.
+
+- **Show my pets to players nearby (and see theirs)**: players on the same hub who chose the same
+  area (ignoring capitals and extra spaces) and show their pets see your pets' names, species and
+  age groups, and you see theirs. With it off you neither appear nor see anyone.
+- **Share my pets' achievements**: your pets' achievements are posted to the hub's feed as they are
+  earned, for everyone on the hub to see.
+
+The panel shows recent achievements from everyone sharing on the hub. Nothing more precise than the
+area name is shared.
+
+### Privacy and Parental Controls
+
+Press **🔒 Privacy**:
+
+- **Learn when I usually play**: the game learns when you play to look ahead for you (see
+  [Daily Goals and What's Coming Up](#daily-goals-and-whats-coming-up)). Turn it off to stop, and
+  press **Erase what was learned** to forget it. It never leaves your computer.
+- **Parent PIN**: a parent can set a PIN of 4 to 8 digits. Once it is set, the PIN is needed to
+  connect to or disconnect from a cloud hub, change what is shared, start or join a playdate, and
+  change these settings (the page asks for it). After 5 wrong PINs, no PIN is accepted for 5
+  minutes. The PIN is stored as a salted hash in `<data-dir>/parental.json`; it stops a child
+  changing settings in the game, not someone who can edit the computer's files.
+
+Your saves, backups and settings in the data directory can be read only by your user account (on
+macOS and Linux; older saves are made private as they are saved again). There is no chat, and other
+players see only usernames, pet names, species, age groups, area names and achievements. Whoever
+runs a hub for children is responsible for meeting child-privacy laws such as COPPA; the game keeps
+what it shares to the minimum above and lets parents control it.
 
 ### Pausing Time
 
@@ -156,13 +255,22 @@ what it does.
 
 When your pet gets very tired it falls asleep. A sleeping pet only accepts food, water and medical
 care; it sleeps until it is rested, recovering energy and losing tiredness, and wakes on its own.
-Good weather for sleeping and a **Cozy Bed** make its sleep more restful.
+Good weather for sleeping and a **Cozy Bed** make its sleep more restful. Pets have a daily rhythm:
+they get sleepy at night (cats sleep from about 11 pm to 5 am, dogs from 10 pm to 6 am, by the
+game's clock), tire faster in the dark, and fall asleep more easily then. A pet that stays awake too
+long builds up a sleep debt, which makes it tire faster and learn more slowly until it has slept it
+off. While asleep it goes through light, deep and REM sleep; deep sleep helps the body repair
+itself.
 
 Under its name, the page shows your pet's surroundings: the weather, temperature, season and time
 of day. Each pet has its own weather and seasons, which move on with its own time (so they pause
 when the game is paused). Hot or stormy weather and the seasons change how quickly your pet gets
-hungry, thirsty and tired and can lift or lower its mood. Exploring in storms or extreme
-temperatures is riskier, and trips at night find fewer souvenirs. Each pet also has a favorite
+hungry, thirsty and tired and can lift or lower its mood. They also change what it chooses to do on
+its own: pets are livelier in spring and on fine days, and quieter in winter, in the heat, in rain
+or snow and at night (cats perk up at dawn and dusk). Storms make pets, nervous ones most of all,
+seek company, and cuddly pets look for warmth when it is cold. In poor weather, and in the dark, a
+pet doesn't ask to go exploring and enjoys walks less. Exploring in bad weather is riskier the
+worse the conditions are, and trips at night find fewer souvenirs. Each pet also has a favorite
 season, from its personality (curious pets love spring, energetic ones summer, adaptable ones
 fall, and cuddly, low-energy pets winter), shown under **About**: it is happier in that season and
 a little less happy in the opposite one.
@@ -172,6 +280,32 @@ hide and seek and exploring), **Company** and **Affection** (petting, grooming, 
 training), **Learning** (training and play) and **Adventure** (exploring). A pet asks for help when
 a need runs low, and needs left completely unmet make it unhappy. After each action the page shows what changed, for
 example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
+
+### Daily Goals and What's Coming Up
+
+Under the day's care checklist, the page shows **Today's goals**: three goals for the day, each
+worth bonus Friendship Points when you complete it.
+
+- one asks for the part of the daily routine you have given least over the past week (for
+  example brushing, if you rarely brush your cat);
+- one asks for an activity: playing, practicing tricks, exploring or, at the highest levels,
+  teaching a new trick;
+- one asks you to raise your pet's happiness to a level above where it is now.
+
+Goals start at level 1 and adapt to how you are doing: completing two or three of a day's goals
+makes the next day's goals one half-level harder (up to level 5), and trying but completing none
+makes them half a level easier. Each goal earns 5 points per level (rounded), and the page announces
+each goal as you complete it. Goals are kept with the pet's save, and a new set starts each
+calendar day.
+
+**Coming up** shows what your pet will ask for next if nothing changes, and when (for example "In
+about 13 minutes: Mochi is thirsty!"). The game works this out by running a copy of your pet
+forward in time, up to when you usually stop playing. To know that, the game learns when you play:
+each hour of the week you use the page counts towards your usual times, recent weeks counting more
+than older ones. After a few visits it looks ahead until the end of your usual playing time
+(between 10 minutes and 2 hours), and otherwise 30 minutes, and the panel says when you usually
+play (for example "weekday evenings"). This is kept in `<data-dir>/owner.json` and never leaves
+your computer.
 
 ### Health and Learning Real Care
 
@@ -189,6 +323,38 @@ systems:
   pet more easily stressed.
 
 An organ system that gets too weak costs the pet health.
+
+Under the organ bars, the page shows your pet's **age and life stage**, its **sleep** (awake,
+drowsy, or the stage of sleep it is in, and any sleep debt) and its **hormones**, which respond to
+how it lives:
+
+- **Stress hormone** (cortisol) follows stress and spikes with frights, scolding, injuries and
+  illness. High levels weaken the immune system, so a stressed pet falls ill more easily, and make
+  sleep less restful. Affection brings it down.
+- **Mood hormone** (serotonin) rises with exercise, company, daylight and a full stomach, and sets
+  the mood your pet settles back to when nothing is happening.
+- **Bonding hormone** (oxytocin) is released by petting, grooming and treats a pet enjoys, and
+  calms it.
+- **Growth hormone** is high in young pets and released in deep sleep. It speeds up healing and
+  helps exercise build fitness.
+- **Sleep hormone** (melatonin) rises in the dark.
+
+**Growing up and growing old**: a pet is young for its first 60 game days (about an hour of play at
+the default speed), an adult until 6,000 game days (about 100 hours) and then a senior. Young pets
+are hungrier, learn tricks faster and gain fitness more easily; only adults can have babies. Seniors
+slow down more and more as they near the end of their lives: their metabolism slows, they recover
+less energy in sleep, lose fitness faster, fall ill more easily and learn more slowly. The page
+announces when a pet grows up and when it becomes a senior, and the care guide has a page on caring
+for an older cat or dog.
+
+A typical pet lives about 9,000 game days, about 150 hours of play at the default speed. Cats live
+a little longer than dogs; a pet's genes add or take up to 10%, and its care over its life (a running
+record of its wellbeing) up to 15%. Hover over the age line to see your pet's care record. Near the
+end the pet shows the warning sign **Very old and frail**, and it then dies of old age, unless gentle
+mode is on (see below). A **Life-extension potion** from the shop (1,000 points; it unlocks once the
+pet has earned 600 points over its life) adds about 1,500 game days (25 hours of play) each time;
+press **Give life-extension potion** under **Body** to give one. A pet that is well cared for and
+given a potion now and then can live on indefinitely.
 
 **The living area** gets dirty as the pet relieves itself. A cat uses its litter box several times
 a day, so scoop it regularly; if the box gets too dirty, the cat goes elsewhere and gets stressed. A
@@ -253,6 +419,14 @@ is not listed.
   it is petted; one that tolerates it learns to put up with it. Care a pet has had five or more
   times but neither likes nor dislikes is listed under "Puts up with". Care repeated in quick
   succession counts less towards what it learns.
+- **What it has learned**: under **About**, "Lately becoming" says which way your recent care is
+  moving its personality (for example "more playful"), and "Has learned you respond to" lists, for
+  each of its moods, the behavior of its own that your attention has rewarded most (for example
+  "when happy, playing"). When it misses you, a pet asks for the kind of attention it expects to
+  enjoy most in its current mood, from how it has taken that care in that mood before.
+- **On its own**: besides playing, seeking attention and sniffing around, a pet grooms itself when
+  its coat needs it (cats far more than dogs, which keeps a cat cleaner and calms it) and an
+  energetic pet that hasn't had enough exercise runs around, which builds a little fitness.
 - **A personality that grows**: a pet's personality changes slowly with how it is treated.
   Enjoyed play makes it more playful, enjoyed petting more affectionate, good trips more curious,
   and consistent care calmer and more attached to you. Scolding, injuries, illness and accidents
@@ -296,6 +470,32 @@ Several kinds of care come in variants, each with its own effect and lesson:
   both pets and shown under **About**. The page explains how to introduce cats, dogs, or a cat and
   a dog.
 
+  Under **Spend time together** in the same panel, tick up to three of your other pets and choose
+  **Play**, **Nap** or, if your pet is a dog, **Walk** (dogs only). Every pair in the group gets on
+  according to their personalities, species and history: dogs enjoy a walk as a pack, close
+  companions curl up for a nap together while strangers won't, cooperative (agreeable) pets get on
+  better, and territorial cats get on worse the bigger the group.
+
+  - **Signals**: the pets talk to each other the way real ones do: dogs play-bow, wag and lick, or
+    sniff and circle warily; cats slow-blink, rub and touch noses, or watch and keep their
+    distance. The result lists what each pair did.
+  - **Pecking order**: each pet has a rank from its personality (outgoing, territorial, confident
+    pets rank higher, and young ones lower). The result shows the order and who leads the pack or
+    is top cat.
+  - **Conflicts**: two pets that don't get along clash. If one clearly outranks the other, the
+    lower one backs down after a growl or hiss and is a little stressed; if they are close in rank
+    they scuffle, which stresses and frightens both and makes them rivals. The page explains how to
+    handle a clash between cats, dogs, or a cat and a dog.
+  - **Group happiness**: the result gives how happy the group is together: the pets' average
+    happiness, lowered when they don't get along.
+
+  Everyone in the group is saved with what happened: good company lifts their mood and calms them,
+  a walk or play exercises them and a good nap rests them, and each pair's relationship records the
+  time together. Your pet takes it as care, like a meeting. **About** shows, for each pet yours
+  knows, what they last did together. A friendship or rivalry fades slowly once two pets have
+  spent 100 game days (about 1 hour 40 minutes of play) apart; family bonds never fade below a
+  certain level.
+
 ### Activities
 
 - **🎓 Train**: teach tricks (Sit, Shake a paw, Spin, Roll over, Play dead). Each session
@@ -314,7 +514,13 @@ Several kinds of care come in variants, each with its own effect and lesson:
   the forest (6), the city (9) and the mountain (12). Wilder places hold more to find and are more
   dangerous. What your pet finds is taken from the place (a souvenir takes more than looking
   around and finding nothing), shown as a bar of what is left to find; a place grows back over
-  about 20 game days, so going to the same place again and again finds less. It needs energy, water and food to go,
+  about 20 game days (faster in summer and fall, when food is plentiful, and slower in winter), so
+  going to the same place again and again finds less. Places differ in other ways too: the park and
+  the city have the most animals and people around, so trips there do the most for your pet's need
+  for company (and a sociable pet comes home happier, having made friends), while wilder places do
+  more for its need for adventure. Every place carries some risk of parasites, lowest at the park
+  and the farm and highest on the mountain; it builds up over visits (faster for a pet with a weak
+  immune system) until the pet catches them and needs medical care. It needs energy, water and food to go,
   and can't be cared for while it is away, though you can still clean its living area. Pausing
   time pauses the trip too. Trips don't always go well:
   - a little over half the time your pet brings home a souvenir for its treasure collection (curious
@@ -332,7 +538,7 @@ Several kinds of care come in variants, each with its own effect and lesson:
 
 Press **💞 Breed** to have a baby with one of your other saved pets. The panel lists each saved
 pet with how genetically compatible it is with your pet and, if they can't breed right now, why.
-Both pets must be the same species and at least 7 game days old, healthy (health at least 60%) and happy (happiness at
+Both pets must be the same species and adults (60 to 6,000 game days old), healthy (health at least 60%) and happy (happiness at
 least 50%), and at least 30% compatible; neither can be hibernating, exploring or have passed
 away. Breeding can still fail by chance; less compatible pairs fail more often. The season matters
 too: babies are likelier in spring and less likely in fall and winter, and the panel says so. Two
@@ -381,6 +587,7 @@ are kept in the pet's pantry, and the shop only shows those for the pet's specie
 - **Toys**: for cats a feather wand, a catnip mouse (about two cats in three react to catnip,
   depending on their genes) and a laser pointer; for dogs a tennis ball, a rope toy and a chew toy;
   and a puzzle feeder for either. Most toys wear out after a number of play sessions.
+- **Health**: the life-extension potion (see Health and Learning Real Care).
 
 Supplies come in rarities. Common ones are available from the start; uncommon, rare, epic and
 legendary ones unlock once the pet has earned 50, 150, 300 and 600 Friendship Points over its
@@ -397,7 +604,8 @@ critical level (10%), or whose food and energy both do, goes into hibernation in
 While it hibernates its stats, age and mood stay exactly as they are and it does not respond to
 care. Press **Revive** to wake it: its health, water, food and energy are restored to at least
 half, and you can look after it again. Turning gentle mode off does not wake a pet that is
-already hibernating.
+already hibernating. Gentle mode pets also never die of old age: past their expected lifespan they
+stay seniors.
 
 ### Deleting Pets
 
@@ -408,7 +616,7 @@ be undone.
 ### Development
 
 ```bash
-# Run tests
+# Run tests (go test -short skips the twelve-hour play test)
 make test
 
 # Run benchmarks (pet creation, updates, saving and loading, server ticks)
@@ -425,7 +633,17 @@ make lint
 
 # Run in development mode with live reload
 make dev
+
+# Build release folders for Windows, macOS and Linux in dist/
+make release
 ```
+
+**Adding a species**: everything that differs between kinds of pet is in one definition per
+species: `internal/core/species_cat.go` and `species_dog.go`. A new kind of pet is a new file with a
+`SpeciesDef` (its names, sprites, body, toilet habits, care lessons and guide, daily routine,
+petting spots, supplies, reactions and social behavior) registered with `RegisterSpecies`. The game,
+its shop and the page (which reads `/api/species`) pick it up; registration checks that the
+definition is complete, and a test checks every registered species.
 
 ## REST API
 
@@ -483,7 +701,39 @@ endpoints, and other AR clients can use them too:
 | `POST /api/ar/exercise` | `{"action": "start"}`, `{"action": "position", "position": {...}}` while walking, then `{"action": "stop"}` |
 
 Gestures follow the same rules as the care buttons. Stopping the session removes the pet from the
-scene. A walk counts towards the pet's **Exercise**
+scene.
+
+### AR Playdates
+
+Players connected to the same cloud hub (see [Cloud](#cloud-backup-sync-and-sharing)) can meet in
+one place and see their pets together in AR, up to six at a time. Each player brings their active
+pet from their own game.
+
+1. One player opens **☁️ Cloud** and presses **🐾 Start a playdate**. AR opens, and the top of the
+   screen shows the playdate's six-character code.
+2. The others type the code under **AR playdate** and press **Join**.
+3. Everyone agrees on a spot they can all see, such as the middle of a table, and taps it in their
+   own AR view. That marks the playdate's center; each pet walks to its own place around it, and
+   the other players' pets appear around it too, with their names.
+4. Tap another player's pet to have yours play with it. How it goes is worked out like an
+   introduction (both pets' sociability, their species and how earlier meetings went), and both
+   pets remember it: your game records it for your pet, earning care points as usual, and the
+   other player's game records it for theirs. The panel shows what has happened and how your pet
+   gets along with each of the others.
+
+Closing AR leaves the playdate; a player whose game stops sending updates for 30 seconds is
+removed, and a playdate ends when everyone has left. Switching to another pet also leaves it.
+Each device places pets in its own view of the room, so pets appear around the center in the same
+arrangement on every device but are not aligned to the same compass direction. The hub passes on
+only each pet's name, species, whether it is young, how sociable it is, how it looks and its
+position relative to the center, and keeps playdates in memory only.
+
+| Route | Description |
+|---|---|
+| `GET /api/playdate` | The playdate you are at, as last updated: its code, the players and their pets, and what happened |
+| `POST /api/playdate` | `{"action": "start"}`, `{"action": "join", "code": "..."}` or `{"action": "leave"}`; also takes `"sprite"`, how your pet looks |
+| `POST /api/playdate/update` | Send your pet's `{"position": {...}}` relative to the center (and `"sprite"`); returns the playdate. Send it about once a second |
+| `POST /api/playdate/play` | `{"owner": "..."}`: your pet plays with that player's pet | A walk counts towards the pet's **Exercise**
 need: every 500 m counts as much as one play session (at most two per walk) and uses a little
 energy. A sleeping, tired, hibernating or exploring pet can't go for a walk.
 
@@ -499,9 +749,12 @@ options:
 | `server.data_dir` | `-data-dir` | `""` (`~/.gochi`); a relative path is relative to the file |
 | `server.api_token` | `-api-token` | `""` (REST API off) |
 | `server.api_rate_limit` | | `120` REST API requests a minute per client (0 for no limit) |
+| `hub.enabled` | `-hub` | `false` (also run as a cloud hub) |
+| `hub.join_code` | `-hub-join-code` | `""` (registration closed) |
 | `simulation.time_scale` | `-time-scale` | `"game"` |
 | `simulation.autosave` | `-autosave` | `1m` |
 | `simulation.away_pause` | `-away-pause` | `2m` |
+| `server.tls_cert`, `server.tls_key` | `-tls-cert`, `-tls-key` | `""` (HTTP); relative paths are relative to the file |
 
 A command-line option overrides the file, and a setting the file leaves out keeps its default.
 The server stops with an error if the file has a setting it doesn't know or an invalid value, so
@@ -519,12 +772,23 @@ Detailed documentation can be found in the `docs/` directory:
 
 This project is in early development.
 
-## Performance Targets
+## Performance
 
-- **Frame Rate**: 60 FPS
-- **Memory Usage**: < 500 MB RAM
-- **Battery Optimization**: Adaptive processing based on battery level
-- **Cross-Platform**: iOS, Android, Windows, macOS
+The simulation runs in the server, so the page only shows its state and stays responsive.
+
+- **Memory**: the target is under 500 MB. A test plays twelve hours at the default speed (720 game
+  days, with care every half minute): the server's heap stays under 2 MB, and a pet's save stops
+  growing at under 1 MB, since a pet keeps its 1,000 strongest long-term memories and its last 500
+  history entries. A server tick takes about 12 µs.
+- **Battery**: the page updates every 2 seconds while charging, every 5 seconds on battery, and every
+  15 seconds with animations off on low battery (20% or less), where the browser reports the battery
+  (Chrome, Edge and other Chromium browsers). A hidden page doesn't update at all, and animations
+  stop for players who ask their system for reduced motion.
+- **Network**: scripts and styles are served with a version hash in their address and may be
+  cached for a year, by the browser or by a proxy or CDN in front of the server; a new version gets
+  a new address.
+- **Platforms**: Windows, macOS and Linux (see [Installation](#installation)); iOS and Android
+  through the browser.
 
 ## License
 

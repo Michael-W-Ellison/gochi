@@ -17,9 +17,10 @@ import (
 
 // Kinds of supply
 const (
-	SupplyFood  = "food"
-	SupplyTreat = "treat"
-	SupplyToy   = "toy"
+	SupplyFood   = "food"
+	SupplyTreat  = "treat"
+	SupplyToy    = "toy"
+	SupplyHealth = "health" // Medicine the owner gives (see GiveLifePotion)
 )
 
 // supply describes one kind of supply
@@ -55,52 +56,8 @@ type toyProfile struct {
 	lesson      string
 }
 
-// Basic foods are free and always in the pantry
-var basicFoods = map[Species]supply{
-	SpeciesCat: {item: interaction.Item{ID: "cat_dry", Name: "Dry cat food", Type: interaction.ItemTypeFood,
-		Description: "Complete dry food for cats. Always in the pantry."}, icon: "🥣", kind: SupplyFood,
-		species: []Species{SpeciesCat},
-		food:    &foodProfile{nutrition: 1, lesson: "Complete cat food gives a cat everything it needs; measure each meal."}},
-	SpeciesDog: {item: interaction.Item{ID: "dog_kibble", Name: "Dry dog food", Type: interaction.ItemTypeFood,
-		Description: "Complete dry food for dogs. Always in the pantry."}, icon: "🥣", kind: SupplyFood,
-		species: []Species{SpeciesDog},
-		food:    &foodProfile{nutrition: 1, lesson: "Complete dog food gives a dog everything it needs; measure each meal."}},
-}
-
-// supplyCatalog lists every supply in shop order
-var supplyCatalog = []supply{
-	// Cat food
-	{item: interaction.Item{ID: "cat_wet", Name: "Wet cat food", Price: 8, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeFood, Description: "Complete food with plenty of water in it. 3 meals."},
-		icon: "🥫", kind: SupplyFood, species: []Species{SpeciesCat}, pack: 3,
-		food: &foodProfile{nutrition: 1, hydration: 0.15, taste: 0.1,
-			lesson: "Wet food adds water to a cat's diet, which helps cats that don't drink much."}},
-	{item: interaction.Item{ID: "cat_fish", Name: "Plain cooked fish", Price: 12, Rarity: interaction.RarityUncommon,
-		Type: interaction.ItemTypeFood, Description: "A tasty topper, not a complete meal. 2 servings."},
-		icon: "🐟", kind: SupplyFood, species: []Species{SpeciesCat}, pack: 2,
-		food: &foodProfile{nutrition: 0.6, taste: 0.25,
-			lesson: "Plain cooked fish is a treat, not a diet: on its own it lacks nutrients cats need. Never feed raw fish regularly."}},
-	{item: interaction.Item{ID: "cat_premium", Name: "Premium cat food", Price: 25, Rarity: interaction.RarityRare,
-		Type: interaction.ItemTypeFood, Description: "High-quality complete food that's easy to digest. 3 meals."},
-		icon: "🍽️", kind: SupplyFood, species: []Species{SpeciesCat}, pack: 3,
-		food: &foodProfile{nutrition: 1.1, taste: 0.15, digestion: 0.05,
-			lesson: "A good complete diet keeps digestion healthy; change foods gradually over a week to avoid upsets."}},
-	// Dog food
-	{item: interaction.Item{ID: "dog_wet", Name: "Wet dog food", Price: 8, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeFood, Description: "Complete food with extra moisture. 3 meals."},
-		icon: "🥫", kind: SupplyFood, species: []Species{SpeciesDog}, pack: 3,
-		food: &foodProfile{nutrition: 1, hydration: 0.1, taste: 0.1,
-			lesson: "Wet food is tasty and adds water; many owners mix it with dry food."}},
-	{item: interaction.Item{ID: "dog_chicken", Name: "Plain cooked chicken", Price: 12, Rarity: interaction.RarityUncommon,
-		Type: interaction.ItemTypeFood, Description: "Boneless and unseasoned; a tasty topper. 2 servings."},
-		icon: "🍗", kind: SupplyFood, species: []Species{SpeciesDog}, pack: 2,
-		food: &foodProfile{nutrition: 0.6, taste: 0.25,
-			lesson: "Plain, boneless cooked chicken is a safe topper; cooked bones splinter and seasoning can be toxic."}},
-	{item: interaction.Item{ID: "dog_premium", Name: "Premium dog food", Price: 25, Rarity: interaction.RarityRare,
-		Type: interaction.ItemTypeFood, Description: "High-quality complete food that's easy to digest. 3 meals."},
-		icon: "🍽️", kind: SupplyFood, species: []Species{SpeciesDog}, pack: 3,
-		food: &foodProfile{nutrition: 1.1, taste: 0.15, digestion: 0.05,
-			lesson: "A good complete diet keeps digestion healthy; change foods gradually over a week to avoid upsets."}},
+// sharedSupplies are the supplies for every species
+var sharedSupplies = []supply{
 	// Foods to avoid, to learn what not to feed
 	{item: interaction.Item{ID: "milk", Name: "Cow's milk", Price: 3, Rarity: interaction.RarityCommon,
 		Type: interaction.ItemTypeFood, Description: "Not recommended. 1 bowl."},
@@ -114,56 +71,16 @@ var supplyCatalog = []supply{
 		food: &foodProfile{nutrition: 0.5, taste: 0.3, digestion: -0.35,
 			warning: "Fatty, seasoned leftovers can upset the stomach, and onions and garlic are toxic to pets. Feed them anyway?",
 			lesson:  "Rich, fatty leftovers upset the stomach and can cause pancreatitis; onions and garlic are toxic to cats and dogs."}},
-	{item: interaction.Item{ID: "chocolate", Name: "Chocolate", Price: 3, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeFood, Description: "Toxic to dogs. 1 piece."},
-		icon: "🍫", kind: SupplyFood, species: []Species{SpeciesDog}, pack: 1,
-		food: &foodProfile{nutrition: 0.2, taste: 0.3, toxic: true,
-			warning: "Chocolate is poisonous to dogs. Feed it anyway?",
-			lesson:  "Chocolate contains theobromine, which poisons dogs; dark chocolate is the most dangerous. If a dog eats chocolate, call a vet."}},
-	// Treats
-	{item: interaction.Item{ID: "cat_treats", Name: "Cat treats", Price: 10, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeFood, Description: "Small rewards for training and good behavior. Bag of 10."},
-		icon: "🍪", kind: SupplyTreat, species: []Species{SpeciesCat}, pack: 10},
-	{item: interaction.Item{ID: "dog_treats", Name: "Dog treats", Price: 10, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeFood, Description: "Small rewards for training and good behavior. Bag of 10."},
-		icon: "🦴", kind: SupplyTreat, species: []Species{SpeciesDog}, pack: 10},
-	// Cat toys
-	{item: interaction.Item{ID: "wand_toy", Name: "Feather wand", Price: 15, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeToy, Uses: 30, MaxUses: 30, Description: "A feather on a string to stalk and pounce on. Wears out."},
-		icon: "🪶", kind: SupplyToy, species: []Species{SpeciesCat}, pack: 1,
-		toy: &toyProfile{fit: 0.25, exercise: 1.3, stimulation: 0.6,
-			lesson: "A wand toy lets a cat stalk, chase and pounce, the way it would hunt; let it catch the feather at the end."}},
-	{item: interaction.Item{ID: "catnip_mouse", Name: "Catnip mouse", Price: 10, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeToy, Uses: 20, MaxUses: 20, Description: "A toy mouse filled with catnip. Wears out."},
-		icon: "🐭", kind: SupplyToy, species: []Species{SpeciesCat}, pack: 1,
-		toy: &toyProfile{fit: 0.1, exercise: 0.8, stimulation: 0.4, catnip: true}},
-	{item: interaction.Item{ID: "laser_pointer", Name: "Laser pointer", Price: 20, Rarity: interaction.RarityUncommon,
-		Type: interaction.ItemTypeToy, Description: "A red dot to chase."},
-		icon: "🔴", kind: SupplyToy, species: []Species{SpeciesCat}, pack: 1,
-		toy: &toyProfile{fit: 0.15, exercise: 1.4, stimulation: 0.3,
-			lesson: "Chasing a dot that can never be caught can frustrate a cat; finish with a toy it can catch. Never shine it in eyes."}},
-	// Dog toys
-	{item: interaction.Item{ID: "tennis_ball", Name: "Tennis ball", Price: 10, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeToy, Uses: 40, MaxUses: 40, Description: "For fetch. Wears out."},
-		icon: "🎾", kind: SupplyToy, species: []Species{SpeciesDog}, pack: 1,
-		toy: &toyProfile{fit: 0.25, exercise: 1.4, stimulation: 0.3,
-			lesson: "Fetch is great exercise; use a ball too big to swallow, and stop before your dog is exhausted."}},
-	{item: interaction.Item{ID: "rope_toy", Name: "Rope toy", Price: 15, Rarity: interaction.RarityCommon,
-		Type: interaction.ItemTypeToy, Uses: 30, MaxUses: 30, Description: "For tug of war. Wears out."},
-		icon: "🪢", kind: SupplyToy, species: []Species{SpeciesDog}, pack: 1,
-		toy: &toyProfile{fit: 0.2, exercise: 1.1, stimulation: 0.4,
-			lesson: "Tug is good fun with rules: your dog lets go on cue, and the game stops if teeth touch skin."}},
-	{item: interaction.Item{ID: "chew_toy", Name: "Chew toy", Price: 20, Rarity: interaction.RarityUncommon,
-		Type: interaction.ItemTypeToy, Uses: 50, MaxUses: 50, Description: "Something safe to chew. Wears out."},
-		icon: "🦷", kind: SupplyToy, species: []Species{SpeciesDog}, pack: 1,
-		toy: &toyProfile{fit: 0.1, exercise: 0.2, stimulation: 0.3, calming: 0.1,
-			lesson: "Chewing calms dogs and keeps them from chewing furniture; replace a chew toy before it breaks into pieces."}},
 	// Toys for both
 	{item: interaction.Item{ID: "puzzle_feeder", Name: "Puzzle feeder", Price: 35, Rarity: interaction.RarityRare,
 		Type: interaction.ItemTypeToy, Description: "A toy that releases food as it's worked out."},
 		icon: "🧩", kind: SupplyToy, pack: 1,
 		toy: &toyProfile{fit: 0.1, exercise: 0.3, stimulation: 1.2, calming: 0.05,
 			lesson: "Puzzle feeders make a pet work for its food, which keeps its mind busy and slows down fast eaters."}},
+	// Health
+	{item: interaction.Item{ID: LifePotionID, Name: "Life-extension potion", Price: 1000, Rarity: interaction.RarityLegendary,
+		Type: interaction.ItemTypeMedicine, Description: "Adds about 1,500 game days to your pet's life. Give it from the Body panel."},
+		icon: "🧪", kind: SupplyHealth, pack: 1},
 }
 
 // Points a pet must have earned over its life to unlock each rarity
@@ -192,16 +109,38 @@ var (
 // pantryCapacity is how many kinds of supply the pantry holds
 const pantryCapacity = 30
 
+// supplyKinds order the shop
+var supplyKinds = []string{SupplyFood, SupplyTreat, SupplyToy, SupplyHealth}
+
+// supplyCatalog lists every supply in shop order: by kind, each species'
+// own before the shared ones
+func supplyCatalog() []supply {
+	var all []supply
+	for _, def := range SpeciesList() {
+		all = append(all, def.Supplies...)
+	}
+	all = append(all, sharedSupplies...)
+	catalog := make([]supply, 0, len(all))
+	for _, kind := range supplyKinds {
+		for _, s := range all {
+			if s.kind == kind {
+				catalog = append(catalog, s)
+			}
+		}
+	}
+	return catalog
+}
+
 // findSupply returns a supply, including the basic foods
 func findSupply(id string) (supply, bool) {
-	for _, s := range supplyCatalog {
+	for _, s := range supplyCatalog() {
 		if s.item.ID == id {
 			return s, true
 		}
 	}
-	for _, s := range basicFoods {
-		if s.item.ID == id {
-			return s, true
+	for _, def := range SpeciesList() {
+		if def.BasicFood.item.ID == id {
+			return def.BasicFood, true
 		}
 	}
 	return supply{}, false
@@ -232,7 +171,7 @@ func (p *DigitalPet) supplyShopLocked() *interaction.Shop {
 	p.ensureSuppliesLocked()
 	catalog := &interaction.ItemCatalog{Items: make(map[string]*interaction.Item)}
 	var ids []string
-	for _, s := range supplyCatalog {
+	for _, s := range supplyCatalog() {
 		if !s.forSpecies(p.speciesLocked()) {
 			continue
 		}
@@ -291,7 +230,7 @@ func (p *DigitalPet) SupplyOffers() []SupplyOffer {
 
 	shop := p.supplyShopLocked()
 	offers := []SupplyOffer{}
-	for _, s := range supplyCatalog {
+	for _, s := range supplyCatalog() {
 		item, ok := shop.Catalog.GetItem(s.item.ID)
 		if !ok {
 			continue
@@ -348,7 +287,7 @@ func (p *DigitalPet) BuySupply(id string) error {
 // useSupplyLocked takes one unit of a food or treat from the pantry; the
 // species' basic food never runs out. Caller must hold p.mu.
 func (p *DigitalPet) useSupplyLocked(id string) error {
-	if basic := basicFoods[p.speciesLocked()]; id == basic.item.ID {
+	if basic := p.defLocked().BasicFood; id == basic.item.ID {
 		return nil
 	}
 	p.ensureSuppliesLocked()
@@ -397,9 +336,9 @@ func (p *DigitalPet) Pantry() []PantryItem {
 	defer p.mu.Unlock()
 	p.ensureSuppliesLocked()
 
-	basic := basicFoods[p.speciesLocked()]
+	basic := p.defLocked().BasicFood
 	items := []PantryItem{{ID: basic.item.ID, Name: basic.item.Name, Icon: basic.icon, Kind: SupplyFood, Quantity: -1}}
-	for _, s := range supplyCatalog {
+	for _, s := range supplyCatalog() {
 		owned, ok := p.Supplies.Items[s.item.ID]
 		if !ok || !s.forSpecies(p.speciesLocked()) {
 			continue

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 // Trips go to a place from the environment package's locations. Each
@@ -168,4 +169,40 @@ func (p *DigitalPet) takeFromPlaceLocked(outcome string) string {
 func (p *DigitalPet) placePhraseLocked() string {
 	id, _ := p.tripPlaceLocked()
 	return placeDetails[id].phrase
+}
+
+// visitPlaceLocked applies what a trip's place offers besides finds: the
+// company of other animals (its social bonus) and new things to take in
+// (its exploration bonus) meet the pet's needs, and places with a health
+// risk expose the pet to parasites. Exposure builds up with each visit
+// (by the place's risk, more for a weak immune system) and the pet picks
+// up parasites when it reaches 1. It returns a note for the trip's report.
+// Caller must hold p.mu.
+func (p *DigitalPet) visitPlaceLocked() string {
+	_, loc := p.tripPlaceLocked()
+	if loc == nil {
+		return ""
+	}
+	effects := loc.Effects
+	age := p.Biology.GetAgeInDays()
+	p.ensureNeedsLocked()
+	p.Needs.SatisfyNeed(types.NeedSocial, effects.SocialBonus, age)
+	p.Needs.SatisfyNeed(types.NeedExploration, effects.ExplorationBonus, age)
+
+	note := ""
+	if effects.SocialBonus >= 0.5 && sociability(*p.Personality.Traits) >= 0.5 {
+		v := p.Biology.Vitals
+		v.Happiness += 0.05
+		v.Clamp()
+		note = fmt.Sprintf(" %s made some friends along the way.", p.Name)
+	}
+	resistance := max(1.2-p.Biology.ImmuneResponse(), 0.1)
+	p.ParasiteExposure += effects.HealthRisk * resistance
+	if p.Illness == nil && p.ParasiteExposure >= 1 {
+		p.ParasiteExposure = 0
+		p.Illness = &Illness{Kind: IllnessParasites, Severity: 0.1, SinceAge: age}
+		p.recordHealthEventLocked("vet", "%s may have picked up parasites while exploring. Watch for signs of illness.", p.Name)
+		note += fmt.Sprintf(" %s may have picked something up there.", p.Name)
+	}
+	return note
 }

@@ -208,21 +208,24 @@ func TestLessonsFollowSpecies(t *testing.T) {
 
 func TestEverySymptomTopicIsInTheGuide(t *testing.T) {
 	topics := map[Species]map[string]bool{}
-	for species, guide := range careGuide {
-		topics[species] = map[string]bool{}
-		for _, topic := range guide {
-			topics[species][topic.ID] = true
+	for _, def := range SpeciesList() {
+		topics[def.ID] = map[string]bool{}
+		for _, topic := range def.CareGuide {
+			topics[def.ID][topic.ID] = true
 		}
 	}
-	for kind, bySpecies := range illnessSigns {
-		for species, sign := range bySpecies {
-			if !topics[species][sign.Topic] {
-				t.Errorf("%s sign for %s refers to missing topic %q", kind, species, sign.Topic)
+	for _, def := range SpeciesList() {
+		for kind, sign := range def.IllnessSigns {
+			if !topics[def.ID][sign.Topic] {
+				t.Errorf("%s sign for %s refers to missing topic %q", kind, def.ID, sign.Topic)
 			}
+		}
+		if !topics[def.ID][def.MessSymptom.Topic] {
+			t.Errorf("%s's mess sign refers to missing topic %q", def.ID, def.MessSymptom.Topic)
 		}
 	}
 	for kind, topic := range illnessTopics {
-		for species := range careGuide {
+		for species := range topics {
 			if !topics[species][topic] && !(kind == IllnessParasites && species == SpeciesCat) &&
 				!(kind == IllnessUrinary && species == SpeciesDog) {
 				t.Errorf("Illness %s refers to topic %q, missing for %s", kind, topic, species)

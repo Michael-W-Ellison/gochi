@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/genetics"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -38,6 +39,15 @@ const errDifferentSpecies = "cats and dogs can't have babies together"
 // maxBabiesPerPair is how many babies two pets can have together over
 // their lives, so a pair can't fill the save list with siblings
 const maxBabiesPerPair = 5
+
+// newGeneticSystem returns the genetics package's system with the ages pets
+// can breed at: adults, not the young or seniors
+func newGeneticSystem() *genetics.GeneticSystem {
+	gs := genetics.NewGeneticSystem()
+	gs.Requirements.MinAge = biology.AdultAge
+	gs.Requirements.MaxAge = biology.SeniorAge
+	return gs
+}
 
 // childMutationRate is the chance each inherited personality trait mutates
 const childMutationRate = 0.05
@@ -177,7 +187,7 @@ func BreedingCompatibility(a, b *DigitalPet) (float64, string) {
 		return 0, ErrSamePet.Error()
 	}
 	infoA, infoB := a.breedingInfo(), b.breedingInfo()
-	gs := genetics.NewGeneticSystem()
+	gs := newGeneticSystem()
 	compatibility := gs.CalculateCompatibility(infoA.genome, infoB.genome)
 
 	for _, info := range []breedingInfo{infoA, infoB} {
@@ -217,7 +227,7 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 		return nil, BreedingError{reason}
 	}
 
-	gs := genetics.NewGeneticSystem()
+	gs := newGeneticSystem()
 	now := time.Now()
 	if reason := gs.CheckRequirements(infoA.candidate(now), infoB.candidate(now)); reason != "" {
 		return nil, BreedingError{reason}

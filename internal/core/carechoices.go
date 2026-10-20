@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -121,7 +122,7 @@ func (p *DigitalPet) pantrySupplyLocked(id, kind string) (supply, error) {
 	case !s.forSpecies(p.speciesLocked()):
 		return supply{}, ErrWrongSpecies
 	}
-	if basic := basicFoods[p.speciesLocked()]; id == basic.item.ID {
+	if basic := p.defLocked().BasicFood; id == basic.item.ID {
 		return s, nil
 	}
 	if p.ensureSuppliesLocked(); p.Supplies.GetItemQuantity(id) == 0 {
@@ -159,39 +160,9 @@ type petRegion struct {
 	lesson    string
 }
 
-// petRegions are where each species can be petted, favorite spots first
-var petRegions = map[Species][]petRegion{
-	SpeciesCat: {
-		{ID: "cheeks", Name: "Cheeks and chin", liking: 0.2,
-			lesson: "Cats have scent glands in their cheeks and chin; rubbing there is how they mark you as their own."},
-		{ID: "head", Name: "Top of the head", liking: 0.1,
-			lesson: "Most cats enjoy gentle strokes on the head; let your cat push into your hand."},
-		{ID: "back", Name: "Back", liking: 0,
-			lesson: "Long strokes along the back are fine for many cats; watch the tail for twitching."},
-		{ID: "tail", Name: "Base of the tail", liking: -0.1, sensitive: 1,
-			lesson: "Many cats dislike having their tail touched, though some enjoy a scratch at its base."},
-		{ID: "belly", Name: "Belly", liking: -0.35, sensitive: 1,
-			lesson: "A cat rolling over is showing trust, not asking for a belly rub; many grab and kick if touched there."},
-	},
-	SpeciesDog: {
-		{ID: "chest", Name: "Chest", liking: 0.2,
-			lesson: "Most dogs enjoy a scratch on the chest; reaching from the side and below feels friendlier than from above."},
-		{ID: "ears", Name: "Behind the ears", liking: 0.1,
-			lesson: "Many dogs love a scratch behind the ears; be gentle, ears are sensitive."},
-		{ID: "back", Name: "Shoulders and back", liking: 0.1,
-			lesson: "Strokes along the shoulders and back are welcome to most dogs."},
-		{ID: "head", Name: "Top of the head", liking: -0.1, sensitive: 1,
-			lesson: "Patting a dog on top of the head means reaching over it, which can feel threatening to nervous dogs."},
-		{ID: "belly", Name: "Belly", liking: 0, sensitive: 2,
-			lesson: "Some dogs love belly rubs, but rolling over can also mean 'please stop'; stop if your dog stiffens or licks its lips."},
-		{ID: "paws", Name: "Paws", liking: -0.25, sensitive: 1,
-			lesson: "Many dogs dislike having their paws handled; get them used to it slowly with treats, which helps with nail trims."},
-	},
-}
-
 // findRegion returns a species' petting region
 func findRegion(species Species, id string) (petRegion, bool) {
-	for _, r := range petRegions[species] {
+	for _, r := range species.Def().PetRegions {
 		if r.ID == id {
 			return r, true
 		}
@@ -240,14 +211,11 @@ func findMethod(id string) (trainingMethod, bool) {
 	return trainingMethod{}, false
 }
 
-// speciesTreats are the treats each species is trained with
-var speciesTreats = map[Species]string{SpeciesCat: "cat_treats", SpeciesDog: "dog_treats"}
-
 // methodAvailableLocked reports whether the pet can be trained with a
 // method now, or why not. Caller must hold p.mu.
 func (p *DigitalPet) methodAvailableLocked(m trainingMethod) error {
 	p.ensureSuppliesLocked()
-	treats := p.Supplies.GetItemQuantity(speciesTreats[p.speciesLocked()]) > 0
+	treats := p.Supplies.GetItemQuantity(p.defLocked().Treats) > 0
 	switch m.ID {
 	case "treats":
 		if !treats {
@@ -300,47 +268,9 @@ type environmentChange struct {
 // noveltyDays is how long it takes a change to feel new again
 const noveltyDays = 3.0
 
-// environmentChanges are what an owner can change at home for each species
-var environmentChanges = map[Species][]environmentChange{
-	SpeciesCat: {
-		{ID: "box", Name: "Put out a cardboard box", Icon: "📦", stimulation: 0.3, calming: 0.1,
-			liking: func(t *ai.Traits) float64 { return 0.2 + (t.Neuroticism-0.3)*0.3 },
-			lesson: "Boxes give cats a safe place to hide; hiding helps a stressed cat cope."},
-		{ID: "perch", Name: "Set up a window perch", Icon: "🪟", stimulation: 0.6, exploration: 0.5,
-			liking: func(t *ai.Traits) float64 { return 0.1 + (t.Curiosity-0.5)*0.4 },
-			lesson: "A window perch lets an indoor cat watch birds and passers-by, which keeps its mind busy."},
-		{ID: "forage", Name: "Hide food to find", Icon: "🔍", stimulation: 0.8, exercise: 0.2,
-			liking: func(t *ai.Traits) float64 { return 0.15 + (t.Curiosity-0.5)*0.3 },
-			lesson: "Hiding small portions of food lets a cat 'hunt' for its meal, which keeps indoor cats active."},
-		{ID: "scratching_post", Name: "Add a scratching post", Icon: "🪵", stimulation: 0.2, calming: 0.05,
-			liking: func(t *ai.Traits) float64 { return 0.15 },
-			lesson: "Scratching is natural: it keeps claws healthy and marks territory. A sturdy post saves the furniture."},
-		{ID: "rotate_toys", Name: "Swap out the toys", Icon: "🔄", stimulation: 0.5,
-			liking: func(t *ai.Traits) float64 { return (t.Openness-0.5)*0.3 - (t.Neuroticism-0.3)*0.2 },
-			lesson: "Putting some toys away and bringing them back later makes them feel new again."},
-	},
-	SpeciesDog: {
-		{ID: "sniff_game", Name: "Hide treats to sniff out", Icon: "👃", stimulation: 0.9, exploration: 0.3,
-			liking: func(t *ai.Traits) float64 { return 0.2 + (t.Curiosity-0.5)*0.3 },
-			lesson: "Nose work tires a dog's mind; a short sniffing game can tire a dog out as well as a walk."},
-		{ID: "new_smells", Name: "Bring in new things to sniff", Icon: "🍂", stimulation: 0.4, exploration: 0.6,
-			liking: func(t *ai.Traits) float64 { return 0.1 + (t.Curiosity-0.5)*0.4 },
-			lesson: "New smells are news to a dog; its sense of smell is far keener than ours."},
-		{ID: "den", Name: "Make a quiet den", Icon: "🏠", stimulation: 0.1, calming: 0.15,
-			liking: func(t *ai.Traits) float64 { return 0.1 + (t.Neuroticism-0.3)*0.4 },
-			lesson: "A quiet den where nobody disturbs them helps dogs feel safe, especially nervous ones."},
-		{ID: "frozen_toy", Name: "Give a frozen food toy", Icon: "🧊", stimulation: 0.6, calming: 0.1,
-			liking: func(t *ai.Traits) float64 { return 0.2 },
-			lesson: "A food toy stuffed and frozen keeps a dog busy and calm for a long time."},
-		{ID: "rotate_toys", Name: "Swap out the toys", Icon: "🔄", stimulation: 0.5,
-			liking: func(t *ai.Traits) float64 { return (t.Openness-0.5)*0.3 - (t.Neuroticism-0.3)*0.2 },
-			lesson: "Putting some toys away and bringing them back later makes them feel new again."},
-	},
-}
-
 // findChange returns a species' environment change
 func findChange(species Species, id string) (environmentChange, bool) {
-	for _, c := range environmentChanges[species] {
+	for _, c := range species.Def().EnvironmentChanges {
 		if c.ID == id {
 			return c, true
 		}
@@ -449,7 +379,7 @@ func (p *DigitalPet) applyChoiceLocked(boost float64) string {
 
 	case c.toy != nil:
 		t := c.toy.toy
-		p.Biology.Exercise(t.exercise - 1) // Playing already counted one session
+		p.Biology.ProcessExercise(biology.ExercisePlay, t.exercise-1) // Playing already counted one session
 		p.Needs.SatisfyNeed(types.NeedExercise, t.exercise-1, age)
 		p.Needs.SatisfyNeed(types.NeedMentalStimulation, t.stimulation, age)
 		v.Stress -= t.calming
@@ -476,7 +406,7 @@ func (p *DigitalPet) applyChoiceLocked(boost float64) string {
 		p.Needs.SatisfyNeed(types.NeedMentalStimulation, ch.stimulation*n, age)
 		p.Needs.SatisfyNeed(types.NeedExploration, ch.exploration*n, age)
 		p.Needs.SatisfyNeed(types.NeedExercise, ch.exercise*n, age)
-		p.Biology.Exercise(ch.exercise * n)
+		p.Biology.ProcessExercise(biology.ExerciseRun, ch.exercise*n)
 		v.Stress -= ch.calming * n * (0.5 + p.Personality.Traits.Neuroticism)
 		v.Happiness += 0.08 * n * boost
 		return ch.lesson
@@ -512,7 +442,7 @@ func (p *DigitalPet) GetCareOptions() CareOptions {
 	defer p.mu.Unlock()
 	species := p.speciesLocked()
 	options := CareOptions{Foods: []PantryItem{}, Treats: []PantryItem{}, Toys: []PantryItem{},
-		Regions: petRegions[species], Changes: environmentChanges[species]}
+		Regions: species.Def().PetRegions, Changes: species.Def().EnvironmentChanges}
 	for _, item := range pantry {
 		switch item.Kind {
 		case SupplyFood:

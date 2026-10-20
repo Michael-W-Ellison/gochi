@@ -4,6 +4,11 @@
  * pet placed in the room is the player's real pet: care given in AR goes
  * through the game's rules, tracked walks count as exercise, and the pet's
  * animation follows what it is doing.
+ *
+ * At a playdate (see /api/playdate), the first tap marks the playdate's
+ * center: the spot all the players agreed on. Each pet has its own place
+ * around the center; the other players' pets are shown where their games
+ * say they are, and tapping one has your pet play with it.
  */
 
 const GochiARLink = (function() {
@@ -14,6 +19,10 @@ const GochiARLink = (function() {
     const CAMERA_INTERVAL = 1000;
     const EXERCISE_INTERVAL = 1000;
     const POLL_INTERVAL = 2000;
+    const PLAYDATE_INTERVAL = 1000;
+
+    // Playdate places: pets stand around the center, this far from it (m)
+    const PLAYDATE_RADIUS = 1.0;
 
     // AR care to the gesture the server turns into the same care
     const gestures = { pet: 'tap', play: 'double_tap', feed: 'long_press' };
@@ -28,6 +37,14 @@ const GochiARLink = (function() {
     let pollTimer = null;
     let lastCameraReport = 0;
     let lastExerciseReport = 0;
+
+    // Playdate state: the center marked in this AR view, and the last
+    // state from the server
+    let playdateTimer = null;
+    let playdateCenter = null;
+    let playdate = null;
+    let playdateBusy = false;
+    let inPlace = false; // The pet has been sent to its place
 
     /**
      * Send a request to the server
@@ -64,6 +81,7 @@ const GochiARLink = (function() {
      * @param {function} opts.petSprite - returns the pet's current sprite
      * @param {function} opts.statusText - returns what the pet is doing
      * @param {function} opts.onEnd - called when AR closes
+     * @param {boolean} opts.playdate - AR for the playdate the player is at
      * @returns {Promise<boolean>} Whether AR started
      */
     async function start(opts = {}) {
@@ -80,7 +98,10 @@ const GochiARLink = (function() {
 
         GochiAR.on('onMessage', message);
         GochiAR.on('onPlaneDetected', reportPlane);
-        GochiAR.on('onPetPlaced', pet => placePet(pet.position));
+        GochiAR.on('onPetPlaced', pet => {
+            placePet(pet.position);
+            if (options.playdate) markCenter(pet.position);
+        });
         GochiAR.on('onPetMoved', placePet);
         GochiAR.on('onPetInteraction', care);
         GochiAR.on('onCameraMove', reportCamera);
@@ -91,10 +112,213 @@ const GochiARLink = (function() {
 
         if (!(await GochiAR.startSession())) {
             await call('/api/ar/session', { action: 'stop' });
+            if (options.playdate) call('/api/playdate', { action: 'leave' });
             return false;
         }
         pollTimer = setInterval(syncPet, POLL_INTERVAL);
+        if (options.playdate) startPlaydate();
         return true;
+    }
+
+    // ========================================================================
+    // Playdates
+    // ========================================================================
+
+    /**
+     * Show the playdate's panel and start exchanging positions
+     */
+    function startPlaydate() {
+        playdateCenter = null;
+        playdate = null;
+        inPlace = false;
+        const panel = document.createElement('div');
+        panel.className = 'ar-playdate-panel';
+        panel.id = 'ar-playdate-panel';
+        document.getElementById('ar-overlay').append(panel);
+        renderPlaydatePanel();
+        updatePlaydate();
+        playdateTimer = setInterval(updatePlaydate, PLAYDATE_INTERVAL);
+    }
+
+    /**
+     * The place around the center for a playdate slot
+     * @param {number} slot
+     * @returns {{x: number, y: number, z: number}} Offset from the center
+     */
+    function slotOffset(slot) {
+        const angle = slot * Math.PI / 3; // Six places
+        return { x: PLAYDATE_RADIUS * Math.sin(angle), y: 0, z: PLAYDATE_RADIUS * Math.cos(angle) };
+    }
+
+    /**
+     * Mark where the pet was placed as the playdate's center, and send
+     * the pet to its place around it
+     * @param {object} position - {x, y, z}
+     */
+    function markCenter(position) {
+        if (playdateCenter) return;
+        playdateCenter = { ...position };
+        goToPlace();
+        renderPlaydatePanel();
+    }
+
+    /**
+     * Send the pet to its place around the center, once the center is
+     * marked and the pet's place is known
+     */
+    function goToPlace() {
+        const me = playdate && playdate.members.find(m => m.you);
+        if (inPlace || !playdateCenter || !me) return;
+        inPlace = true;
+        const offset = slotOffset(me.slot);
+        GochiAR.movePetTo({
+            x: playdateCenter.x + offset.x,
+            y: playdateCenter.y,
+            z: playdateCenter.z + offset.z
+        });
+    }
+
+    /**
+     * Send the pet's position relative to the center (and how it looks)
+     * and show the other pets
+     */
+    async function updatePlaydate() {
+        if (playdateBusy) return;
+        playdateBusy = true;
+        const pet = GochiAR.getPlacedPet();
+        let position = { x: 0, y: 0, z: 0 };
+        if (pet && playdateCenter) {
+            position = {
+                x: pet.position.x - playdateCenter.x,
+                y: pet.position.y - playdateCenter.y,
+                z: pet.position.z - playdateCenter.z
+            };
+        }
+        const result = await call('/api/playdate/update', {
+            position,
+            sprite: options.petSprite ? options.petSprite() : ''
+        });
+        playdateBusy = false;
+        if (!playdateTimer) return; // AR closed meanwhile
+        if (!result.success) {
+            message(result.error || 'The playdate ended', 'warning');
+            clearInterval(playdateTimer);
+            playdateTimer = null;
+            playdate = null;
+            renderPlaymates();
+            renderPlaydatePanel(result.error || 'The playdate ended.');
+            return;
+        }
+        playdate = result.data;
+        goToPlace();
+        renderPlaymates();
+        renderPlaydatePanel();
+    }
+
+    /**
+     * Show the playdate's code, who is there and what happened
+     * @param {string} [ended] - Why the playdate ended
+     */
+    function renderPlaydatePanel(ended) {
+        const panel = document.getElementById('ar-playdate-panel');
+        if (!panel) return;
+        panel.replaceChildren();
+        const line = (text, className) => {
+            const div = document.createElement('div');
+            if (className) div.className = className;
+            div.textContent = text;
+            panel.append(div);
+            return div;
+        };
+        if (ended) {
+            line(ended);
+            return;
+        }
+        if (!playdate) {
+            line('Joining the playdate…');
+            return;
+        }
+        const title = line('Playdate ');
+        const code = document.createElement('span');
+        code.className = 'ar-playdate-code';
+        code.textContent = playdate.code;
+        title.append(code, ' · ' + playdate.members.map(m => m.pet.name + ' (' + m.owner + ')').join(', '));
+        if (!playdateCenter) {
+            line('Stand where you can all see the same spot, and tap that spot to mark the playdate\'s center.',
+                'ar-playdate-hint');
+        } else if (playdate.members.length < 2) {
+            line('Waiting for others. They join with the code ' + playdate.code + '.', 'ar-playdate-hint');
+        } else {
+            line('Tap another pet to have yours play with it.', 'ar-playdate-hint');
+        }
+        playdate.log.slice(-3).forEach(text => line(text, 'ar-playdate-log'));
+    }
+
+    /**
+     * Show the other players' pets where they are around the center
+     */
+    function renderPlaymates() {
+        const container = document.getElementById('ar-pet-container');
+        if (!container) return;
+        const others = playdate && playdateCenter ? playdate.members.filter(m => !m.you) : [];
+        const shown = new Set();
+        others.forEach(mate => {
+            const id = 'ar-playmate-' + mate.owner.toLowerCase();
+            shown.add(id);
+            let el = document.getElementById(id);
+            if (!el) {
+                el = document.createElement('div');
+                el.className = 'ar-playmate';
+                el.id = id;
+                const sprite = document.createElement('div');
+                sprite.className = 'pet-sprite';
+                const name = document.createElement('div');
+                name.className = 'ar-playmate-name';
+                el.append(sprite, name);
+                el.addEventListener('click', () => playWith(mate.owner));
+                container.append(el);
+            }
+            el.querySelector('.pet-sprite').textContent = mate.sprite || (mate.pet.species === 'dog' ? '🐶' : '🐱');
+            el.querySelector('.ar-playmate-name').textContent = mate.pet.name +
+                (mate.relation ? ' · ' + mate.relation : '');
+            el.title = mate.pet.name + ' (' + mate.owner + ')';
+            // Drawn like the AR module draws your pet
+            const x = playdateCenter.x + mate.position.x;
+            const z = playdateCenter.z + mate.position.z;
+            el.style.transform = `translate(${x * 100}px, ${z * -50}px) scale(${GochiAR.config.petScale})`;
+        });
+        document.querySelectorAll('.ar-playmate').forEach(el => {
+            if (!shown.has(el.id)) el.remove();
+        });
+    }
+
+    /**
+     * Have the player's pet play with another player's pet
+     * @param {string} owner - The other player
+     */
+    async function playWith(owner) {
+        const result = await call('/api/playdate/play', { owner });
+        if (!result.success) {
+            message(result.error || 'Something went wrong', 'warning');
+            return;
+        }
+        GochiAR.setPetAnimation(result.data.quality >= 0.6 ? 'playing' : 'idle');
+        if (options.onCare) {
+            options.onCare(result.data);
+        }
+        updatePlaydate();
+    }
+
+    /**
+     * Leave the playdate and remove its pets and panel
+     */
+    function endPlaydate() {
+        clearInterval(playdateTimer);
+        playdateTimer = null;
+        playdate = null;
+        playdateCenter = null;
+        document.querySelectorAll('.ar-playmate, .ar-playdate-panel').forEach(el => el.remove());
+        call('/api/playdate', { action: 'leave' });
     }
 
     /**
@@ -214,6 +438,7 @@ const GochiARLink = (function() {
     function end() {
         clearInterval(pollTimer);
         pollTimer = null;
+        if (options.playdate) endPlaydate();
         call('/api/ar/session', { action: 'stop' });
         if (options.onEnd) {
             options.onEnd();

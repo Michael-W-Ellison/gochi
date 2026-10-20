@@ -416,3 +416,79 @@ func (cr *CircadianRhythm) Reset() {
 	cr.SleepPressure = 0
 	cr.HomeostaticDrive = 0
 }
+
+// Follow keeps the rhythm in step with a pet whose sleep is decided
+// elsewhere (by its tiredness and the time of day), over deltaHours game
+// hours. Unlike Update, it never puts the pet to sleep or wakes it: it
+// tracks the sleep phases while the pet sleeps, drowsiness while it is
+// awake, and sleep debt, which builds while awake and is paid off by
+// sleep (balanced when the pet sleeps SleepDuration hours a day).
+func (cr *CircadianRhythm) Follow(deltaHours, timeOfDay float64, asleep bool) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	sleeping := cr.CurrentPhase == PhaseAsleep || cr.CurrentPhase == PhaseDeepSleep || cr.CurrentPhase == PhaseREMSleep
+	switch {
+	case asleep && !sleeping:
+		cr.transitionToPhase(PhaseAsleep)
+		cr.CurrentCycleTime, cr.TotalSleepTime, cr.SleepCycleCount = 0, 0, 0
+	case !asleep && sleeping:
+		cr.calculateSleepQuality()
+		cr.transitionToPhase(PhaseAwake)
+	}
+	cr.TimeInPhase += deltaHours
+
+	// The drive to sleep builds while awake and is relieved by sleep
+	if asleep {
+		cr.HomeostaticDrive = math.Max(cr.HomeostaticDrive-deltaHours*0.1, 0)
+	} else {
+		cr.HomeostaticDrive = math.Min(cr.HomeostaticDrive+deltaHours*0.05, 1)
+	}
+	cr.SleepPressure = math.Min(cr.HomeostaticDrive*0.7+cr.calculateCircadianComponent(timeOfDay)*0.3, 1)
+
+	share := cr.SleepDuration / 24 // Of each day the pet needs to sleep
+	if asleep {
+		cr.TotalSleepTime += deltaHours
+		cr.TotalLifetimeSleep += deltaHours
+		cr.SleepDebt = math.Max(cr.SleepDebt-(1-share)*deltaHours, 0)
+
+		// Light sleep, then deep sleep, then REM, in cycles
+		cr.CurrentCycleTime += deltaHours * 60
+		for cr.CurrentCycleTime >= cr.SleepCycleLength {
+			cr.CurrentCycleTime -= cr.SleepCycleLength
+			cr.SleepCycleCount++
+			cr.SleepCyclesCompleted++
+		}
+		phase := PhaseAsleep
+		switch {
+		case cr.CurrentCycleTime >= 60:
+			phase = PhaseREMSleep
+		case cr.CurrentCycleTime >= 20:
+			phase = PhaseDeepSleep
+		}
+		if phase != cr.CurrentPhase {
+			cr.transitionToPhase(phase)
+		}
+		return
+	}
+
+	cr.SleepDebt = math.Min(cr.SleepDebt+share*deltaHours, MaxSleepDebt)
+	switch {
+	case cr.SleepPressure > 0.6 && cr.CurrentPhase == PhaseAwake:
+		cr.transitionToPhase(PhaseDrowsy)
+	case cr.SleepPressure <= 0.6 && cr.CurrentPhase != PhaseAwake:
+		cr.transitionToPhase(PhaseAwake)
+	}
+}
+
+// MaxSleepDebt is the most sleep (in hours) a pet followed by Follow can
+// owe
+const MaxSleepDebt = 24.0
+
+// SleepWindowFactor returns how much the time of day favors sleep, 0.0
+// (the middle of the pet's waking hours) to 1.0 (the middle of its night)
+func (cr *CircadianRhythm) SleepWindowFactor(timeOfDay float64) float64 {
+	cr.mu.RLock()
+	defer cr.mu.RUnlock()
+	return cr.calculateCircadianComponent(timeOfDay)
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/social"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -43,16 +44,24 @@ type socialInfo struct {
 	traits                     ai.Traits
 	alive, hibernating, asleep bool
 	exploring                  bool
+	energy                     float64
+	young                      bool
+	relations                  map[types.PetID]float64 // How it gets along with pets it knows (relationScore)
 }
 
 func (p *DigitalPet) socialInfo() socialInfo {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return socialInfo{
+	info := socialInfo{
 		id: p.ID, name: p.Name, species: p.speciesLocked(), traits: *p.Personality.Traits,
 		alive: p.Biology.IsAlive, hibernating: p.Hibernating, exploring: p.isExploringLocked(),
-		asleep: p.CurrentBehavior == types.BehaviorSleeping,
+		asleep: p.CurrentBehavior == types.BehaviorSleeping, energy: p.Biology.Vitals.Energy,
+		young: p.Biology.LifeStage() == biology.StageYoung, relations: make(map[types.PetID]float64),
 	}
+	for id, rel := range p.Relationships.Relationships {
+		info.relations[id] = relationScore(rel)
+	}
+	return info
 }
 
 // unavailable explains why a pet can't meet another now, or returns ""
@@ -75,31 +84,6 @@ func sociability(t ai.Traits) float64 {
 	return (t.Extraversion + t.Agreeableness + (1 - t.Territoriality) + (1 - t.Neuroticism)) / 4
 }
 
-// speciesMeeting is how well each pairing of species tends to get along
-// at first: dogs are social animals; cats are territorial; a cat and a dog
-// need the most care
-func speciesMeeting(a, b Species) float64 {
-	switch {
-	case a == SpeciesDog && b == SpeciesDog:
-		return 0.1
-	case a == SpeciesCat && b == SpeciesCat:
-		return -0.1
-	}
-	return -0.15
-}
-
-// introductionLessons teach how to introduce each pairing of species
-func introductionLesson(a, b Species) string {
-	switch {
-	case a == SpeciesCat && b == SpeciesCat:
-		return "Introduce cats slowly: keep them apart at first, swap bedding so they learn each other's scent, " +
-			"then let them see each other before short, supervised meetings."
-	case a == SpeciesDog && b == SpeciesDog:
-		return "Introduce dogs on neutral ground, on loose leashes, with a walk side by side before they meet face to face."
-	}
-	return "Keep the dog on a leash for early meetings and give the cat high places and a way out; never let the dog chase the cat."
-}
-
 // Introduce introduces pet a to pet b. Both pets' relationships record the
 // meeting; a also receives it as care (with its reaction, learning and
 // points).
@@ -114,8 +98,23 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 		}
 	}
 
-	// How the meeting goes: both pets' sociability, their species, and
-	// how earlier meetings went (from a's side)
+	meeting, bond, err := a.meet(infoA, infoB, "met")
+	if err != nil {
+		return Meeting{}, err
+	}
+
+	b.mu.Lock()
+	b.recordMeetingLocked(infoA, bond, "met")
+	b.meetLocked(meeting.Quality)
+	b.mu.Unlock()
+	return meeting, nil
+}
+
+// meet has this pet (a) meet another (b): how the meeting goes depends on
+// both pets' sociability, their species and how a's earlier meetings with
+// b went. a receives it as care and records it (what they did) in its
+// relationships. It returns the meeting and the bond to record on b's side.
+func (a *DigitalPet) meet(infoA, infoB socialInfo, what string) (Meeting, float64, error) {
 	a.mu.Lock()
 	quality := (sociability(infoA.traits)+sociability(infoB.traits))/2 + speciesMeeting(infoA.species, infoB.species)
 	if rel, ok := a.Relationships.GetRelationship(infoB.id); ok {
@@ -136,22 +135,14 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 	result := a.interactWithLocked(types.InteractionSocialIntroduction, careChoice{meeting: &outcome})
 	if !result.Applied {
 		a.mu.Unlock()
-		return Meeting{}, RefusedError{result.Refusal}
+		return Meeting{}, 0, RefusedError{result.Refusal}
 	}
 	bond := (quality - cautiousMeeting) * 2 * weight
-	description := a.recordMeetingLocked(infoB, bond)
+	description := a.recordMeetingLocked(infoB, bond, what)
 	a.mu.Unlock()
 
-	b.mu.Lock()
-	b.recordMeetingLocked(infoA, bond)
-	b.meetLocked(quality)
-	b.mu.Unlock()
-
 	meeting := Meeting{InteractionResult: result, Quality: quality, Relationship: description}
-	verb := "growled at"
-	if infoA.species == SpeciesCat {
-		verb = "hissed at"
-	}
+	verb := threatSignal(infoA.species)
 	switch {
 	case quality >= goodMeeting:
 		meeting.Text = fmt.Sprintf("%s and %s played together happily!", infoA.name, infoB.name)
@@ -160,13 +151,13 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 	default:
 		meeting.Text = fmt.Sprintf("%s %s %s. The meeting didn't go well.", infoA.name, verb, infoB.name)
 	}
-	return meeting, nil
+	return meeting, bond, nil
 }
 
-// recordMeetingLocked records a meeting with another pet in this pet's
-// relationships, and returns how they get along now. Caller must hold
-// p.mu.
-func (p *DigitalPet) recordMeetingLocked(other socialInfo, bond float64) string {
+// recordMeetingLocked records time spent with another pet (what they did)
+// in this pet's relationships, and returns how they get along now. Caller
+// must hold p.mu.
+func (p *DigitalPet) recordMeetingLocked(other socialInfo, bond float64, what string) string {
 	rel, ok := p.Relationships.GetRelationship(other.id)
 	if !ok {
 		kind := types.RelationshipFriend
@@ -180,6 +171,7 @@ func (p *DigitalPet) recordMeetingLocked(other socialInfo, bond float64) string 
 		rel.Clamp()
 	}
 	rel.Update(max(min(bond, 1), -1), p.Biology.GetAgeInDays())
+	rel.RecordShared(what, p.Biology.GetAgeInDays(), bond)
 
 	// Friends and rivals follow how the meetings go; family stays family
 	if rel.Type == types.RelationshipFriend || rel.Type == types.RelationshipRival {
@@ -260,6 +252,7 @@ type PetRelation struct {
 	Name        string `json:"name"`
 	Kind        string `json:"kind"` // friend, rival, mate, parent or baby
 	Description string `json:"description"`
+	LastShared  string `json:"last_shared,omitempty"` // What they last did together, such as "napped together"
 }
 
 // relationKinds name each relationship type
@@ -282,7 +275,11 @@ func (p *DigitalPet) Relations() []PetRelation {
 		if !ok {
 			continue
 		}
-		relations = append(relations, PetRelation{Name: name, Kind: relationKinds[rel.Type], Description: describeRelation(rel)})
+		relation := PetRelation{Name: name, Kind: relationKinds[rel.Type], Description: describeRelation(rel)}
+		if last, ok := rel.LastShared(); ok {
+			relation.LastShared = last.Description
+		}
+		relations = append(relations, relation)
 	}
 	sortRelations(relations)
 	return relations

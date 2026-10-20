@@ -22,7 +22,8 @@ Cross-platform synchronization and cloud persistence
 Version 1.1 adds the player-facing game systems built on these foundations: care rewards and a
 shop (3.7), activities (3.8), requests, reactions and preferences (3.9), session and lifecycle
 management including optional hibernation (3.10), save slots and backups (4.1), a REST API (4.3),
-and the implemented environment and AR designs (5.1, 5.2).
+the environment, AR and adaptation features (5.1 - 5.3), including AR playdates through the cloud
+hub (4.2, 5.2).
 
 
 2. System Architecture
@@ -44,6 +45,9 @@ Metabolism System: Tracks energy conversion, waste production, cellular aging
 Physiological Systems: Cardiovascular, respiratory, digestive, nervous systems
 Hormonal System: Stress hormones, growth factors, mood regulators
 Circadian Rhythm: Sleep/wake cycles affecting all biological processes
+
+Implementation: the hormonal system, aging and lifespan, and the circadian rhythm are described in
+section 3.1.2; waste production and the organ systems under Physiology there.
 
 2.2.2 Behavioral AI System
 
@@ -88,7 +92,7 @@ public:
     void update(float deltaTime);      // deltaTime in game days
     InteractionResult interact(InteractionType type, float intensity);
     void processUserInteraction(InteractionType type, float intensity);
-    void processEnvironmentalInput(EnvironmentData data);
+    void processEnvironmentalInput(EnvironmentData data);  // Time of day, daylight, air quality
     PetStatus getCurrentStatus();
     PetRequest getCurrentRequest();    // Section 3.9
     void revive();                     // Section 3.10
@@ -165,6 +169,61 @@ lungs make energy drain faster, and any organ system below 0.5 costs health.
 Death: a pet dies when health or hydration reaches 0.0, or nutrition and energy both do. The
 cause of death is recorded and shown to the player (for an untreated illness, its name). See
 section 3.10 for hibernation.
+
+Environmental input: before each update the pet passes its body an EnvironmentData from its own
+environment (section 5.1): the hour, daylight (1.0 by day, dimmed to 0.4 - 0.7 by cloud, rain,
+storms, snow and fog, 0.0 at night) and air quality (from the living area, section 3.11). Other
+sources may call processEnvironmentalInput directly.
+
+Hormones (0.0 - 1.0; each moves towards a target at its own rate per game day, and events add
+pulses):
+  Cortisol   target 0.1 + 0.8 x stress - 0.3 x oxytocin (rate 4). Pulses: hardships (injury,
+             illness, accidents, throwing up) 0.5 x intensity, scolding 0.2, medical care 0.05,
+             unwanted affection 0.1. Above 0.3 it suppresses immunity (up to 40%), raises the
+             metabolic rate (x (1 + 0.3 x cortisol)) and lowers sleep quality (x (1 - 0.3 x cortisol)).
+  Growth     target 0.8 young, 0.3 adult, 0.3 - 0.15 x senescence senior; doubled + 0.2 in deep
+             sleep (rate 6). Organ recovery is scaled by 0.5 + growth, health recovery adds
+             0.01 x growth per game day, and exercise builds fitness x (0.7 + 0.6 x growth).
+  Serotonin  target 0.15 + 0.25 x exercise need met + 0.25 x company met + 0.2 x daylight +
+             0.15 x nutrition - 0.2 x cortisol (rate 2); pulses from meals and exercise. Happiness
+             drifts by 0.005 per game day towards 0.3 + 0.4 x serotonin.
+  Oxytocin   target 0.1 + 0.2 x company met (rate 3); pulses from petting 0.25, grooming 0.15 and
+             treats 0.1, times the reaction multiplier. Lowers cortisol; stress falls faster
+             (0.02 + 0.03 x oxytocin per game day) when wellbeing is good.
+  Melatonin  target 0.9 x (1 - daylight), at least 0.5 asleep (rate 8). Awake fatigue builds
+             x (1 + melatonin); sleep quality x (1 + 0.2 x melatonin); metabolism x (1 - 0.1 x melatonin).
+
+Derived processes, recomputed each update: metabolicRate = (1.2 young, else 1.0) x (1 - 0.25 x
+senescence) x the hormone factors above, and scales nutrition decay; cognitiveCapacity = (0.9 young,
+else 0.8) x (1 - 0.3 x senescence) x (1 - 0.3 x sleep debt level), and scales trick training by
+cognitiveCapacity / 0.8; emotionalResilience = 0.25 + 0.3 x serotonin + 0.2 x oxytocin + 0.25 x
+nervous health - 0.2 x cortisol, and scales stress build-up by 1.35 - 0.5 x resilience;
+digestiveEfficiency = 0.9 x (1 - 0.2 x senescence).
+
+Aging: life stages are young (age below 60 game days), adult (below 6,000) and senior. Expected
+lifespan = 9,000 x species (cat 1.05, dog 0.95) x (0.9 + 0.2 x longevity gene) x (0.85 + 0.3 x care
+record) + extension; the care record closes 0.5% of its gap to the current wellbeing per game day (starting at 0.5).
+calculateLifespan returns the game days left. Senescence runs from 0.0 at the start of the senior
+years (6,000, or two thirds of a shorter lifespan) to 1.0 at the expected lifespan; it lowers
+immunity by up to 30%, energy recovered in sleep by up to 30%, fitness gain by up to 40% and adds up
+to 0.01 a day to fitness loss. A pet that reaches its expected lifespan dies of old age, except in
+gentle mode (section 3.10.2). A life-extension potion (section 3.7.3) adds 1,500 game days and a
+growth hormone pulse of 0.3. Breeding needs both pets to be adults (section 3.5.1).
+
+Circadian rhythm: each pet has a CircadianRhythm that follows its sleep rather than causing it
+(follow(deltaHours, timeOfDay, asleep)). Asleep, it cycles through light sleep (first 20 minutes of
+each 90-minute cycle), deep sleep (to 60 minutes) and REM; awake, it is drowsy when sleep pressure
+(0.7 x homeostatic drive + 0.3 x time of day) exceeds 0.6. Sleep debt grows by 8/24 of each waking
+hour and falls by 16/24 of each sleeping hour (up to 24 hours); its level (debt / 12, at most 1.0)
+doubles fatigue build-up at most and lowers cognitive capacity. The preferred sleep window is
+11 pm - 5 am for cats and 10 pm - 6 am for dogs; at night the pet falls asleep at fatigue above
+0.7 - 0.2 x night or energy below 0.3 + 0.05 x night, where night (0.0 - 1.0) is how close the
+hour is to the middle of the window.
+
+processDigestion(FoodItem{bulk, nutrition, hydration, digestion}) adds nutrition x absorption,
+water and the digestive effect, pulses serotonin, then fills the stomach (eat). processExercise(
+type, duration) builds fitness (per session: play 0.05, walk 0.06, exploring 0.05, running around
+0.04) and pulses serotonin; the caller takes the energy it uses.
 3.1.3 PersonalityMatrix Class
 cppclass PersonalityMatrix {
     struct Traits {
@@ -264,9 +323,13 @@ cppclass BehaviorStateMachine {
 Implementation: each pet has a state machine (built when needed, not saved) whose transitions all
 start from any state and have probability 1.0, so behavior is deterministic and consistent. In
 priority order: EXPLORING (on a trip), SICK (health below 0.3 or a serious illness), DISTRESSED
-(wellbeing below 0.3), SLEEPING (tired, or asleep and not yet rested), EXCITED and HAPPY (good mood
-and energy), EATING (hungry), then a discretionary behavior (PLAYING, SOCIAL_INTERACTION or
-INVESTIGATING) when its score passes 0.6, else IDLE. A discretionary behavior's score combines
+(wellbeing below 0.3), SLEEPING (tired, or asleep and not yet rested; easier at night, section
+3.1.2), EXCITED and HAPPY (good mood and energy), EATING (hungry), then a discretionary behavior
+(PLAYING, SOCIAL_INTERACTION, INVESTIGATING, GROOMING or EXERCISING) when its score passes 0.6,
+else IDLE. GROOMING scores 0.6 x (1 - cleanliness) + 0.3 x conscientiousness + 0.3 for cats, and
+restores cleanliness by 0.05 per game day (dogs 0.025) and lowers stress by 0.02; EXERCISING scores
+0.5 x (1 - exercise need) + 0.5 x energy level when energy is at least 0.6, and gives 0.5 play
+sessions of exercise and uses 0.08 energy per game day. A discretionary behavior's score combines
 personality, the learned liking for the matching care (section 3.3.2) and the learned reward for
 the behavior itself (reinforcement learning). Hibernation is applied before the state machine.
 The machine records its transitions.
@@ -305,6 +368,18 @@ once established, each new interaction moves the preference by at least 2%, so a
 behavior stays consistent unless the way it is treated changes over time. A preference has half
 of its full influence on behavior after 10 interactions. Preferences do not decay; they are shown
 to the player as likes (affinity >= 0.25) and dislikes (affinity <= -0.15).
+
+Experience records: every kind of care the pet takes part in is recorded (recordExperience) with
+the pet's mood (excited, happy, calm or upset), dominant emotion, reward (its emotional valence,
+-1.0 to 1.0) and repeat weight; the last 200 are saved. A running estimate per care and mood
+(averaging over about 20 weighted experiences) gives predictReward(action, mood) with a confidence of
+n / (n + 5), falling back on the care's estimate across moods (confidence n / (n + 20)) when the mood
+has fewer than 3. When a pet asks for attention it asks for play or petting, whichever it expects to
+enjoy more: confidence x prediction + (1 - confidence) x learned preference. getPersonalityShift sums,
+over the last 50 records, the traits each care develops (as in evolveTraits) times reward and weight,
+plus neuroticism for disliked care; trends of 1.0 or more are shown as "Lately becoming".
+updateBehaviorWeights turns the Q-values into each mood's best-rewarded behavior and relative
+weights (positive values only), shown as "Has learned you respond to".
 
 Reinforcement learning: each pet has a Q-learning system (saved with the pet). When the owner
 gives care while the pet is in a discretionary behavior, the pet learns Q(context, behavior) with
@@ -435,7 +510,7 @@ cppclass GeneticSystem {
 Each pet has a genome whose personality genes match its personality traits (using the allele
 values, so traits do not drift lower with each generation). The player breeds the active pet with
 another saved pet. Both must be at least 7 game days old, have health of at least 0.6 and
-happiness of at least 0.5, be at least 0.3 compatible, and be neither hibernating, exploring nor
+happiness of at least 0.5 (adults: 60 to 6,000 game days old, section 3.1.2), be at least 0.3 compatible, and be neither hibernating, exploring nor
 dead; breeding can still fail by chance, more often for less compatible pairs. The baby's genome
 is a crossover of its parents' with mutation, its personality is inherited from both parents
 (mutation rate 0.05) with the genetically based traits taken from its genome, and it is saved in
@@ -462,6 +537,31 @@ cppclass SocialSystem {
     float calculateGroupHappiness();
     void handleConflict(DigitalPet& pet1, DigitalPet& pet2);
 };
+
+Implementation (core/group.go, social.go): introduceAnotherPet is section 3.4.3.
+processGroupActivity(activity, pets) has the active pet and one to three other saved pets play,
+nap or (all dogs) walk together; each needs energy above the activity's cost + 0.1 and must be
+awake, home and not hibernating. For each pair, harmony = meeting quality (section 3.4.3, with
+history (bond - rivalry - 0.2) x 0.25 from each side, or -0.05 for strangers) + the activity
+(play: 0.1 x (mean playfulness - 0.5); walk: +0.1; nap: +0.1 if both scores are at least 0.5,
+otherwise -0.15) + cooperation 0.1 x (mean agreeableness - 0.5) - territorial crowding (each cat
+loses 0.05 x (group size - 2) x territoriality), limited to 0.0 - 1.0. A pair below 0.45 clashes
+(handleConflict): if their dominance differs by 0.15 or more, the lower pet backs down after a
+growl or hiss (stress +0.05; bond change harmony - 0.45); otherwise they scuffle (both stress
++0.15, happiness -0.1, a hardship of 0.2; bond change 3 x (harmony - 0.45)) and the clash halves
+the pair's harmony. Dominance = 0.35 x extraversion + 0.3 x territoriality + 0.2 x (1 -
+neuroticism) + 0.15 x (1 - agreeableness), -0.2 for young pets; the group's pecking order and leader
+are reported. Pairs that don't clash signal by species and harmony (friendly at 0.6 or more,
+wary below), as text. Each pet's harmony is its mean over its pairs: the active pet takes the
+activity as SOCIAL_INTRODUCTION care, the others as a meeting; good company (0.6 or more) releases
+oxytocin and develops extraversion and agreeableness; the activity uses its energy, play and walks
+exercise (one and 1.2 play sessions) and a nap relieves 0.15 x harmony fatigue. Every pair's
+relationships record the shared experience (what they did, at each pet's age) and bond change
+(harmony - 0.45) x 2. calculateGroupHappiness = mean happiness x (0.6 + 0.4 x harmony), where
+harmony = 0.5 + (mean relationship score among pets that know each other - 0.2), limited to
+0.0 - 1.0. updateRelationships(deltaTime): relationships fade only after 100 game days without
+shared time (bond, affection and rivalry -0.002, trust -0.001 per game day), family bonds no lower
+than 0.3. The server saves every pet in the group (POST /api/group).
 3.7 Care Rewards and Shop
 3.7.1 Friendship Points
 cppclass CareRewards {
@@ -504,7 +604,8 @@ and a Shop that applies discounts and takes payment from the pet's Friendship Po
 species has its own foods, treats and toys (a few, such as milk, table scraps and the puzzle
 feeder, are for both). Rarities unlock by lifetime points earned: uncommon 50, rare 150, epic 300,
 legendary 600. Two unlocked supplies are 25% off each calendar day, chosen from the date. A
-purchase buys a pack (for example 3 meals or 10 treats).
+purchase buys a pack (for example 3 meals or 10 treats). The life-extension potion (legendary, 1,000
+points) is a health supply kept in the pantry and given with POST /api/potion (section 3.1.2).
 
 3.8 Activities
 3.8.1 Tricks
@@ -644,6 +745,10 @@ waiting by the door, sneezing, tiring quickly, signs of stress, an upset stomach
 signs, and recent events such as accidents), each with what it means and a care guide topic.
 Care guide: short lessons per species (feeding, water, litter box or bathroom breaks, exercise,
 grooming, vet care, breathing, stress); topics related to current warning signs are marked.
+Old age: seniors past 0.3 senescence show "Slowing down with age", and pets within 600 game days of
+their lifespan that can die of old age show "Very old and frail" with the days left and the potion;
+both link to a care guide page on older cats or dogs. Growing up and becoming a senior are events
+(section 5.1).
 Daily checklist: a real owner's routine for the current calendar day (cat: two meals, water,
 scoop the litter box, play, brush; dog: two meals, water, three walks, play), counted from the care
 given. It follows the real day rather than game time, so it shows a real pet's routine.
@@ -674,6 +779,21 @@ is replaced by its newest working backup.
 Saves read or written are kept in an in-memory cache (least recently used first out, up to 32 MB
 of pet data) along with the file's modification time and size; a load or pet list entry uses the
 cache only while the file is unchanged, so a damaged or replaced file is always read and checked.
+Save contents: each save records, besides the pet, its care history (the last 500 entries: each kind
+of care with how the pet took it, achievements earned and events from section 5.1), achievements
+(unlock times kept with the pet; 12 milestones with rarities from common to legendary), unlocks
+(places discovered, shop items owned, foods and toys in the pantry, tricks learned, species) and
+statistics (play time, interactions, longest life, highest happiness, achievements), with the game
+speed and autosave interval as preferences. Achievements are checked on each update and announced as
+events.
+Cloud (saveToCloud, loadFromCloud, synchronize): see section 4.2. Sync state is kept in cloud.json
+per pet: the hub's version and a hash of the pet data when last synced. A pet has changed locally
+when its pet data hash differs (so saving an unchanged pet is not a change) and on the hub when the
+hub's version differs. Changed on one side only: that side's copy wins (upload, or download with the
+local save kept as a backup). Changed on both: the copy last played (the pet's last update time)
+wins. New on the hub: downloaded into a new slot. Deleted on the hub: reported and no longer synced;
+the local copy is kept. If the active pet is downloaded, it is reloaded. Syncs run at startup
+(before restoring the last pet), every 5 minutes, on request and on exit.
 4.2 Cloud Integration
 cppclass CloudService {
     void uploadPetData(string userId, DigitalPet pet);
@@ -682,6 +802,23 @@ cppclass CloudService {
     vector<DigitalPet> getNearbyPets(Location userLocation);
     void shareAchievement(Achievement achievement);
 };
+
+Implementation (internal/hub): the cloud service is a hub, which any Gochi server can run (-hub with
+a join code), or which runs on its own as gochihub (section 6.3). Players register with the join code and get an account key (32 random bytes; the hub
+stores its SHA-256 hash); other devices connect with the username and key. HTTP API at /hub/v1:
+register; list, get, put (with the base version: a stale upload is refused with 409 and the hub's
+version) and delete pets, keyed by a hash of the pet ID; get and set the profile (area and what is shared);
+nearby pets; the achievements feed; and AR playdates (section 5.2). uploadPetData / downloadPetData store and return a pet's
+whole save file, encrypted by the game (section 6.2; at most 8 MB, 50 pets per account); the hub keeps one previous version, and a
+deleted pet leaves a marker so other devices don't upload it again. enableSocialFeatures sets the
+player's area (typed by the player, at most 60 characters) and two separate choices, both off for a
+new account: show_nearby and share_achievements (an older game's single "sharing" sets both, and
+accounts saved with it keep both on). getNearbyPets returns, to a player who shows their pets, the
+living pets of other players who do and whose area matches (case and spacing ignored): owner, name,
+species, life stage and when last played. shareAchievement posts to a feed of the last 200 (players
+must share achievements); the game shares each achievement as it is earned. Each player may make 120 requests a
+minute; requests without a valid account key (such as registering) are limited to 120 a minute per
+IP address, so players sharing a network (as at a playdate) don't share a limit.
 4.3 REST API
 cppclass RestAPI {   // /api/v1, enabled with -api-token; Bearer token required
     GET    /pets;  POST /pets;  GET /pets/{id};  PUT /pets/{id};  GET /pets/{id}/status;
@@ -710,13 +847,29 @@ day, which advance with that pet's game time (and so pause with it); weather cha
 game hours. The environment multiplies the rates at which hunger, thirst and energy change,
 nudges mood and stress, sets sleep quality (section 3.1.2) and changes exploring outcomes
 (section 3.8.3). The page shows the surroundings under the pet's name.
+Behavior: the pet's activity drive is the season's activity level (spring 1.1, summer and fall
+1.0, winter 0.8) times a weather factor (hot 0.8, stormy 0.85, rainy, cold or snowy 0.9, clear and
+comfortable (comfort above 0.7) 1.05, otherwise 1.0) times a time factor (1.1 for cats at dawn
+and dusk, otherwise 0.9 at night). It scales the weights of playing and exercising among the pet's own
+choices (section 3.3.1). Storms add 0.1 + 0.15 x neuroticism, and cold or snow 0.05 + 0.05 x
+affection, to the weight of seeking company. Outdoor suitability is the weather's (its comfort,
+0.2 in storms), halved at night; below 0.6 the pet doesn't ask to explore, a walk's reaction falls
+by (0.6 - suitability) x 0.5, and a trip's injury chance rises by up to 12 percentage points in
+proportion to the shortfall. At night the chance of finding a souvenir is multiplied by 0.6.
+Places (section 3.8.3): a trip that ends without injury meets the social need by the place's social
+bonus (park 0.6, city 0.5, beach 0.4, farm 0.3, forest 0.1, mountain 0.05) and the exploration need
+by its exploration bonus. At a social bonus of 0.5 or more a pet with sociability 0.5 or more also
+gains 0.05 happiness. Each trip adds the place's health risk (park and farm 0.05, beach and city
+0.1, forest 0.15, mountain 0.2) times max(1.2 - immune response, 0.1) to the pet's parasite
+exposure; at 1.0 the exposure resets and the pet gets parasites. Resources regrow at the base rate
+times the season's food availability (spring 0.9, summer 1.2, fall 1.1, winter 0.6).
 A new season blends in from the previous one over its first 5 days. Each pet has a favorite
 season from its personality (the highest of curiosity for spring, energy for summer, adaptability
 for fall, and the mean of affection and 1 - energy for winter); its mood modifier rises by 0.1 in
 that season and falls by 0.08 in the opposite one. The season also scales breeding (section 3.5.1).
 Events: each server tick compares a snapshot of the active pet before and after the update and
 records what changed on its own (hunger, thirst, a new warning sign, illness or recovery, a trip
-ending, a trick getting rusty, hibernation, death) in an event system that keeps the last 100
+ending, a trick getting rusty, growing up or becoming a senior, hibernation, death) in an event system that keeps the last 100
 events and passes them to registered handlers (the server logs illness, hibernation and death).
 GET /api/events?after=n returns the active pet's events after event n; the page lists the latest
 under "Recently". Care the player gives is reported in its response, not as an event.
@@ -735,12 +888,51 @@ feeding, swipe = throwing a ball (play), subject to the same validation as the c
 Exercise tracking records the player's walk; every 500 m counts towards the pet's exercise need
 as one play session (at most two per walk). The web page's AR view is such a client: with WebXR
 it finds surfaces by hit testing from the center of the view; without it, it shows a drawn room.
+Playdates: players on the same cloud hub (section 4.2) meet in one place, each with the active pet
+from their own game. A player starts a playdate and gets a six-character code (from an alphabet
+without look-alike characters); up to five others join with it. Each game describes its pet with a
+PlaymateCard (ID, name, species, whether young, sociability, and why it can't play if so) plus how
+it looks; the hub passes cards on without reading them (at most 2 KB each). In AR each player taps
+the agreed spot to mark the center; each member has a slot, and the client places its pet 1 m from
+the center at an angle of 60 degrees per slot. About once a second the page posts its pet's
+position relative to the center (clamped to 10 m) to its server, which forwards it with the card
+and gets back the members and the events since the last it saw. Tapping another pet makes the
+player's pet meet it as in an introduction (section 3.6.1: both sociabilities, species and the
+pet's earlier meetings decide the quality), recorded as care with points; the server then posts a
+"play" event to the hub with the quality and bond, and the other pet's server records the same
+meeting from its side ("played at a playdate") when it next updates. Members that send nothing for
+30 seconds are removed; a playdate ends when empty. Playdates are kept in the hub's memory only
+(at most 500 at once, the last 50 events each). Hub routes: POST /hub/v1/playdates (start),
+/playdates/{code}/join, /update, /events and /leave. Game routes: GET and POST /api/playdate
+(start, join, leave), POST /api/playdate/update and POST /api/playdate/play.
 
 5.3 Machine Learning Adaptation
 
 User Pattern Recognition: Learn user's schedule and care preferences
 Predictive Care: Suggest care activities before needs become critical
 Personalized Content: Adaptive challenges and goals based on user engagement
+
+Implementation: the server keeps an OwnerSchedule in <data dir>/owner.json: a weight for each of
+the 168 hours of the week. Whenever the player is present (any use of the page), the current hour's
+weight grows by 1/6, at most once every 10 minutes; all weights decay by a factor of 0.85 per week,
+and an absence of an hour or more starts a new visit. With at least 6 such steps over 3 visits it
+predicts: an hour is usual if its weight is at least 35% of the busiest hour's; the usual end of a
+session is the end of the run of usual hours containing now; and the summary names the busiest
+weekday and weekend parts of the day (such as "weekday evenings").
+Predictive care: Forecast(horizon) copies the pet (through its save) and advances the copy in 60
+steps, recording each request (section 3.9) it starts to make that the pet isn't making now, at
+most 3, soonest first. The status's forecasts look ahead until the usual end of play (between 10
+minutes and 2 hours of real time) or 30 minutes if that isn't known, converted to game time at the
+current game speed, and give each forecast's real time. The page shows them as "Coming up".
+Adaptive goals: each calendar day the pet gets three goals at a difficulty level from 1 to 5:
+the routine care (section 3.10.4's checklist) given least over the last 7 days relative to how
+often it is due, target its daily target + floor(steps/2); an activity (level 4 and above, learn a
+new trick, if any are left to learn; otherwise from level 3, explore steps - 1 times; 2, practice tricks 2 + steps times; 1, play twice, or train
+twice if play was the neglected care); and a happiness level of min(max(60 + 5 x round(level),
+happiness + 10%), 95%), where steps = floor(level - 1). Each goal pays round(level) x 5 Friendship
+Points when completed, and is announced as an event. At the start of each day, the level rises by
+0.5 if at least two thirds of the last day's goals were completed and falls by 0.5 if none were
+completed but some were tried. Goals are part of the pet's save.
 
 
 6. Technical Implementation Details
@@ -751,6 +943,19 @@ Memory Efficiency: Target <500MB RAM usage
 Battery Optimization: Adaptive processing based on battery level
 Cross-Platform: iOS, Android, Windows, macOS compatibility
 
+Implementation: the simulation runs in the server, one tick a second; the page only displays state.
+A test plays twelve hours at the default pace (720 game days, care every 30 seconds) and requires
+the heap after garbage collection to stay under 500 MB and grow by less than 20 MB from the first
+hour, the save to stay under 1.5 MB, and the mean tick to be under 20 ms; measured: about 1.4 MB of
+heap, an 866 KB save and 12 microseconds a tick. A pet keeps at most 1,000 long-term memories (the
+strongest; older saves are trimmed when loaded) and 500 history entries, so its save stops growing.
+Battery: the page polls /api/status every 2 s, every 5 s on battery and every 15 s on low battery
+(20% or less, from the Battery Status API where the browser has it), when it also stops animations;
+a hidden page doesn't poll, and animations stop under prefers-reduced-motion.
+Cross-platform: the game and the hub are pure Go (CGO off); make release builds both for Windows,
+macOS and Linux on amd64 and arm64, each in a folder with web/ and configs/. iOS and Android play
+in the browser against a computer running the game.
+
 6.2 Security and Privacy
 
 Data Encryption: All user data encrypted at rest and in transit
@@ -758,12 +963,59 @@ Privacy Controls: Granular permissions for social features
 Child Safety: COPPA-compliant for users under 13
 Offline Mode: Full functionality without internet connection
 
+Implementation:
+In transit: the game and the hub serve HTTPS when given a certificate and key (server.tls_cert and
+server.tls_key, or -tls-cert and -tls-key; both checked at startup), with TLS 1.2 or later. Every
+response carries X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN and Referrer-Policy:
+same-origin.
+At rest on the hub: the hub client seals each save before upload with AES-256-GCM under a key
+HMAC-SHA256(account key, "gochi save encryption v1"), a random 12-byte nonce, and the pet's hub key
+as additional data, stored as {"gochi_sealed": 1, "nonce", "data"}; downloads are opened the same way,
+and unsealed saves from older versions are accepted. The hub keeps only the account key's hash, so
+its files can't be decrypted on their own. Pet names, species and life stages stay readable (nearby
+pets need them).
+At rest locally: saves, backups, cloud.json, owner.json and parental.json are written with mode 0600
+in directories made 0700 (existing ones too). Saves aren't encrypted locally: the key would have to
+be stored beside them; the operating system's disk encryption is the means for that.
+Privacy controls: nearby visibility and achievement sharing are separate choices (section 4.2), off
+until chosen. Learning the play schedule (section 5.3) can be turned off and erased (/api/privacy).
+Child safety: an optional parent PIN (4 to 8 digits), stored as a 16-byte salt and 100,000 rounds of
+SHA-256 in parental.json, is then needed to connect to or disconnect from a hub, change sharing, start
+or join a playdate, and change privacy settings; 5 wrong PINs refuse every PIN for 5 minutes. There
+is no chat; other players see only usernames, pet names, species, life stages, area names and
+achievements. COPPA compliance is a legal obligation of whoever operates a hub for children; the
+software keeps shared data to that minimum and gives parents control of it.
+Offline: everything but the cloud features works without a network; at startup the game waits at
+most 15 s for a hub before restoring the last pet.
+
 6.3 Scalability Considerations
 
 Modular Architecture: Plugin system for new features and pet types
 Database Optimization: Efficient queries for large user bases
 CDN Integration: Global content delivery for low latency
 Microservices: Scalable backend services for different system components
+
+Implementation:
+Pet types: species are registered. A SpeciesDef holds everything that differs between species:
+names, icon and sprites; lifespan factor, sleep window, twilight activity and self-grooming; toilet
+style (litter box or outside), living area, mess request and warning sign, clean-up refusal, the
+illness a dirty home causes, whether it goes for walks; care lessons, care guide, daily routine,
+illness names and signs; liking for kinds of care, reaction texts, petting regions, home changes,
+basic food, treats and its own supplies; and meeting odds with its own kind, introduction lessons,
+threat and friendly signals, crowd sensitivity, leader text, group and conflict lessons.
+RegisterSpecies checks a definition is complete; species_cat.go and species_dog.go register the two
+species; elsewhere the game names them only as
+the species constants and the default for saves without a species (cat). GET /api/species gives the page each species'
+name, icon, sprites, clean-up label and whether it walks.
+Hub queries: the hub keeps each account's pets' information and the accounts in each area in memory,
+loaded at startup and kept current by uploads, deletions and profile changes, so listing pets,
+version checks and nearby pets read no saves. With 300 players of two 64 KB saves each in 30 areas,
+a nearby query went from 6.2 ms and 2.7 MB to 9 microseconds and 10 KB.
+Content delivery: static files are requested with ?v= and a hash of their contents and are then
+served with Cache-Control: public, max-age=31536000, immutable, so a CDN or proxy can cache them;
+other requests for them are revalidated.
+Services: cmd/gochihub runs the hub alone (-addr, -dir, -join-code, -tls-cert, -tls-key), separate
+from any game; a game server can still run one with -hub.
 
 
 7. Testing Strategy

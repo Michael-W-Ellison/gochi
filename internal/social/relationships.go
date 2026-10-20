@@ -26,6 +26,7 @@ type Relationship struct {
 	LastInteraction   time.Time
 	TotalInteractions int
 	FirstMet          time.Time
+	LastSharedAge     float64 // This pet's age (game days) when they last spent time together; 0 if unknown
 }
 
 // NewRelationship creates a new relationship with neutral starting values
@@ -66,6 +67,21 @@ func (r *Relationship) Update(interactionQuality float64, gameTime float64) {
 	r.Clamp()
 }
 
+// RecordShared records time the two pets spent together, at this pet's
+// age (game days); it restarts the time before the bond starts to fade
+func (r *Relationship) RecordShared(description string, age float64, impact float64) {
+	r.AddSharedExperience(description, age, impact)
+	r.LastSharedAge = age
+}
+
+// LastShared returns the most recent shared experience, if any
+func (r *Relationship) LastShared() (SharedExperience, bool) {
+	if len(r.History) == 0 {
+		return SharedExperience{}, false
+	}
+	return r.History[len(r.History)-1], true
+}
+
 // AddSharedExperience records a shared experience
 func (r *Relationship) AddSharedExperience(description string, gameTime float64, impact float64) {
 	exp := SharedExperience{
@@ -83,17 +99,38 @@ func (r *Relationship) AddSharedExperience(description string, gameTime float64,
 	}
 }
 
-// Decay weakens relationships over time without interaction
-func (r *Relationship) Decay(deltaTime float64) {
-	timeSinceInteraction := time.Since(r.LastInteraction).Hours() / 24.0 // Days
+// How relationships fade when two pets don't spend time together, in game
+// days of this pet's life: nothing changes for FadeGrace days, then bond
+// and affection fall by FadeRate a day (family bonds no lower than
+// FamilyBondFloor) and grudges (rivalry) fade at the same rate
+const (
+	FadeGrace       = 100.0
+	FadeRate        = 0.002
+	FamilyBondFloor = 0.3
+)
 
-	if timeSinceInteraction > 1.0 {
-		decayRate := 0.01 * deltaTime
-		r.BondStrength -= decayRate
-		r.Affection -= decayRate
-		r.Trust -= decayRate * 0.5
+// Decay lets the relationship fade over deltaTime game days when the two
+// pets haven't spent time together for a while; age is this pet's age in
+// game days. A relationship with no record of shared time starts its
+// grace period now.
+func (r *Relationship) Decay(age, deltaTime float64) {
+	if r.LastSharedAge <= 0 {
+		r.LastSharedAge = age
+		return
+	}
+	fading := min(deltaTime, age-r.LastSharedAge-FadeGrace)
+	if fading <= 0 {
+		return
 	}
 
+	floor := 0.0
+	if r.Type == types.RelationshipParent || r.Type == types.RelationshipOffspring || r.Type == types.RelationshipMate {
+		floor = FamilyBondFloor
+	}
+	r.BondStrength = max(r.BondStrength-FadeRate*fading, min(r.BondStrength, floor))
+	r.Affection = max(r.Affection-FadeRate*fading, min(r.Affection, floor))
+	r.Trust -= FadeRate * 0.5 * fading
+	r.Rivalry -= FadeRate * fading
 	r.Clamp()
 }
 
@@ -196,10 +233,11 @@ func (s *SocialRelationships) UpdateRelationship(petID types.PetID, quality floa
 	}
 }
 
-// UpdateAll processes decay for all relationships
-func (s *SocialRelationships) UpdateAll(deltaTime float64) {
+// UpdateAll lets every relationship fade over deltaTime game days; age is
+// the pet's age in game days (see Relationship.Decay)
+func (s *SocialRelationships) UpdateAll(age, deltaTime float64) {
 	for _, rel := range s.Relationships {
-		rel.Decay(deltaTime)
+		rel.Decay(age, deltaTime)
 	}
 }
 

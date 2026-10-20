@@ -19,7 +19,7 @@ var activityDescriptions = map[types.BehaviorState]string{
 	types.BehaviorInvestigating:     "is sniffing around the house",
 	types.BehaviorSocialInteraction: "wants your attention",
 	types.BehaviorGrooming:          "is grooming itself",
-	types.BehaviorExercising:        "is exercising",
+	types.BehaviorExercising:        "is running around",
 	types.BehaviorSick:              "is feeling sick",
 	types.BehaviorDistressed:        "is upset",
 	types.BehaviorHappy:             "is happy",
@@ -180,7 +180,7 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 		return &PetRequest{"medic", "🤒", p.Name + " is ill and needs medical care."}
 	}
 	p.Biology.EnsurePhysiology()
-	if ph := p.Biology.Physiology; p.speciesLocked() == SpeciesDog && max(ph.Bowel, ph.Bladder) >= 0.5 {
+	if ph := p.Biology.Physiology; p.defLocked().Toilet == ToiletOutside && max(ph.Bowel, ph.Bladder) >= 0.5 {
 		return &PetRequest{"walk", "🦮", p.Name + " is waiting by the door and needs to go outside!"}
 	}
 
@@ -193,10 +193,7 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	}
 
 	if p.LivingAreaWaste >= 0.5 {
-		if p.speciesLocked() == SpeciesDog {
-			return &PetRequest{"clean", "🧹", "There's a mess in the house that needs cleaning up."}
-		}
-		return &PetRequest{"clean", "🧹", p.Name + "'s litter box needs cleaning."}
+		return &PetRequest{"clean", "🧹", withName(p.defLocked().MessRequest, p.Name)}
 	}
 
 	// A sleeping pet only wakes for food and water
@@ -211,8 +208,9 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	alone := p.Biology.GetAgeInDays()-p.LastInteractionAge > lonelyAfter
 	if alone || p.Emotions.Loneliness > 0.6 ||
 		p.needWarningLocked(types.NeedAffection) || p.needWarningLocked(types.NeedSocial) {
-		// Ask for whichever kind of attention the pet has learned to like more
-		if v.Energy > 0.4 && p.Memory.GetLearnedAffinity(types.InteractionPlaying) > p.Memory.GetLearnedAffinity(types.InteractionPetting) {
+		// Ask for whichever kind of attention the pet expects to enjoy more
+		// in its current mood
+		if v.Energy > 0.4 && p.expectedEnjoymentLocked(types.InteractionPlaying) > p.expectedEnjoymentLocked(types.InteractionPetting) {
 			return &PetRequest{"play", "🎾", p.Name + " misses you and wants to play!"}
 		}
 		return &PetRequest{"pet", "💕", p.Name + " misses you and wants to be petted."}
@@ -225,7 +223,8 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	if p.needWarningLocked(types.NeedMentalStimulation) && v.Energy > minTrainingEnergy {
 		return &PetRequest{"train", "🎓", p.Name + " is bored and wants to learn something new."}
 	}
-	if p.needWarningLocked(types.NeedExploration) && !p.Injured &&
+	// Pets ask to go exploring only when it's good to be outdoors
+	if p.needWarningLocked(types.NeedExploration) && !p.Injured && p.outdoorSuitabilityLocked() >= goodOutdoorLevel &&
 		v.Energy >= minExploreLevel && v.Hydration >= minExploreLevel && v.Nutrition >= minExploreLevel {
 		return &PetRequest{"explore", "🧭", p.Name + " is curious about the world and wants to go exploring!"}
 	}

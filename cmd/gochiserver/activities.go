@@ -31,7 +31,7 @@ func (s *Server) interactionData(result core.InteractionResult) map[string]inter
 }
 
 // handleGuide handles GET /api/guide - the care guide for the active pet's
-// species, or ?species=cat or dog
+// species, or ?species= another (see /api/species)
 func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
@@ -39,7 +39,7 @@ func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
 	}
 	species, ok := core.ParseSpecies(r.URL.Query().Get("species"))
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose a cat or a dog"})
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown kind of pet"})
 		return
 	}
 	if r.URL.Query().Get("species") == "" {
@@ -53,6 +53,32 @@ func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
 		"species": species,
 		"topics":  core.CareGuide(species),
 	}})
+}
+
+// speciesSummary is a species as the page sees it
+type speciesSummary struct {
+	ID         core.Species      `json:"id"`
+	Name       string            `json:"name"`
+	Plural     string            `json:"plural"`
+	Icon       string            `json:"icon"`
+	Sprites    map[string]string `json:"sprites"`
+	CleanLabel string            `json:"clean_label"`
+	Walks      bool              `json:"walks"`
+}
+
+// handleSpecies handles GET /api/species - the kinds of pet, the default
+// first
+func (s *Server) handleSpecies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	list := []speciesSummary{}
+	for _, def := range core.SpeciesList() {
+		list = append(list, speciesSummary{ID: def.ID, Name: def.Name, Plural: def.Plural, Icon: def.Icon,
+			Sprites: def.Sprites, CleanLabel: def.CleanLabel, Walks: def.Walks})
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: list})
 }
 
 // writeActivityError reports why the pet cannot do an activity
@@ -420,11 +446,7 @@ func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
 		slot string
 		pet  *core.DigitalPet
 	}{{req.PartnerSlot, partner}, {babySlot, baby}} {
-		data, err := save.pet.Save()
-		if err == nil {
-			err = s.store.Save(save.slot, data)
-		}
-		if err != nil {
+		if err := s.store.SavePet(save.slot, save.pet); err != nil {
 			log.Printf("Failed to save %s after breeding: %v", save.pet.Name, err)
 		}
 	}
@@ -464,4 +486,37 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		"events": events,
 		"last":   last,
 	}})
+}
+
+// handlePotion handles POST /api/potion - gives the active pet a
+// life-extension potion from its pantry, and saves it
+func (s *Server) handlePotion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	s.mu.Lock()
+	if s.pet == nil || !s.pet.IsAlive() {
+		message := s.unavailableMessageLocked()
+		s.mu.Unlock()
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: message})
+		return
+	}
+	s.markActiveLocked(time.Now())
+	name := s.pet.Name
+	text, err := s.pet.GiveLifePotion()
+	s.mu.Unlock()
+
+	switch {
+	case errors.Is(err, core.ErrNoPotion):
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false,
+			Error: "There's no life-extension potion in the pantry. Buy one in the shop."})
+	case err != nil:
+		writeActivityError(w, name, err)
+	default:
+		if _, err := s.saveNow(); err != nil {
+			log.Printf("Failed to save after giving a potion: %v", err)
+		}
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"text": text}})
+	}
 }

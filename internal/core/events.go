@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -29,13 +30,16 @@ const (
 	EventWarningSign
 	EventTripReturned
 	EventTrickRusty
+	EventLifeStage
+	EventAchievement
+	EventGoal // A daily goal was completed
 )
 
 // String returns the event type's name
 func (et EventType) String() string {
 	return [...]string{
 		"PetDied", "PetHibernated", "PetSick", "PetRecovered", "PetHungry",
-		"PetThirsty", "WarningSign", "TripReturned", "TrickRusty",
+		"PetThirsty", "WarningSign", "TripReturned", "TrickRusty", "LifeStage", "Achievement", "Goal",
 	}[et]
 }
 
@@ -183,6 +187,8 @@ type Conditions struct {
 	adventure   *Adventure // The last trip's report
 	signs       map[string]bool
 	rusty       map[string]bool // Names of tricks the pet is rusty at
+	stage       biology.LifeStage
+	cause       string // Cause of death
 }
 
 // Conditions snapshots the pet's state, to compare with a later snapshot
@@ -194,7 +200,7 @@ func (p *DigitalPet) Conditions() Conditions {
 	c := Conditions{
 		id: p.ID, name: p.Name, alive: p.Biology.IsAlive, hibernating: p.Hibernating,
 		illness: p.illnessNameLocked(), adventure: p.LastAdventure, signs: make(map[string]bool),
-		rusty: make(map[string]bool),
+		rusty: make(map[string]bool), stage: p.Biology.LifeStage(), cause: p.Biology.CauseOfDeath,
 	}
 	for _, t := range tricks {
 		if p.TricksLearned[t.ID] && p.TrickSkills[t.ID] < 1.0 {
@@ -225,8 +231,20 @@ func ConditionEvents(before, after Conditions) []GameEvent {
 	}
 
 	if before.alive && !after.alive {
-		add(EventPetDied, false, "%s died.", after.name)
+		if after.cause == causeOldAge {
+			add(EventPetDied, false, "%s died of old age, after a long life.", after.name)
+		} else {
+			add(EventPetDied, false, "%s died.", after.name)
+		}
 		return events
+	}
+	if after.stage != before.stage {
+		switch after.stage {
+		case biology.StageAdult:
+			add(EventLifeStage, true, "%s is all grown up!", after.name)
+		case biology.StageSenior:
+			add(EventLifeStage, false, "%s is a senior now. Gentle exercise, easy-to-digest food and regular checkups help older pets.", after.name)
+		}
 	}
 	if !before.hibernating && after.hibernating {
 		add(EventPetHibernated, false, "%s went into hibernation and needs to be revived.", after.name)
@@ -273,8 +291,8 @@ func sortedKeys(set map[string]bool) []string {
 // illnessSign reports whether a warning sign is an illness's, which
 // EventPetSick already reports
 func illnessSign(sign string) bool {
-	for _, bySpecies := range illnessSigns {
-		for _, symptom := range bySpecies {
+	for _, def := range SpeciesList() {
+		for _, symptom := range def.IllnessSigns {
 			if symptom.Sign == sign {
 				return true
 			}

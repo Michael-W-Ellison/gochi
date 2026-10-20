@@ -345,7 +345,7 @@ func TestRefusedCareThroughServer(t *testing.T) {
 
 // makeAdult makes the active pet old, healthy and happy enough to breed
 func makeAdult(server *Server) {
-	server.pet.Biology.Processes.Age = 10
+	server.pet.Biology.Processes.Age = 100
 	server.pet.Biology.Vitals.Health = 1.0
 	server.pet.Biology.Vitals.Happiness = 0.9
 }
@@ -537,5 +537,44 @@ func TestExplorePlacesThroughServer(t *testing.T) {
 	if rec := post(t, server.handleExplore, `{"place":"park"}`); rec.Code != http.StatusOK ||
 		!strings.Contains(rec.Body.String(), "Biscuit sets off to explore the park!") {
 		t.Errorf("Park: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLifeAndPotionThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	s := statusOf(t, server)
+	life, ok := s["life"].(map[string]interface{})
+	if !ok || life["stage"] != "Young" || life["old_age_death"] != true || s["life_seconds"].(float64) <= 0 {
+		t.Fatalf("Status should describe the pet's life: %+v, %v", s["life"], s["life_seconds"])
+	}
+	if _, ok := life["hormones"].(map[string]interface{}); !ok {
+		t.Error("Status should include hormone levels")
+	}
+	for _, key := range []string{"rewarded", "trends"} {
+		if _, ok := s[key].([]interface{}); !ok {
+			t.Errorf("%s should be a list, got %v", key, s[key])
+		}
+	}
+
+	if rec := post(t, server.handlePotion, ""); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "no life-extension potion") {
+		t.Errorf("Without a potion: %d %s", rec.Code, rec.Body.String())
+	}
+
+	server.pet.FriendshipPoints, server.pet.PointsEarned = 1000, 1000
+	if rec := post(t, server.handleBuySupply, `{"id":"life_potion"}`); rec.Code != http.StatusOK {
+		t.Fatalf("Buying a potion: %d %s", rec.Code, rec.Body.String())
+	}
+	before := server.pet.LifeStatus().Lifespan
+	if rec := post(t, server.handlePotion, ""); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "Biscuit drinks the potion") {
+		t.Fatalf("Giving the potion: %d %s", rec.Code, rec.Body.String())
+	}
+	if server.pet.LifeStatus().Lifespan <= before {
+		t.Error("The potion should lengthen the pet's life")
 	}
 }

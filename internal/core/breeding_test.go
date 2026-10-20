@@ -13,7 +13,7 @@ import (
 // adultPet returns a healthy, happy pet old enough to breed
 func adultPet(name string) *DigitalPet {
 	pet := NewDigitalPetRandom(name, "user123")
-	pet.Biology.Processes.Age = 10
+	pet.Biology.Processes.Age = 100 // An adult
 	pet.Biology.Vitals.Health = 1.0
 	pet.Biology.Vitals.Happiness = 0.9
 	return pet
@@ -50,8 +50,14 @@ func TestGenomeMatchesPersonality(t *testing.T) {
 func TestBreedingRequirements(t *testing.T) {
 	young := NewDigitalPet("Young", "user123")
 	adult := adultPet("Adult")
-	if _, reason := BreedingCompatibility(young, adult); !strings.HasPrefix(reason, "Young is too young (0.0 days old; must be at least 7)") || strings.Contains(reason, "Adult") {
+	if _, reason := BreedingCompatibility(young, adult); !strings.HasPrefix(reason, "Young is too young (0.0 days old; must be at least 60)") || strings.Contains(reason, "Adult") {
 		t.Errorf("Young pet: %q", reason)
+	}
+
+	senior := adultPet("Senior")
+	senior.Biology.Processes.Age = 7000
+	if _, reason := BreedingCompatibility(senior, adult); !strings.HasPrefix(reason, "Senior is too old (7000 days old; the limit is 6000)") {
+		t.Errorf("Senior pet: %q", reason)
 	}
 
 	sleepy := adultPet("Sleepy")
@@ -134,7 +140,7 @@ func TestTraitsDoNotDriftAcrossGenerations(t *testing.T) {
 	a := playful("A")
 	for gen := 0; gen < 5; gen++ {
 		child := breedUntilSuccess(t, a, playful("Partner"), "Child")
-		child.Biology.Processes.Age = 10
+		child.Biology.Processes.Age = 100
 		child.Biology.Vitals.Health, child.Biology.Vitals.Happiness = 1, 0.9
 		a = child
 	}

@@ -96,11 +96,10 @@ func (b *BiologicalSystems) Absorption() float64 {
 	return 0.5 + 0.5*b.Physiology.DigestiveHealth
 }
 
-// Exercise strengthens the heart and circulation; amount is roughly one
-// play session per 1.0
+// Exercise strengthens the heart and circulation like play; amount is
+// roughly one play session per 1.0 (see ProcessExercise)
 func (b *BiologicalSystems) Exercise(amount float64) {
-	b.Physiology.CardiovascularHealth += 0.05 * amount
-	b.Physiology.Clamp()
+	b.ProcessExercise(ExercisePlay, amount)
 }
 
 // EnergyDrain is how much faster than normal the pet tires: an unfit
@@ -128,20 +127,23 @@ func (b *BiologicalSystems) updatePhysiology(deltaTime, airQuality float64) {
 	digested := min(ph.Stomach, digestionRate*ph.DigestiveHealth*deltaTime)
 	ph.Stomach -= digested
 	ph.Bowel += digested * wasteFraction
+	// Organs heal faster with growth hormone
+	repair := 0.5 + b.Hormones.Growth
 	if ph.Stomach <= stomachCapacity*0.8 && ph.DigestiveHealth < 1 {
-		ph.DigestiveHealth += 0.02 * deltaTime // The gut recovers when not overloaded
+		ph.DigestiveHealth += 0.02 * repair * deltaTime // The gut recovers when not overloaded
 	}
 
-	// Fitness fades without exercise
+	// Fitness fades without exercise, faster in old age
 	if ph.CardiovascularHealth > minFitness {
-		ph.CardiovascularHealth = max(ph.CardiovascularHealth-fitnessLoss*deltaTime, minFitness)
+		loss := (fitnessLoss + 0.01*b.Senescence()) * deltaTime
+		ph.CardiovascularHealth = max(ph.CardiovascularHealth-loss, minFitness)
 	}
 
 	// Foul air irritates the airways; fresh air lets them recover
 	if airQuality < 0.6 {
 		ph.RespiratoryHealth -= 0.05 * (0.6 - airQuality) / 0.6 * deltaTime
 	} else {
-		ph.RespiratoryHealth += 0.02 * deltaTime
+		ph.RespiratoryHealth += 0.02 * repair * deltaTime
 	}
 
 	// Long-term stress wears down the nervous system; calm restores it
@@ -149,7 +151,7 @@ func (b *BiologicalSystems) updatePhysiology(deltaTime, airQuality float64) {
 	case v.Stress > 0.6:
 		ph.NervousHealth -= 0.03 * (v.Stress - 0.6) / 0.4 * deltaTime
 	case v.Stress < 0.3:
-		ph.NervousHealth += 0.02 * deltaTime
+		ph.NervousHealth += 0.02 * repair * deltaTime
 	}
 
 	// Failing organ systems cost the pet health
@@ -163,7 +165,72 @@ func (b *BiologicalSystems) updatePhysiology(deltaTime, airQuality float64) {
 }
 
 // StressSensitivity is how much faster than normal stress builds: a worn
-// nervous system copes less well
+// nervous system and low emotional resilience cope less well
 func (b *BiologicalSystems) StressSensitivity() float64 {
-	return 1.0 + (1.0 - b.Physiology.NervousHealth)
+	resilience := b.Processes.EmotionalResilience
+	if resilience <= 0 {
+		resilience = 0.7
+	}
+	return (1.0 + (1.0 - b.Physiology.NervousHealth)) * (1.35 - 0.5*resilience)
+}
+
+// FoodItem is a meal or treat as the body takes it in. Amounts are in the
+// units of the vital stats.
+type FoodItem struct {
+	Bulk      float64 // How much it fills the stomach
+	Nutrition float64 // Nutrition it can give, before absorption
+	Hydration float64 // Water it adds
+	Digestion float64 // Effect on digestive health: positive helps, negative upsets
+}
+
+// ProcessDigestion takes in a food: nutrition (scaled by how well the gut
+// absorbs it), water, and its effect on digestion, then fills the
+// stomach. It returns true if the stomach is now overfull, in which case
+// the pet throws up (see Eat). A meal also lifts serotonin a little.
+func (b *BiologicalSystems) ProcessDigestion(food FoodItem) bool {
+	b.EnsurePhysiology()
+	b.EnsureHormones()
+	b.Vitals.Nutrition += food.Nutrition * b.Absorption()
+	b.Vitals.Hydration += food.Hydration
+	b.Physiology.DigestiveHealth += food.Digestion
+	b.Hormones.Pulse(HormoneSerotonin, 0.05*min(food.Nutrition/0.3, 1))
+	b.Vitals.Clamp()
+	b.Physiology.Clamp()
+	return b.Eat(food.Bulk)
+}
+
+// ExerciseType is a kind of exercise
+type ExerciseType int
+
+const (
+	ExercisePlay    ExerciseType = iota // Playing with toys or the owner
+	ExerciseWalk                        // A walk outdoors
+	ExerciseExplore                     // A trip out exploring
+	ExerciseRun                         // Running around on its own
+)
+
+// exerciseProfiles are how much each kind of exercise builds fitness and
+// lifts the mood (serotonin), per play session's worth
+var exerciseProfiles = map[ExerciseType]struct{ fitness, serotonin float64 }{
+	ExercisePlay:    {0.05, 0.05},
+	ExerciseWalk:    {0.06, 0.08}, // Steady exercise in daylight and fresh air
+	ExerciseExplore: {0.05, 0.06},
+	ExerciseRun:     {0.04, 0.03},
+}
+
+// ProcessExercise strengthens the heart and circulation and lifts the
+// mood. duration is in play sessions' worth (one session = 1.0). Young
+// pets and pets with more growth hormone gain fitness faster, and old
+// ones more slowly. The energy exercise uses is taken by the caller.
+func (b *BiologicalSystems) ProcessExercise(kind ExerciseType, duration float64) {
+	b.EnsurePhysiology()
+	b.EnsureHormones()
+	profile, ok := exerciseProfiles[kind]
+	if !ok || duration <= 0 {
+		return
+	}
+	gain := profile.fitness * duration * (0.7 + 0.6*b.Hormones.Growth) * b.agingFactor(0.4)
+	b.Physiology.CardiovascularHealth += gain
+	b.Hormones.Pulse(HormoneSerotonin, profile.serotonin*duration)
+	b.Physiology.Clamp()
 }

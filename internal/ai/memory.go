@@ -435,6 +435,20 @@ func (m *MemorySystem) ConsolidateMemoriesWithThreshold(threshold float64) int {
 	return consolidated
 }
 
+// SetLongTermCapacity changes how many long-term memories are kept,
+// forgetting the weakest if there are more
+func (m *MemorySystem) SetLongTermCapacity(capacity int) {
+	m.LongTermCapacity = capacity
+	if capacity <= 0 || len(m.LongTermMemories) <= capacity {
+		return
+	}
+	byStrength := append([]*Memory(nil), m.LongTermMemories...)
+	sort.SliceStable(byStrength, func(i, j int) bool { return byStrength[i].Strength < byStrength[j].Strength })
+	for _, memory := range byStrength[:len(byStrength)-capacity] {
+		m.ForgetMemory(memory.ID)
+	}
+}
+
 // pruneWeakestLongTermMemory removes the weakest long-term memory
 func (m *MemorySystem) pruneWeakestLongTermMemory() {
 	if len(m.LongTermMemories) == 0 {

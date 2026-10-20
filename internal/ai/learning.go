@@ -35,6 +35,10 @@ type LearningSystem struct {
 	BestAction        map[types.BehaviorState]types.BehaviorState // Best learned action for each state
 	ActionPreferences map[types.BehaviorState][]ActionPreference  // Learned preferences per state
 
+	// Care the owner gave and how the pet took it (experience.go)
+	Records   []ExperienceRecord
+	Estimates map[actionContext]*rewardEstimate
+
 	// Temporal difference learning
 	LastState  types.BehaviorState
 	LastAction types.BehaviorState
@@ -421,14 +425,22 @@ type LearningStats struct {
 // since its keys are not strings, and the running statistics. The
 // experience buffer and derived preferences are not saved.
 type learningJSON struct {
-	QValues           []qValueJSON `json:"q_values"`
-	LearningRate      float64      `json:"learning_rate"`
-	DiscountFactor    float64      `json:"discount_factor"`
-	ExplorationRate   float64      `json:"exploration_rate"`
-	TotalExperiences  int          `json:"total_experiences"`
-	SuccessfulActions int          `json:"successful_actions"`
-	FailedActions     int          `json:"failed_actions"`
-	AverageReward     float64      `json:"average_reward"`
+	QValues           []qValueJSON       `json:"q_values"`
+	LearningRate      float64            `json:"learning_rate"`
+	DiscountFactor    float64            `json:"discount_factor"`
+	ExplorationRate   float64            `json:"exploration_rate"`
+	TotalExperiences  int                `json:"total_experiences"`
+	SuccessfulActions int                `json:"successful_actions"`
+	FailedActions     int                `json:"failed_actions"`
+	AverageReward     float64            `json:"average_reward"`
+	Records           []ExperienceRecord `json:"records,omitempty"`
+	Estimates         []estimateJSON     `json:"estimates,omitempty"`
+}
+
+type estimateJSON struct {
+	Action  types.InteractionType `json:"action"`
+	Context types.BehaviorState   `json:"context"`
+	rewardEstimate
 }
 
 type qValueJSON struct {
@@ -455,6 +467,14 @@ func (ls *LearningSystem) MarshalJSON() ([]byte, error) {
 	for pair, q := range ls.QTable {
 		saved.QValues = append(saved.QValues, qValueJSON{pair.State, pair.Action, q})
 	}
+	saved.Records = ls.Records
+	for key, estimate := range ls.Estimates {
+		saved.Estimates = append(saved.Estimates, estimateJSON{key.Action, key.Context, *estimate})
+	}
+	sort.Slice(saved.Estimates, func(i, j int) bool {
+		a, b := saved.Estimates[i], saved.Estimates[j]
+		return a.Action < b.Action || (a.Action == b.Action && a.Context < b.Context)
+	})
 	sort.Slice(saved.QValues, func(i, j int) bool {
 		a, b := saved.QValues[i], saved.QValues[j]
 		return a.State < b.State || (a.State == b.State && a.Action < b.Action)
@@ -480,9 +500,13 @@ func (ls *LearningSystem) UnmarshalJSON(data []byte) error {
 	for _, q := range saved.QValues {
 		restored.QTable[StateActionPair{q.State, q.Action}] = q.Value
 	}
+	restored.Estimates = make(map[actionContext]*rewardEstimate, len(saved.Estimates))
+	for _, e := range saved.Estimates {
+		estimate := e.rewardEstimate
+		restored.Estimates[actionContext{e.Action, e.Context}] = &estimate
+	}
 
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
 	ls.QTable = restored.QTable
 	ls.LearningRate, ls.DiscountFactor, ls.ExplorationRate = restored.LearningRate, restored.DiscountFactor, restored.ExplorationRate
 	ls.ExplorationDecay, ls.MinExplorationRate = restored.ExplorationDecay, restored.MinExplorationRate
@@ -490,5 +514,9 @@ func (ls *LearningSystem) UnmarshalJSON(data []byte) error {
 	ls.TotalExperiences, ls.SuccessfulActions, ls.FailedActions = restored.TotalExperiences, restored.SuccessfulActions, restored.FailedActions
 	ls.AverageReward = restored.AverageReward
 	ls.BestAction, ls.ActionPreferences = restored.BestAction, restored.ActionPreferences
+	ls.Records, ls.Estimates = saved.Records, restored.Estimates
+	ls.mu.Unlock()
+
+	ls.UpdateBehaviorWeights() // Derived from the Q-values
 	return nil
 }

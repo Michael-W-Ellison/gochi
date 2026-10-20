@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1359,5 +1360,27 @@ func TestMemorySystemUnmarshalAppliesDefaults(t *testing.T) {
 	}
 	if restored.LongTermCapacity != DefaultLongTermCapacity || restored.TraumaThreshold != -0.7 || restored.WorkingMemoryCap != 7 {
 		t.Error("Missing fields should take default values")
+	}
+}
+
+func TestSetLongTermCapacityKeepsStrongest(t *testing.T) {
+	ms := NewMemorySystem(100)
+	for i := 0; i < 10; i++ {
+		m := ms.RecordMemory(MemoryPositive, fmt.Sprintf("memory %d", i), float64(i), 0.1*float64(i)+0.05, "happy", nil)
+		ms.ShortTermMemories = removeMemoryByID(ms.ShortTermMemories, m.ID)
+		m.IsLongTerm = true
+		ms.LongTermMemories = append(ms.LongTermMemories, m)
+	}
+	ms.SetLongTermCapacity(4)
+	if _, long := ms.GetMemoryCount(); long != 4 || ms.LongTermCapacity != 4 {
+		t.Fatalf("Long-term memories: %d", long)
+	}
+	for _, m := range ms.LongTermMemories {
+		if m.Strength < 0.6 {
+			t.Errorf("A weak memory was kept: %v", m.Strength)
+		}
+		if _, ok := ms.GetMemoryByID(m.ID); !ok {
+			t.Error("Kept memories stay indexed")
+		}
 	}
 }

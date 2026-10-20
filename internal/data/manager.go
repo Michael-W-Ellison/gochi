@@ -84,11 +84,22 @@ func NewDataManagerWithConfig(config DataManagerConfig) (*DataManager, error) {
 	return dm, nil
 }
 
-// ensureDirectories creates necessary directories
+// Saves are private: files and directories are readable only by the
+// user running the game (on systems with Unix permissions)
+const (
+	filePerm = 0o600
+	dirPerm  = 0o700
+)
+
+// ensureDirectories creates necessary directories, readable only by their
+// owner (directories made by older versions are made private too)
 func (dm *DataManager) ensureDirectories() error {
 	dirs := []string{dm.SavePath, dm.BackupPath, dm.CachePath}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, dirPerm); err != nil {
+			return err
+		}
+		if err := os.Chmod(dir, dirPerm); err != nil {
 			return err
 		}
 	}
@@ -125,7 +136,7 @@ func (dm *DataManager) Save(saveData *SaveData, filename string) error {
 
 	// Write to file
 	savePath := dm.getSavePath(filename)
-	if err := writeFileAtomic(savePath, data, 0644); err != nil {
+	if err := writeFileAtomic(savePath, data, filePerm); err != nil {
 		dm.LastError = err
 		return fmt.Errorf("failed to write save file: %w", err)
 	}
@@ -400,7 +411,7 @@ func (dm *DataManager) createBackupLocked(filename string) error {
 	backupName := fmt.Sprintf("%s_%s.bak", strings.TrimSuffix(filename, ".json"), timestamp)
 	backupPath := filepath.Join(dm.BackupPath, backupName)
 
-	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+	if err := os.WriteFile(backupPath, data, filePerm); err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
@@ -469,7 +480,7 @@ func (dm *DataManager) RestoreBackup(backupFilename, targetFilename string) erro
 		return fmt.Errorf("failed to read backup: %w", err)
 	}
 
-	if err := os.WriteFile(savePath, data, 0644); err != nil {
+	if err := os.WriteFile(savePath, data, filePerm); err != nil {
 		return fmt.Errorf("failed to restore backup: %w", err)
 	}
 
@@ -649,7 +660,7 @@ func (dm *DataManager) ExportSave(filename, exportPath string) error {
 		return fmt.Errorf("failed to read save file: %w", err)
 	}
 
-	if err := os.WriteFile(exportPath, data, 0644); err != nil {
+	if err := os.WriteFile(exportPath, data, filePerm); err != nil {
 		return fmt.Errorf("failed to export save: %w", err)
 	}
 
@@ -673,7 +684,7 @@ func (dm *DataManager) ImportSave(importPath, filename string) error {
 	}
 
 	savePath := dm.getSavePath(filename)
-	if err := os.WriteFile(savePath, data, 0644); err != nil {
+	if err := os.WriteFile(savePath, data, filePerm); err != nil {
 		return fmt.Errorf("failed to import save: %w", err)
 	}
 

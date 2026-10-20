@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -875,5 +876,43 @@ func TestDeleteWithBackups(t *testing.T) {
 
 	if err := dm.DeleteWithBackups("pet"); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Deleting again should report os.ErrNotExist, got %v", err)
+	}
+}
+
+func TestSavesArePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows doesn't use Unix permissions")
+	}
+	tmpDir := t.TempDir()
+	saves := filepath.Join(tmpDir, "saves")
+	os.MkdirAll(saves, 0o755) // Made by an older version
+	config := DataManagerConfig{SavePath: saves, BackupPath: filepath.Join(tmpDir, "backups"),
+		CachePath: filepath.Join(tmpDir, "cache"), MaxBackups: 3, AutoBackup: true}
+	dm, err := NewDataManagerWithConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	save := NewSaveData("user123", "pet")
+	if err := dm.Save(save, "pet"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dm.Save(save, "pet"); err != nil { // Makes a backup
+		t.Fatal(err)
+	}
+	for _, dir := range []string{config.SavePath, config.BackupPath} {
+		info, err := os.Stat(dir)
+		if err != nil || info.Mode().Perm() != dirPerm {
+			t.Errorf("%s: %v %v", dir, info.Mode(), err)
+		}
+		entries, _ := os.ReadDir(dir)
+		if len(entries) == 0 {
+			t.Errorf("%s is empty", dir)
+		}
+		for _, e := range entries {
+			info, _ := e.Info()
+			if info.Mode().Perm() != filePerm {
+				t.Errorf("%s/%s is %v", dir, e.Name(), info.Mode().Perm())
+			}
+		}
 	}
 }

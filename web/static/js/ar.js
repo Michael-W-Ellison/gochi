@@ -810,13 +810,17 @@ const GochiAR = (function() {
     // Touch/Mouse Handling
     // ========================================================================
 
+    // Elements that handle their own taps: buttons, and the playdate's
+    // panel and other players' pets (see ar-link.js)
+    const ignoredTapTargets = '.ar-btn, .ar-action-btn, .ar-controls, .ar-playmate, .ar-playdate-panel';
+
     /**
      * Handle touch start
      * @param {TouchEvent} e
      */
     function handleTouchStart(e) {
-        if (e.target.closest('.ar-btn, .ar-action-btn, .ar-controls')) {
-            return; // Ignore touches on buttons
+        if (e.target.closest(ignoredTapTargets)) {
+            return; // Ignore touches on buttons and other players' pets
         }
 
         e.preventDefault();
@@ -871,7 +875,7 @@ const GochiAR = (function() {
      * Handle mouse events (for desktop testing)
      */
     function handleMouseDown(e) {
-        if (e.target.closest('.ar-btn, .ar-action-btn, .ar-controls')) return;
+        if (e.target.closest(ignoredTapTargets)) return;
         touchStartTime = Date.now();
         touchStartPos = { x: e.clientX, y: e.clientY };
         isTouching = true;

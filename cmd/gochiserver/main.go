@@ -17,8 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/internal/ar"
 	"github.com/Michael-W-Ellison/gochi/internal/core"
+	"github.com/Michael-W-Ellison/gochi/internal/hub"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -32,7 +34,24 @@ type Server struct {
 	webDir string
 	clock  *simulation.TimeManager // Game clock; its scale sets the game's speed
 	store  *petStore               // nil disables saving
+	cloud  *cloud                  // Connection to a cloud hub; nil disables cloud features
+	hub    *hub.Hub                // This server's own hub, if it runs one
 	events *core.EventSystem       // What happened to the pets while time passed
+
+	// When the player is usually around, learned from when they use the
+	// page; nil disables it
+	owner     *ai.OwnerSchedule
+	ownerPath string // Where owner is saved; "" to not save it
+
+	// The AR playdate the player is at, through the cloud hub
+	playdates playdateState
+
+	// The parent PIN, if one is set; nil means none
+	parental *parentalControls
+
+	// A hash of the static files, added to their URLs so they can be
+	// cached until they change
+	staticVersion string
 
 	// Time stops while the game is paused, so the pet cannot decline
 	manualPause  bool          // Paused with the Pause button
@@ -79,6 +98,13 @@ type PetStatus struct {
 	GuideTopics []string             `json:"guide_topics"`
 	Checklist   []core.ChecklistItem `json:"checklist"`
 
+	// Today's goals and their difficulty (1 to 5), what the pet will soon
+	// need, and when the player usually plays ("" until it is known)
+	Goals        []core.Goal      `json:"goals"`
+	GoalLevel    float64          `json:"goal_level"`
+	Forecasts    []forecastStatus `json:"forecasts"`
+	PlaySchedule string           `json:"play_schedule"`
+
 	Tricks           []core.TrickProgress   `json:"tricks"`
 	Exploring        bool                   `json:"exploring"`
 	ExploringSeconds int                    `json:"exploring_seconds"` // Real seconds until home
@@ -98,9 +124,15 @@ type PetStatus struct {
 	Wellbeing        float64                `json:"wellbeing"`
 	Personality      string                 `json:"personality"`
 	Changes          []string               `json:"personality_changes"` // How its personality has changed
-	Attention        string                 `json:"attention"`           // How much it enjoys attention by nature
-	Tolerates        []string               `json:"tolerates"`           // Care it neither likes nor dislikes
-	Relations        []core.PetRelation     `json:"relations"`           // Pets it knows and how they get along
+	Rewarded         []string               `json:"rewarded"`            // Behaviors it has learned you reward, by mood
+	Trends           []string               `json:"trends"`              // Which way its recent experiences move its personality
+	Life             core.LifeStatus        `json:"life"`
+	Achievements     []core.Achievement     `json:"achievements"`
+	AchievementTotal int                    `json:"achievement_total"`
+	LifeSeconds      int                    `json:"life_seconds"` // Real seconds of play left at the default pace
+	Attention        string                 `json:"attention"`    // How much it enjoys attention by nature
+	Tolerates        []string               `json:"tolerates"`    // Care it neither likes nor dislikes
+	Relations        []core.PetRelation     `json:"relations"`    // Pets it knows and how they get along
 	Likes            []string               `json:"likes"`
 	Dislikes         []string               `json:"dislikes"`
 	Slot             string                 `json:"slot"`
@@ -124,6 +156,10 @@ func main() {
 	addr := flag.String("addr", defaults.Server.Addr, "address to listen on")
 	apiToken := flag.String("api-token", defaults.Server.APIToken, "enable the REST API at /api/v1 for requests with this bearer token")
 	scaleName := flag.String("time-scale", defaults.Simulation.TimeScale, "game speed: game (1 game day per real minute), 24x, 4x or realtime")
+	hubEnabled := flag.Bool("hub", defaults.Hub.Enabled, "also run as a cloud hub other Gochi servers can connect to")
+	hubJoinCode := flag.String("hub-join-code", defaults.Hub.JoinCode, "the code players need to register with this hub")
+	tlsCert := flag.String("tls-cert", defaults.Server.TLSCert, "serve HTTPS with this certificate (PEM; needs -tls-key)")
+	tlsKey := flag.String("tls-key", defaults.Server.TLSKey, "the HTTPS certificate's private key (PEM)")
 	flag.Parse()
 
 	// Find web directory
@@ -159,6 +195,14 @@ func main() {
 			config.Server.APIToken = *apiToken
 		case "time-scale":
 			config.Simulation.TimeScale = *scaleName
+		case "hub":
+			config.Hub.Enabled = *hubEnabled
+		case "hub-join-code":
+			config.Hub.JoinCode = *hubJoinCode
+		case "tls-cert":
+			config.Server.TLSCert = *tlsCert
+		case "tls-key":
+			config.Server.TLSKey = *tlsKey
 		}
 	})
 	if err := config.validate(); err != nil {
@@ -171,6 +215,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not set up save directory: %v", err)
 	}
+	store.timeScale, store.autosaveSeconds = config.Simulation.TimeScale, int(config.Simulation.Autosave.Seconds())
+	dataPath := filepath.Dir(store.SaveDir())
+	cloudConn, err := newCloud(dataPath)
+	if err != nil {
+		log.Fatalf("Could not read the cloud settings: %v", err)
+	}
+	parental, err := loadParentalControls(dataPath)
+	if err != nil {
+		log.Fatalf("Could not read the parental controls: %v", err)
+	}
+	owner, ownerPath, err := loadOwnerSchedule(dataPath)
+	if err != nil {
+		log.Printf("Warning: could not read the play schedule, starting a new one: %v", err)
+		owner = &ai.OwnerSchedule{}
+	}
+	var hubServer *hub.Hub
+	if config.Hub.Enabled {
+		if hubServer, err = hub.New(filepath.Join(dataPath, "hub"), config.Hub.JoinCode); err != nil {
+			log.Fatalf("Could not set up the cloud hub: %v", err)
+		}
+	}
 
 	// Create server
 	server := &Server{
@@ -180,6 +245,23 @@ func main() {
 		lastActivity: time.Now(),
 		awayTimeout:  config.Simulation.AwayPause,
 		events:       newEventSystem(),
+		cloud:        cloudConn,
+		hub:          hubServer,
+		owner:        owner,
+		ownerPath:    ownerPath,
+		parental:     parental,
+	}
+
+	// Sync with the cloud hub first, so the newest saves are restored
+	if server.cloudStatus().Connected {
+		// Offline, the game starts after a short wait and syncs later
+		syncCtx, cancel := context.WithTimeout(context.Background(), startupSyncTimeout)
+		if report, err := server.cloudSync(syncCtx); err != nil {
+			log.Printf("Cloud sync failed; playing with the saves on this device: %v", err)
+		} else {
+			log.Printf("Cloud sync: %s", report.summary())
+		}
+		cancel()
 	}
 
 	// Restore the most recently saved pet. Time does not pass while the
@@ -211,6 +293,8 @@ func main() {
 		go server.autosaveLoop(ctx, config.Simulation.Autosave)
 		log.Printf("Autosaving every %s", config.Simulation.Autosave)
 	}
+	go server.syncLoop(ctx)
+	go server.shareLoop(ctx)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -226,6 +310,23 @@ func main() {
 			log.Printf("REST API clients may make %d requests a minute", config.Server.APIRateLimit)
 		}
 	}
+
+	// The cloud hub, for other Gochi servers
+	if hubServer != nil {
+		mux.Handle("/hub/v1/", hubServer.Handler())
+		if hubServer.RegistrationOpen() {
+			log.Printf("Cloud hub enabled at /hub/v1; players register with the join code")
+		} else {
+			log.Printf("Cloud hub enabled at /hub/v1; registration is closed (no join code)")
+		}
+	}
+	mux.HandleFunc("/api/cloud", server.handleCloud)
+	mux.HandleFunc("/api/cloud/connect", server.handleCloudConnect)
+	mux.HandleFunc("/api/cloud/disconnect", server.handleCloudDisconnect)
+	mux.HandleFunc("/api/cloud/sync", server.handleCloudSync)
+	mux.HandleFunc("/api/cloud/profile", server.handleCloudProfile)
+	mux.HandleFunc("/api/cloud/nearby", server.handleCloudNearby)
+	mux.HandleFunc("/api/cloud/feed", server.handleCloudFeed)
 
 	// Simple API routes
 	mux.HandleFunc("/api/status", server.handleStatus)
@@ -252,12 +353,16 @@ func main() {
 	mux.HandleFunc("/api/explore/places", server.handlePlaces)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 	mux.HandleFunc("/api/guide", server.handleGuide)
+	mux.HandleFunc("/api/species", server.handleSpecies)
+	mux.HandleFunc("/api/privacy", server.handlePrivacy)
+	mux.HandleFunc("/api/potion", server.handlePotion)
 	mux.HandleFunc("/api/events", server.handleEvents)
 	mux.HandleFunc("/api/care/options", server.handleCareOptions)
 	mux.HandleFunc("/api/supplies", server.handleSupplies)
 	mux.HandleFunc("/api/supplies/buy", server.handleBuySupply)
 	mux.HandleFunc("/api/enrich", server.handleEnrich)
 	mux.HandleFunc("/api/introduce", server.handleIntroduce)
+	mux.HandleFunc("/api/group", server.handleGroup)
 	mux.HandleFunc("/api/introduce/partners", server.handleIntroducePartners)
 	mux.HandleFunc("/api/ar", server.handleARState)
 	mux.HandleFunc("/api/ar/session", server.handleARSession)
@@ -266,27 +371,37 @@ func main() {
 	mux.HandleFunc("/api/ar/place", server.handleARPlace)
 	mux.HandleFunc("/api/ar/gesture", server.handleARGesture)
 	mux.HandleFunc("/api/ar/exercise", server.handleARExercise)
+	mux.HandleFunc("/api/playdate", server.handlePlaydate)
+	mux.HandleFunc("/api/playdate/update", server.handlePlaydateUpdate)
+	mux.HandleFunc("/api/playdate/play", server.handlePlaydatePlay)
 
-	// Static files with no-cache headers for development
-	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
-	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		staticHandler.ServeHTTP(w, r)
-	})
+	// Static files, cacheable by browsers and proxies (see staticHandler)
+	if server.staticVersion, err = staticVersion(filepath.Join(webDir, "static")); err != nil {
+		log.Printf("Warning: could not read the static files: %v", err)
+	}
+	mux.Handle("/static/", server.staticHandler(filepath.Join(webDir, "static")))
 
 	// Templates/pages
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	httpServer := &http.Server{Addr: config.Server.Addr, Handler: mux}
+	httpServer := &http.Server{Addr: config.Server.Addr, Handler: securityHeaders(mux), TLSConfig: tlsConfig(),
+		ReadHeaderTimeout: 10 * time.Second}
 	serverErr := make(chan error, 1)
+	scheme := "http"
 	go func() {
-		serverErr <- httpServer.ListenAndServe()
+		if config.usesTLS() {
+			serverErr <- httpServer.ListenAndServeTLS(config.Server.TLSCert, config.Server.TLSKey)
+		} else {
+			serverErr <- httpServer.ListenAndServe()
+		}
 	}()
-	log.Printf("Starting Gochi server at http://localhost%s", config.Server.Addr)
-	log.Printf("Open your browser to http://localhost%s to play! Press Ctrl+C to save and exit.", config.Server.Addr)
+	if config.usesTLS() {
+		scheme = "https"
+		log.Printf("Serving HTTPS with %s", config.Server.TLSCert)
+	}
+	log.Printf("Starting Gochi server at %s://localhost%s", scheme, config.Server.Addr)
+	log.Printf("Open your browser to %s://localhost%s to play! Press Ctrl+C to save and exit.", scheme, config.Server.Addr)
 
 	select {
 	case err := <-serverErr:
@@ -303,11 +418,23 @@ func main() {
 		log.Printf("Warning: HTTP shutdown: %v", err)
 	}
 
+	if err := server.saveOwner(); err != nil {
+		log.Printf("Could not save the play schedule: %v", err)
+	}
 	if saved, err := server.saveNow(); err != nil {
 		log.Printf("Failed to save pet on exit: %v", err)
 		os.Exit(1)
 	} else if saved {
 		log.Printf("Saved pet to %s", store.SavePath(server.slot))
+	}
+	if server.cloudStatus().Connected {
+		syncCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		if report, err := server.cloudSync(syncCtx); err != nil {
+			log.Printf("Cloud sync on exit failed: %v", err)
+		} else {
+			log.Printf("Cloud sync: %s", report.summary())
+		}
+		cancel()
 	}
 }
 
@@ -362,6 +489,11 @@ func (s *Server) tick(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Goals completed by care since the last tick
+	if s.pet != nil {
+		s.announceGoalsLocked()
+	}
+
 	// No time passes while paused; resuming continues from now
 	paused := s.pet == nil || !s.pet.IsAlive() || s.pauseReasonLocked(now) != ""
 	s.clock.SetPaused(paused, now)
@@ -375,6 +507,20 @@ func (s *Server) tick(now time.Time) {
 	s.pet.Update(gameSeconds / secondsPerGameDay)
 	for _, event := range core.ConditionEvents(before, s.pet.Conditions()) {
 		s.events.Emit(event)
+		s.pet.RecordEvent(event)
+	}
+	s.announceAchievementsLocked()
+}
+
+// announceAchievementsLocked records achievements the active pet has newly
+// earned as events (and shares them through the cloud hub, if the player
+// has chosen to). Caller must hold s.mu.
+func (s *Server) announceAchievementsLocked() {
+	for _, a := range s.pet.CheckAchievements() {
+		s.events.Emit(core.GameEvent{Type: core.EventAchievement, PetID: s.pet.ID, Good: true,
+			Message: fmt.Sprintf("🏆 %s earned an achievement: %s %s (%s).", s.pet.Name, a.Icon, a.Name,
+				strings.ToLower(a.Description[:1])+a.Description[1:])})
+		s.shareAchievementLocked(a)
 	}
 }
 
@@ -422,6 +568,10 @@ var timeScales = map[string]types.TimeScale{
 	"realtime": types.TimeScaleRealTime,
 }
 
+// startupSyncTimeout is how long the program waits for a cloud sync
+// before restoring the last pet
+const startupSyncTimeout = 15 * time.Second
+
 // pauseReasonLocked returns why time is paused, or "" if it is running.
 // Caller must hold s.mu.
 func (s *Server) pauseReasonLocked(now time.Time) string {
@@ -438,6 +588,9 @@ func (s *Server) pauseReasonLocked(now time.Time) string {
 // was paused because they were away. Caller must hold s.mu for writing.
 func (s *Server) markActiveLocked(now time.Time) {
 	s.lastActivity = now
+	if s.owner != nil {
+		s.owner.RecordPresence(now)
+	}
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -459,7 +612,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gochi - Virtual Pet</title>
-    <link rel="stylesheet" href="/static/css/ar.css">
+    <link rel="stylesheet" href="/static/css/ar.css?v={{static}}">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -487,6 +640,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             font-size: 80px;
             margin: 20px 0;
             animation: bounce 1s ease infinite;
+        }
+        /* Animations stop on low battery and for players who prefer less motion */
+        body.power-saving *, body.power-saving *::before, body.power-saving *::after { animation: none !important; transition: none !important; }
+        @media (prefers-reduced-motion: reduce) {
+            .pet-display { animation: none; }
         }
         @keyframes bounce {
             0%, 100% { transform: translateY(0); }
@@ -587,6 +745,13 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .stat-fill.area.low { background: #fab005; }
         .stat-fill.area.critical { background: #fa5252; }
         .illness { margin-top: 8px; font-weight: 700; color: #c92a2a; }
+        .life-line, .rhythm-line { margin-top: 8px; font-size: 0.85em; color: #555; }
+        .cloud-field { display: block; margin-top: 8px; font-size: 0.85em; color: #555; }
+        .cloud-field input { display: block; width: 100%; padding: 7px 9px; margin-top: 3px; border: 2px solid #ddd; border-radius: 10px; }
+        .cloud-note { color: #777; font-size: 0.85em; }
+        .cloud-key { word-break: break-all; font-family: monospace; font-size: 0.8em; }
+        .rhythm-line { color: #777; }
+        .potion-btn { margin-top: 8px; }
         .symptom { margin-top: 8px; font-size: 0.88em; color: #5c3c00; background: #fff4e6; border-radius: 10px; padding: 6px 10px; }
         .symptom-hint { color: #666; margin-top: 2px; }
         .symptom.good { color: #2b8a3e; background: #ebfbee; }
@@ -594,6 +759,13 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .checklist { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #ebfbee; border: 2px solid #d3f9d8; font-size: 0.9em; }
         .checklist-item { margin-top: 3px; color: #2b8a3e; }
         .checklist-item.todo { color: #555; }
+        .goals { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fff9db; border: 2px solid #ffec99; font-size: 0.9em; }
+        .goal-item { margin-top: 3px; color: #555; }
+        .goal-item.done { color: #2b8a3e; }
+        .goal-reward { color: #e67700; font-size: 0.85em; white-space: nowrap; }
+        .forecast { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #e7f5ff; border: 2px solid #d0ebff; font-size: 0.9em; color: #1864ab; }
+        .forecast-item { margin-top: 3px; }
+        .play-schedule { margin-top: 4px; color: #555; font-size: 0.85em; }
         .event-log { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; border: 2px solid #e9ecef; font-size: 0.88em; }
         .event-log-item { margin-top: 3px; color: #5c3c00; }
         .event-log-item.good { color: #2b8a3e; }
@@ -745,9 +917,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="form-group">
                 <label for="petNameInput">What will you name your pet?</label>
                 <input type="text" id="petNameInput" placeholder="Enter a name..." maxlength="20" autofocus>
-                <div class="species-choice" role="radiogroup" aria-label="Kind of pet">
+                <div class="species-choice" id="speciesChoice" role="radiogroup" aria-label="Kind of pet">
                     <label><input type="radio" name="species" value="cat" checked><span>🐱 Cat</span></label>
-                    <label><input type="radio" name="species" value="dog"><span>🐶 Dog</span></label>
                 </div>
                 <label class="setting">
                     <input type="checkbox" id="hibernationInput">
@@ -834,6 +1005,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="health-panel">
                 <div class="section-title">Body</div>
                 <div class="body-systems" id="bodySystems"></div>
+                <div class="life-line" id="lifeLine"></div>
+                <div class="rhythm-line" id="rhythmLine"></div>
+                <button class="save-btn potion-btn hidden" id="potionBtn" onclick="givePotion()">🧪 Give life-extension potion</button>
                 <div class="living-area">
                     <span id="livingAreaLabel">Litter box</span>
                     <div class="stat-bar"><div class="stat-fill area" id="livingAreaBar" style="width: 100%"></div></div>
@@ -842,6 +1016,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="symptoms"></div>
             </div>
             <div class="checklist" id="checklist"></div>
+            <div class="goals hidden" id="goals"></div>
+            <div class="forecast hidden" id="forecast"></div>
             <div class="event-log hidden" id="eventLog">
                 <div class="section-title">Recently</div>
                 <div id="eventLogItems"></div>
@@ -853,6 +1029,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" onclick="openChooser()">Switch Pet</button>
                 <button class="save-btn" onclick="openShop()">Shop</button>
                 <button class="save-btn" onclick="openGuide()">📖 Care guide</button>
+                <button class="save-btn" onclick="openCloud()">☁️ Cloud</button>
+                <button class="save-btn" onclick="openPrivacy()">🔒 Privacy</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
@@ -869,8 +1047,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutTolerates"></div>
                 <div id="aboutDislikes"></div>
                 <div id="aboutChanges"></div>
+                <div id="aboutTrends"></div>
+                <div id="aboutRewarded"></div>
                 <div id="aboutRelations"></div>
                 <div id="aboutTreasures"></div>
+                <div id="aboutAchievements"></div>
                 <div id="aboutSeason"></div>
                 <div id="aboutGeneration"></div>
             </div>
@@ -913,24 +1094,54 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         </div>
     </div>
 
-    <script src="/static/js/ar.js"></script>
-    <script src="/static/js/ar-link.js"></script>
+    <script src="/static/js/ar.js?v={{static}}"></script>
+    <script src="/static/js/ar-link.js?v={{static}}"></script>
     <script>
-        const sprites = {
-            cat: {
+        // The kinds of pet the game has (from /api/species): how each looks
+        // and which care buttons it uses. The cat, the default species, is
+        // known before they load.
+        let speciesList = [{
+            id: 'cat', name: 'Cat', icon: '🐱', clean_label: '🧹 Scoop litter', walks: false,
+            sprites: {
                 idle: '🐱', happy: '😺', eating: '😋', playing: '😸', sleeping: '😴', sick: '🤒',
                 exploring: '🐈', social: '😻', hibernating: '💤', dead: '😿'
-            },
-            dog: {
-                idle: '🐶', happy: '🐕', eating: '😋', playing: '🐕', sleeping: '😴', sick: '🤒',
-                exploring: '🦮', social: '🐶', hibernating: '💤', dead: '🐶'
             }
-        };
+        }];
+
+        function speciesInfo(id) {
+            return speciesList.find(s => s.id === id) || speciesList[0];
+        }
+
+        // An icon and a space, to put before a pet's name
+        function speciesIcon(id) {
+            return speciesInfo(id).icon + ' ';
+        }
 
         // The sprites for the active pet's species
         function spriteSet(status) {
-            const species = (status || lastStatus || {}).species;
-            return sprites[species] || sprites.cat;
+            return speciesInfo((status || lastStatus || {}).species).sprites;
+        }
+
+        // Load the species and offer each in the new pet form
+        function loadSpecies() {
+            return fetch('/api/species').then(r => r.json()).then(data => {
+                if (!data.success || data.data.length === 0) return;
+                speciesList = data.data;
+                const choice = document.getElementById('speciesChoice');
+                choice.replaceChildren();
+                speciesList.forEach((s, i) => {
+                    const label = document.createElement('label');
+                    const input = document.createElement('input');
+                    input.type = 'radio';
+                    input.name = 'species';
+                    input.value = s.id;
+                    input.checked = i === 0;
+                    const span = document.createElement('span');
+                    span.textContent = s.icon + ' ' + s.name;
+                    label.append(input, span);
+                    choice.append(label);
+                });
+            }).catch(console.error);
         }
 
         let hasPet = false;
@@ -950,8 +1161,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             return !document.hidden && Date.now() - lastInput < 60000;
         }
 
+        // Hidden pages don't update; a page coming back updates at once
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) fetchStatus();
+            startUpdates();
         });
 
         function showCreateView() {
@@ -995,7 +1208,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         info.className = 'saved-pet-info';
                         const name = document.createElement('div');
                         name.className = 'saved-pet-name';
-                        name.textContent = (pet.species === 'dog' ? '🐶 ' : '🐱 ') + pet.name;
+                        name.textContent = speciesIcon(pet.species) + pet.name;
                         const meta = document.createElement('div');
                         meta.className = 'saved-pet-meta';
                         const state = !pet.is_alive ? 'Passed away' :
@@ -1202,7 +1415,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         // Supplies: food, treats and toys that are used up; rarer ones unlock
         // as the pet earns points, and some are on sale each day
-        const supplyKinds = [['food', 'Food (used up)'], ['treat', 'Treats (used up)'], ['toy', 'Toys (wear out)']];
+        const supplyKinds = [['food', 'Food (used up)'], ['treat', 'Treats (used up)'], ['toy', 'Toys (wear out)'],
+            ['health', 'Health (used up)']];
         function renderSupplies(data) {
             const list = document.getElementById('shopList');
             supplyKinds.forEach(([kind, title]) => {
@@ -1470,7 +1684,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
             setList('aboutAttention', 'Attention', status.attention ? [status.name + ' ' + status.attention] : [], 'unknown');
             setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
-            setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description + ')'),
+            setList('aboutTrends', 'Lately becoming', status.trends || [], 'no clear change');
+            setList('aboutAchievements', 'Achievements (' + (status.achievements || []).length + ' of ' +
+                status.achievement_total + ')', (status.achievements || []).map(a => a.icon + ' ' + a.name), 'none yet');
+            setList('aboutRewarded', 'Has learned you respond to', status.rewarded || [], 'nothing yet');
+            setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description +
+                (r.last_shared ? '; last: ' + r.last_shared : '') + ')'),
                 'no other pets yet');
             document.getElementById('activity').textContent =
                 status.is_alive ? status.name + ' ' + status.activity :
@@ -1529,7 +1748,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             effects.classList.toggle('hidden', active.length === 0);
             document.getElementById('mood').textContent = 'Mood: ' + status.mood;
             document.getElementById('statusText').textContent =
-                'Age: ' + status.age.toFixed(1) + ' days | Wellbeing: ' + (status.wellbeing * 100).toFixed(0) + '%';
+                (status.life ? status.life.stage : 'Age') + ': ' + status.age.toFixed(1) + ' days | Wellbeing: ' +
+                (status.wellbeing * 100).toFixed(0) + '%';
 
             const set = spriteSet(status);
             let sprite = set.idle;
@@ -1565,9 +1785,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // warning signs and today's checklist
         const bodyLabels = {Digestion: 'Digestion', Heart: 'Heart', Lungs: 'Lungs', Nerves: 'Nerves'};
         function updateHealth(status) {
-            const dog = status.species === 'dog';
-            document.getElementById('cleanBtn').textContent = dog ? '🧹 Clean up' : '🧹 Scoop litter';
-            document.getElementById('walkBtn').classList.toggle('hidden', !dog);
+            const kind = speciesInfo(status.species);
+            document.getElementById('cleanBtn').textContent = kind.clean_label;
+            document.getElementById('walkBtn').classList.toggle('hidden', !kind.walks);
 
             const body = document.getElementById('bodySystems');
             body.replaceChildren();
@@ -1585,6 +1805,33 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 cell.append(bar);
                 body.append(cell);
             });
+
+            // Age, life stage and lifespan; the sleep cycle and hormones
+            const life = status.life;
+            if (life) {
+                let text = '🎂 ' + life.stage + ', ' + Math.floor(life.age) + ' game days old';
+                if (!status.is_alive) {
+                    text += '.';
+                } else if (life.old_age_death) {
+                    text += ' · expected to live about ' + Math.round(life.lifespan).toLocaleString() + ' game days (' +
+                        formatPlayTime(status.life_seconds) + ' of play left)';
+                } else {
+                    text += ' · gentle mode: will not die of old age';
+                }
+                document.getElementById('lifeLine').textContent = text;
+                document.getElementById('lifeLine').title = 'Lifespan depends on species, genes and how well ' + status.name +
+                    ' has been cared for over its life (care record ' + Math.round(life.care_quality * 100) + '%)' +
+                    (life.extension > 0 ? '; potions have added ' + Math.round(life.extension).toLocaleString() + ' game days' : '') + '.';
+                const h = life.hormones;
+                document.getElementById('rhythmLine').textContent = status.is_alive ?
+                    '🌙 ' + life.sleep_phase + (life.sleep_debt >= 1 ? ' · owes ' + life.sleep_debt.toFixed(0) + ' h of sleep' : '') +
+                    ' · stress hormone ' + Math.round(h.cortisol * 100) + '% · mood ' + Math.round(h.serotonin * 100) +
+                    '% · bonding ' + Math.round(h.oxytocin * 100) + '% · growth ' + Math.round(h.growth * 100) +
+                    '% · sleep hormone ' + Math.round(h.melatonin * 100) + '%' : '';
+                const potion = document.getElementById('potionBtn');
+                potion.classList.toggle('hidden', !status.is_alive || life.potions === 0);
+                potion.textContent = '🧪 Give life-extension potion (' + life.potions + ' in the pantry)';
+            }
 
             const area = status.living_area || {name: 'Litter box', cleanliness: 1};
             document.getElementById('livingAreaLabel').textContent = area.name;
@@ -1636,7 +1883,67 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 checklist.append(line);
             });
 
+            updateGoals(status);
+            updateForecast(status);
             fetchEvents(status.name);
+        }
+
+        // Today's goals, with the bonus points each earns
+        function updateGoals(status) {
+            const box = document.getElementById('goals');
+            const goals = status.goals || [];
+            box.classList.toggle('hidden', !status.is_alive || goals.length === 0);
+            box.replaceChildren();
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = "Today's goals (level " + status.goal_level + ')';
+            box.append(title);
+            goals.forEach(goal => {
+                const line = document.createElement('div');
+                line.className = 'goal-item' + (goal.done ? ' done' : '');
+                let text = (goal.done ? '✅ ' : goal.icon + ' ') + goal.text;
+                if (!goal.done && goal.kind === 'care' && goal.target > 1) {
+                    text += ' (' + goal.progress + '/' + goal.target + ')';
+                } else if (!goal.done && goal.kind === 'happiness') {
+                    text += ' (now ' + goal.progress + '%)';
+                }
+                line.textContent = text + ' ';
+                const reward = document.createElement('span');
+                reward.className = 'goal-reward';
+                reward.textContent = '+' + goal.reward + ' ⭐';
+                line.append(reward);
+                box.append(line);
+            });
+        }
+
+        // What the pet will soon need, and when the player usually plays
+        function updateForecast(status) {
+            const box = document.getElementById('forecast');
+            const forecasts = status.forecasts || [];
+            box.classList.toggle('hidden', forecasts.length === 0 && !status.play_schedule);
+            box.replaceChildren();
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = 'Coming up';
+            box.append(title);
+            forecasts.forEach(f => {
+                const line = document.createElement('div');
+                line.className = 'forecast-item';
+                line.textContent = f.icon + ' In ' + formatWait(f.in_seconds) + ': ' + f.message;
+                box.append(line);
+            });
+            if (forecasts.length === 0) {
+                const line = document.createElement('div');
+                line.className = 'forecast-item';
+                line.textContent = status.name + " won't need anything new for a while.";
+                box.append(line);
+            }
+            if (status.play_schedule) {
+                const line = document.createElement('div');
+                line.className = 'play-schedule';
+                line.textContent = 'You usually play on ' + status.play_schedule + '.';
+                box.append(line);
+            }
         }
 
         // Things that happened to the pet on its own (illness, hunger,
@@ -1727,9 +2034,32 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 });
         }
 
+        // How often the page updates (ms). The game runs on the server, so
+        // updating less often only makes the page a little less current.
+        // On battery the page updates less often, and on low battery less
+        // still and without animations (where the browser reports the
+        // battery); a hidden page doesn't update at all.
+        const updatePaces = {charging: 2000, battery: 5000, lowBattery: 15000};
+        let updatePace = updatePaces.charging;
+
         function startUpdates() {
             if (updateInterval) clearInterval(updateInterval);
-            updateInterval = setInterval(fetchStatus, 2000);
+            updateInterval = document.hidden ? null : setInterval(fetchStatus, updatePace);
+        }
+
+        function watchBattery() {
+            if (!navigator.getBattery) return;
+            navigator.getBattery().then(battery => {
+                const adapt = () => {
+                    const low = !battery.charging && battery.level <= 0.2;
+                    updatePace = battery.charging ? updatePaces.charging : low ? updatePaces.lowBattery : updatePaces.battery;
+                    document.body.classList.toggle('power-saving', low);
+                    startUpdates();
+                };
+                battery.addEventListener('chargingchange', adapt);
+                battery.addEventListener('levelchange', adapt);
+                adapt();
+            }).catch(() => {});
         }
 
         function interact(action) {
@@ -1791,12 +2121,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         let dismissedAdventure = null;
         try { dismissedAdventure = localStorage.getItem('gochiDismissedAdventure'); } catch (e) {}
 
+        // POST JSON. When a parent PIN is set, protected requests ask for it
+        // and are sent again with it.
         function postJSON(url, body) {
+            body = body || {};
             return fetch(url, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body || {})
-            }).then(r => r.json());
+                body: JSON.stringify(body)
+            }).then(r => r.json()).then(data => {
+                if (data.success || !data.data || !data.data.parent_pin_needed || 'parent_pin' in body) return data;
+                const pin = prompt(data.error + ' Ask a parent to enter it.');
+                if (pin === null) return data;
+                return postJSON(url, Object.assign({}, body, {parent_pin: pin}));
+            });
         }
 
         function panel() {
@@ -1950,7 +2288,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         p.append(none);
                     }
                     data.data.forEach(partner => p.append(choiceRow(
-                        (partner.species === 'dog' ? '🐶 ' : '🐱 ') + partner.name,
+                        speciesIcon(partner.species) + partner.name,
                         partner.relationship || "Haven't met yet", 'Meet', () => {
                             postJSON('/api/introduce', {partner_slot: partner.slot})
                                 .then(data => {
@@ -1964,9 +2302,299 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                                 })
                                 .catch(console.error);
                         })));
+                    if (data.data.length > 0) renderGroup(p, data.data);
                     p.classList.remove('hidden');
                 })
                 .catch(console.error);
+        }
+
+        // Group activities: the active pet and up to three others play, nap
+        // or (species that go for walks) go for a walk together
+        const maxGroupPartners = 3;
+        function renderGroup(p, partners) {
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = 'Spend time together';
+            title.style.marginTop = '14px';
+            const intro = document.createElement('div');
+            intro.className = 'panel-text';
+            intro.textContent = 'Pick up to ' + maxGroupPartners + ' pets to join ' + lastStatus.name +
+                '. Pets that don\'t get along may clash, and the group sorts out who is in charge.';
+            p.append(title, intro);
+
+            const chosen = new Set();
+            partners.forEach(partner => {
+                const row = document.createElement('label');
+                row.className = 'method-row';
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.onchange = () => {
+                    if (box.checked && chosen.size >= maxGroupPartners) {
+                        box.checked = false;
+                        showPointsToast('At most ' + maxGroupPartners + ' other pets at a time.');
+                        return;
+                    }
+                    box.checked ? chosen.add(partner.slot) : chosen.delete(partner.slot);
+                };
+                row.append(box, ' ' + speciesIcon(partner.species) + partner.name);
+                p.append(row);
+            });
+
+            const buttons = document.createElement('div');
+            buttons.className = 'save-row';
+            const activities = [['play', '🎾 Play'], ['nap', '💤 Nap']];
+            if (speciesInfo(lastStatus.species).walks) activities.push(['walk', '🦮 Walk']);
+            activities.forEach(([activity, label]) => {
+                const btn = document.createElement('button');
+                btn.className = 'save-btn';
+                btn.textContent = label;
+                btn.onclick = () => {
+                    if (chosen.size === 0) {
+                        showPointsToast('Pick at least one pet to join in.');
+                        return;
+                    }
+                    postJSON('/api/group', {activity: activity, partner_slots: [...chosen]})
+                        .then(data => {
+                            if (!data.success) {
+                                showPointsToast(data.error || 'Something went wrong');
+                                return;
+                            }
+                            const d = data.data;
+                            const lines = [d.text].concat(d.signals || [], (d.conflicts || []).map(c => '⚠️ ' + c.text));
+                            showResult(d, lines.join(' '));
+                            setTimeout(fetchStatus, 500);
+                            openMeet();
+                        })
+                        .catch(console.error);
+                };
+                buttons.append(btn);
+            });
+            p.append(buttons);
+        }
+
+        // Cloud: back up and sync pets through a Gochi hub, see pets nearby
+        // and shared achievements
+        function openCloud() {
+            panelMode = 'cloud';
+            fetch('/api/cloud').then(r => r.json()).then(data => {
+                if (data.success) renderCloud(data.data);
+            }).catch(console.error);
+        }
+
+        function cloudField(p, label, id, value, placeholder, type) {
+            const row = document.createElement('label');
+            row.className = 'cloud-field';
+            row.textContent = label;
+            const input = document.createElement('input');
+            input.type = type || 'text';
+            input.id = id;
+            input.value = value || '';
+            input.placeholder = placeholder || '';
+            row.append(input);
+            p.append(row);
+            return input;
+        }
+
+        function cloudText(p, text, className) {
+            const div = document.createElement('div');
+            div.className = className || 'panel-text';
+            div.textContent = text;
+            p.append(div);
+            return div;
+        }
+
+        function cloudButton(parent, text, onClick) {
+            const btn = document.createElement('button');
+            btn.className = 'save-btn';
+            btn.textContent = text;
+            btn.onclick = onClick;
+            parent.append(btn);
+            return btn;
+        }
+
+        function cloudPost(url, body, done) {
+            postJSON(url, body).then(data => {
+                showPointsToast(data.success ? (data.data && data.data.text) || 'Done.' : (data.error || 'Something went wrong'));
+                if (data.success && done) done(data.data);
+                openCloud();
+                fetchStatus();
+            }).catch(console.error);
+        }
+
+        function renderCloud(cloud) {
+            const p = panel();
+            p.replaceChildren(panelHeader('Cloud'));
+            if (cloud.hosting) {
+                cloudText(p, '🏠 This server is also a cloud hub. Other players connect to its address with the join code.', 'panel-text cloud-note');
+            }
+
+            if (!cloud.connected) {
+                cloudText(p, 'Connect to a Gochi hub to back up your pets, play them on your other devices, ' +
+                    'see pets nearby and share achievements. A hub is any Gochi server started with -hub.');
+                const url = cloudField(p, 'Hub address', 'cloudUrl', '', 'https://hub.example.com');
+                const user = cloudField(p, 'Username', 'cloudUser', '', 'your name on the hub');
+                const code = cloudField(p, 'Join code (new account)', 'cloudCode', '', 'from whoever runs the hub', 'password');
+                const key = cloudField(p, 'Or account key (already have an account)', 'cloudKey', '', 'from your other device', 'password');
+                const row = document.createElement('div');
+                row.className = 'save-row';
+                cloudButton(row, 'Connect', () => cloudPost('/api/cloud/connect',
+                    {hub_url: url.value, username: user.value, join_code: code.value, account_key: key.value}));
+                p.append(row);
+                p.classList.remove('hidden');
+                return;
+            }
+
+            cloudText(p, 'Connected to ' + cloud.hub_url + ' as ' + cloud.username + '.');
+            cloudText(p, cloud.last_sync ? 'Last synced ' + new Date(cloud.last_sync).toLocaleString() + '. ' + cloud.last_report :
+                'Not synced yet.', 'panel-text cloud-note');
+            const actions = document.createElement('div');
+            actions.className = 'save-row';
+            cloudButton(actions, '🔄 Sync now', () => cloudPost('/api/cloud/sync', {}));
+            const keyBtn = cloudButton(actions, 'Show account key', () => {
+                keyLine.textContent = 'Account key for your other devices (keep it secret): ' + cloud.account_key;
+                keyLine.classList.remove('hidden');
+                keyBtn.disabled = true;
+            });
+            cloudButton(actions, 'Disconnect', () => {
+                if (confirm('Disconnect from the hub? Your pets stay on this device and on the hub.')) {
+                    cloudPost('/api/cloud/disconnect', {});
+                }
+            });
+            p.append(actions);
+            const keyLine = cloudText(p, '', 'panel-text cloud-key hidden');
+
+            renderPlaydateSection(p);
+
+            const title = cloudText(p, 'Nearby pets and sharing', 'section-title');
+            title.style.marginTop = '14px';
+            cloudText(p, 'Type your town or area, and choose what to share. Players who chose the same area and show ' +
+                'their pets see yours (name, species and age group), and you see theirs. Shared achievements are ' +
+                'posted to the hub for everyone on it. Nothing more precise than the area name is shared, and both ' +
+                'are off until you turn them on.', 'panel-text cloud-note');
+            const area = cloudField(p, 'Area', 'cloudArea', cloud.area, 'for example Leeds');
+            const checkbox = (label, checked) => {
+                const row = document.createElement('label');
+                row.className = 'method-row';
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.checked = checked;
+                row.append(box, ' ' + label);
+                p.append(row);
+                return box;
+            };
+            const nearbyBox = checkbox('Show my pets to players nearby (and see theirs)', cloud.show_nearby);
+            const feedBox = checkbox('Share my pets\' achievements', cloud.share_achievements);
+            const saveRow = document.createElement('div');
+            saveRow.className = 'save-row';
+            cloudButton(saveRow, 'Save', () => cloudPost('/api/cloud/profile',
+                {area: area.value, show_nearby: nearbyBox.checked, share_achievements: feedBox.checked},
+                () => showPointsToast('Sharing settings saved.')));
+            p.append(saveRow);
+
+            const nearby = cloudText(p, cloud.show_nearby ? 'Looking for pets nearby…' : 'Show your pets nearby to see pets nearby.', 'panel-text');
+            const feed = cloudText(p, '', 'panel-text');
+            p.classList.remove('hidden');
+
+            if (cloud.show_nearby) {
+                fetch('/api/cloud/nearby').then(r => r.json()).then(data => {
+                    if (!data.success) { nearby.textContent = data.error; return; }
+                    nearby.textContent = data.data.length === 0 ? 'No pets nearby yet.' :
+                        'Nearby: ' + data.data.map(n => speciesIcon(n.species) + n.name + ' (' +
+                            n.stage.toLowerCase() + ', ' + n.owner + ')').join(' · ');
+                }).catch(console.error);
+            }
+            fetch('/api/cloud/feed').then(r => r.json()).then(data => {
+                if (!data.success || data.data.length === 0) return;
+                feed.textContent = 'Shared achievements: ' + data.data.slice(0, 10).map(a =>
+                    a.icon + ' ' + a.pet_name + ' (' + a.owner + '): ' + a.name).join(' · ');
+            }).catch(console.error);
+        }
+
+        // AR playdates: players connected to this hub bring their pets to the
+        // same place and see them together in AR
+        function renderPlaydateSection(p) {
+            const title = cloudText(p, 'AR playdate', 'section-title');
+            title.style.marginTop = '14px';
+            cloudText(p, 'Meet up with other players on this hub and see your pets together in AR. One of you starts ' +
+                'a playdate and tells the others its code; everyone then taps the same spot to mark the center.',
+                'panel-text cloud-note');
+            const code = cloudField(p, 'Playdate code', 'playdateCode', '', 'to join a friend\'s playdate');
+            code.autocapitalize = 'characters';
+            const row = document.createElement('div');
+            row.className = 'save-row';
+            cloudButton(row, '🐾 Start a playdate', () => playdateAction({action: 'start'}));
+            cloudButton(row, 'Join', () => playdateAction({action: 'join', code: code.value}));
+            p.append(row);
+        }
+
+        function playdateAction(body) {
+            body.sprite = document.getElementById('petSprite').textContent;
+            postJSON('/api/playdate', body).then(data => {
+                if (!data.success) {
+                    showPointsToast(data.error || 'Something went wrong');
+                    return;
+                }
+                closePanel();
+                showPointsToast((body.action === 'start' ? 'Playdate started. Its code is ' : 'Joined playdate ') +
+                    data.data.code + '.');
+                openAR({playdate: true});
+            }).catch(console.error);
+        }
+
+        // Privacy: learning when the player plays, and the parent PIN
+        function openPrivacy() {
+            panelMode = 'privacy';
+            fetch('/api/privacy').then(r => r.json()).then(data => {
+                if (data.success) renderPrivacy(data.data);
+            }).catch(console.error);
+        }
+
+        function privacyPost(body, done) {
+            postJSON('/api/privacy', body).then(data => {
+                showPointsToast(data.success ? done : (data.error || 'Something went wrong'));
+                openPrivacy();
+            }).catch(console.error);
+        }
+
+        function renderPrivacy(privacy) {
+            const p = panel();
+            p.replaceChildren(panelHeader('Privacy'));
+
+            cloudText(p, 'When you play', 'section-title');
+            cloudText(p, 'The game learns when you usually play, so it can warn you about what your pet will need ' +
+                'before you stop. This stays on this computer.', 'panel-text cloud-note');
+            cloudText(p, privacy.play_schedule ? 'You usually play on ' + privacy.play_schedule + '.' :
+                'Nothing learned yet.', 'panel-text');
+            const learnRow = document.createElement('label');
+            learnRow.className = 'method-row';
+            const learn = document.createElement('input');
+            learn.type = 'checkbox';
+            learn.checked = privacy.learn_schedule;
+            learn.onchange = () => privacyPost({learn_schedule: learn.checked},
+                learn.checked ? 'Learning when you play.' : 'No longer learning when you play.');
+            learnRow.append(learn, ' Learn when I usually play');
+            p.append(learnRow);
+            const eraseRow = document.createElement('div');
+            eraseRow.className = 'save-row';
+            cloudButton(eraseRow, 'Erase what was learned', () => privacyPost({erase_schedule: true}, 'Erased.'));
+            p.append(eraseRow);
+
+            const title = cloudText(p, 'Parent PIN', 'section-title');
+            title.style.marginTop = '14px';
+            cloudText(p, 'With a parent PIN, the PIN is needed to connect to a cloud hub, change what is shared, ' +
+                'start or join a playdate, and change these settings.', 'panel-text cloud-note');
+            cloudText(p, privacy.parent_lock ? '🔒 A parent PIN is set.' : 'No parent PIN is set.', 'panel-text');
+            const pin = cloudField(p, privacy.parent_lock ? 'New PIN' : 'PIN (4 to 8 digits)', 'newPin', '', '', 'password');
+            pin.inputMode = 'numeric';
+            const pinRow = document.createElement('div');
+            pinRow.className = 'save-row';
+            cloudButton(pinRow, privacy.parent_lock ? 'Change PIN' : 'Set PIN',
+                () => privacyPost({new_pin: pin.value}, 'Parent PIN saved.'));
+            if (privacy.parent_lock) {
+                cloudButton(pinRow, 'Remove PIN', () => privacyPost({remove_pin: true}, 'Parent PIN removed.'));
+            }
+            p.append(pinRow);
+            p.classList.remove('hidden');
         }
 
         function openTricks() {
@@ -2187,7 +2815,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // AR: places the pet in the room through the camera (or a drawn
         // room on devices without AR); see web/static/js/ar-link.js
         let arReady = false;
-        async function openAR() {
+        async function openAR(mode) {
             if (typeof GochiAR === 'undefined' || typeof GochiARLink === 'undefined') {
                 showPointsToast('AR could not be loaded.');
                 return;
@@ -2199,10 +2827,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.body.classList.add('ar-open');
             const started = await GochiARLink.start({
                 onMessage: text => showPointsToast(text),
-                onCare: result => { showResult(result); setTimeout(fetchStatus, 500); },
+                onCare: result => { showResult(result, result.text); setTimeout(fetchStatus, 500); },
                 petSprite: () => document.getElementById('petSprite').textContent,
                 statusText: () => lastStatus ? lastStatus.name + ' ' + lastStatus.activity : '',
-                onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); }
+                onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); },
+                playdate: !!(mode && mode.playdate)
             });
             if (!started) document.body.classList.remove('ar-open');
         }
@@ -2296,6 +2925,21 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('adventureBanner').classList.add('hidden');
         }
 
+        // Play time, from real seconds at the default pace
+        function formatPlayTime(seconds) {
+            const hours = seconds / 3600;
+            return hours >= 2 ? 'about ' + Math.round(hours).toLocaleString() + ' hours' : formatWait(seconds);
+        }
+
+        function givePotion() {
+            postJSON('/api/potion')
+                .then(data => {
+                    showPointsToast(data.success ? data.data.text : (data.error || 'Something went wrong'));
+                    fetchStatus();
+                })
+                .catch(console.error);
+        }
+
         function formatWait(seconds) {
             return seconds >= 90 ? 'about ' + Math.round(seconds / 60) + ' minutes' : seconds + ' seconds';
         }
@@ -2371,12 +3015,13 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         // Initial check for existing pet; keep polling so the server knows
         // whether the player is present
-        fetchStatus();
+        loadSpecies().then(fetchStatus);
         startUpdates();
+        watchBattery();
     </script>
 </body>
 </html>`
-	w.Write([]byte(html))
+	w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion)))
 }
 
 // autosaveLoop saves the pet every interval until ctx is done
@@ -2391,6 +3036,9 @@ func (s *Server) autosaveLoop(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 			if _, err := s.saveNow(); err != nil {
 				log.Printf("Autosave failed: %v", err)
+			}
+			if err := s.saveOwner(); err != nil {
+				log.Printf("Could not save the play schedule: %v", err)
 			}
 		}
 	}
@@ -2415,12 +3063,13 @@ func (s *Server) saveNow() (bool, error) {
 	}
 	slot := s.slot
 	petData, err := s.pet.Save()
+	record := s.pet.SaveRecord()
 	s.mu.RUnlock()
 	if err != nil {
 		return false, err
 	}
 
-	if err := s.store.Save(slot, petData); err != nil {
+	if err := s.store.SaveWithRecord(slot, petData, &record); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -2432,11 +3081,7 @@ func (s *Server) saveActiveLocked() error {
 	if s.store == nil || s.pet == nil {
 		return nil
 	}
-	petData, err := s.pet.Save()
-	if err != nil {
-		return err
-	}
-	return s.store.Save(s.slot, petData)
+	return s.store.SavePet(s.slot, s.pet)
 }
 
 // switchPet saves the active pet, then makes the pet returned by next the
@@ -2747,9 +3392,9 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	active := s.pet != nil && s.slot == req.Slot
 
 	// The active pet may have been renamed since it was last saved
-	var name string
+	var name, petID string
 	if active {
-		name = s.pet.Name
+		name, petID = s.pet.Name, string(s.pet.ID)
 	} else {
 		summary, err := s.store.Summary(req.Slot)
 		switch {
@@ -2759,7 +3404,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			name = req.Slot // Unreadable save: confirm with the slot name
 		default:
-			name = summary.Name
+			name, petID = summary.Name, summary.ID
 		}
 	}
 
@@ -2781,6 +3426,9 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Deleted %s (%s)", name, req.Slot)
+	if petID != "" {
+		go s.cloudForget(context.Background(), petID) // Other devices stop syncing it
+	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
 		"deleted":    req.Slot,
 		"was_active": active,
@@ -2905,10 +3553,20 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	petStatus.Checklist = s.pet.DailyChecklist()
+	petStatus.Goals, petStatus.GoalLevel = s.pet.DailyGoals()
+	petStatus.Forecasts = s.forecastsLocked(now)
+	if s.owner != nil {
+		petStatus.PlaySchedule = s.owner.Summary()
+	}
 	if a := s.pet.LastAdventure; a != nil && status.Age-a.ReturnedAge < recentAdventureDays {
 		petStatus.LastAdventure = a
 	}
 	petStatus.Changes = s.pet.PersonalityChanges()
+	petStatus.Rewarded, petStatus.Trends = s.pet.LearningSummary()
+	petStatus.Life = s.pet.LifeStatus()
+	petStatus.Achievements = s.pet.EarnedAchievements()
+	petStatus.AchievementTotal = core.AchievementCount()
+	petStatus.LifeSeconds = gameDaysToSeconds(petStatus.Life.Remaining)
 	petStatus.Attention = s.pet.AttentionStyle()
 	petStatus.Relations = s.pet.Relations()
 	petStatus.Tolerates = s.pet.Tolerates()
@@ -3018,7 +3676,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Randomize bool   `json:"randomize"`
 		// Hibernate instead of dying from neglect (off by default)
 		Hibernation bool   `json:"hibernation"`
-		Species     string `json:"species"` // cat (default) or dog
+		Species     string `json:"species"` // See /api/species; "" for the default (cat)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
@@ -3026,7 +3684,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	species, ok := core.ParseSpecies(req.Species)
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose a cat or a dog"})
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown kind of pet"})
 		return
 	}
 

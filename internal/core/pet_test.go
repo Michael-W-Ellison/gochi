@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
+	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -169,6 +170,12 @@ func TestDeadPetNoUpdates(t *testing.T) {
 // setCalmHealthyState puts the pet in a state where discretionary
 // behavior is chosen (healthy, rested, fed, neutral mood)
 func setCalmHealthyState(pet *DigitalPet) {
+	// Fine weather at midday in summer, which neither encourages nor
+	// discourages activity
+	pet.Environment.ForceSeason(environment.SeasonSummer, 10)
+	pet.Environment.SetTimeOfDay(12)
+	pet.Environment.ForceWeather(environment.WeatherPartlyCloudy)
+	pet.Environment.Weather.Current.Temperature, pet.Environment.Weather.Current.Comfort = 21, 0.85
 	v := pet.Biology.Vitals
 	v.Health, v.Energy, v.Nutrition, v.Hydration = 1.0, 0.8, 0.8, 0.8
 	v.Happiness, v.Cleanliness, v.Stress, v.Fatigue = 0.8, 0.8, 0.0, 0.0
@@ -238,6 +245,7 @@ func TestDisciplineMakesPetWithdrawn(t *testing.T) {
 
 func TestLearnedBehaviorPersistsWithoutInteraction(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true // Four weeks of play outlasts a pet's lifespan; gentle mode keeps it
 
 	for i := 0; i < 10; i++ {
 		pet.RecentCare = nil // Care spread out over time

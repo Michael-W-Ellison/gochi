@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -40,10 +41,12 @@ func (p *DigitalPet) behaviorMachineLocked() *ai.BehaviorStateMachine {
 		return v().Health < 0.3 || (p.Illness != nil && p.Illness.Severity >= illnessSicknessLevel)
 	})
 	add(70, types.BehaviorDistressed, func() bool { return v().GetOverallWellbeing() < 0.3 })
-	// A pet falls asleep when tired and sleeps until rested
+	// A pet falls asleep when tired, more easily during its night, and
+	// sleeps until rested
 	add(60, types.BehaviorSleeping, func() bool {
 		asleep := p.CurrentBehavior == types.BehaviorSleeping
-		return v().Fatigue > 0.7 || v().Energy < 0.3 ||
+		night := p.nightSleepinessLocked()
+		return v().Fatigue > 0.7-0.2*night || v().Energy < 0.3+0.05*night ||
 			(asleep && (v().Fatigue > wakeFatigue || v().Energy < wakeEnergy))
 	})
 	// Emotions and personality decide the rest
@@ -66,6 +69,8 @@ var discretionaryBehaviors = []types.BehaviorState{
 	types.BehaviorPlaying,
 	types.BehaviorSocialInteraction,
 	types.BehaviorInvestigating,
+	types.BehaviorGrooming,
+	types.BehaviorExercising,
 }
 
 // learningContextLocked is the situation the pet learns in, from its mood:
@@ -109,6 +114,95 @@ func (p *DigitalPet) learnFromResponseLocked(behavior, context types.BehaviorSta
 		p.Learning = ai.NewLearningSystem()
 	}
 	p.Learning.LearnFromInteraction(context, behavior, reward, p.learningContextLocked())
+}
+
+// recordExperienceLocked remembers a kind of care, the pet's mood when it
+// was given and how the pet took it, and updates which of its behaviors
+// the owner rewards in each mood. Caller must hold p.mu.
+func (p *DigitalPet) recordExperienceLocked(interactionType types.InteractionType, context types.BehaviorState, valence, weight float64) {
+	if p.Learning == nil {
+		p.Learning = ai.NewLearningSystem()
+	}
+	p.Learning.RecordExperience(ai.ExperienceRecord{Action: interactionType, Context: context,
+		Emotion: p.Emotions.DominantEmotion, Reward: math.Max(-1, math.Min(1, valence)), Weight: weight, Timestamp: now()})
+	p.Learning.UpdateBehaviorWeights()
+}
+
+// expectedEnjoymentLocked is how much the pet expects to enjoy a kind of
+// care in its current mood (-1.0 to 1.0): what it has experienced in this
+// mood when it has enough experience, blended with its learned liking for
+// the care. Caller must hold p.mu.
+func (p *DigitalPet) expectedEnjoymentLocked(interactionType types.InteractionType) float64 {
+	liking := p.Memory.GetLearnedAffinity(interactionType)
+	if p.Learning == nil {
+		return liking
+	}
+	predicted, confidence := p.Learning.PredictReward(interactionType, p.learningContextLocked())
+	return confidence*predicted + (1-confidence)*liking
+}
+
+// moodNames describe the moods the pet learns in
+var moodNames = map[types.BehaviorState]string{
+	types.BehaviorExcited:    "excited",
+	types.BehaviorHappy:      "happy",
+	types.BehaviorIdle:       "calm",
+	types.BehaviorDistressed: "upset",
+}
+
+// behaviorPhrases describe the behaviors the pet learns are rewarded
+var behaviorPhrases = map[types.BehaviorState]string{
+	types.BehaviorPlaying:           "playing",
+	types.BehaviorSocialInteraction: "coming to you for attention",
+	types.BehaviorInvestigating:     "sniffing around",
+	types.BehaviorGrooming:          "grooming itself",
+	types.BehaviorExercising:        "running around",
+}
+
+// personalityTrendLevel is how strong a recent trend must be to describe
+const personalityTrendLevel = 1.0
+
+// LearningSummary describes what the pet has learned: in each mood, which
+// of its behaviors gets your attention, and which way its recent
+// experiences are moving its personality
+func (p *DigitalPet) LearningSummary() (rewarded []string, trends []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	rewarded, trends = []string{}, []string{}
+	if p.Learning == nil {
+		return rewarded, trends
+	}
+	for _, mood := range []types.BehaviorState{types.BehaviorExcited, types.BehaviorHappy, types.BehaviorIdle, types.BehaviorDistressed} {
+		if behavior, ok := p.Learning.BestRewardedBehavior(mood); ok {
+			if phrase, ok := behaviorPhrases[behavior]; ok {
+				rewarded = append(rewarded, fmt.Sprintf("when %s, %s", moodNames[mood], phrase))
+			}
+		}
+	}
+
+	shift := p.Learning.GetPersonalityShift(careExperiences)
+	type trend struct {
+		text string
+		size float64
+	}
+	var found []trend
+	for _, t := range traitChanges {
+		switch amount := shift[t.name]; {
+		case amount >= personalityTrendLevel:
+			found = append(found, trend{t.more, amount})
+		case amount <= -personalityTrendLevel:
+			found = append(found, trend{t.less, -amount})
+		}
+	}
+	for i := 1; i < len(found); i++ {
+		for j := i; j > 0 && found[j].size > found[j-1].size; j-- {
+			found[j], found[j-1] = found[j-1], found[j]
+		}
+	}
+	for _, t := range found {
+		trends = append(trends, t.text)
+	}
+	return rewarded, trends
 }
 
 // Personality change. Each experience moves a trait by its intensity times
@@ -223,6 +317,8 @@ func (p *DigitalPet) repeatWeightLocked(interactionType types.InteractionType) f
 // it was. Caller must hold p.mu.
 func (p *DigitalPet) evolveFromHardshipLocked(intensity float64) {
 	p.evolveLocked(ai.ExperienceData{TraitAffected: "neuroticism", Intensity: intensity})
+	p.Biology.EnsureHormones()
+	p.Biology.Hormones.Pulse(biology.HormoneCortisol, 0.5*intensity) // A rush of stress hormone
 }
 
 // evolveFromNeglectLocked changes a lonely or neglected pet over deltaTime

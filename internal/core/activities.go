@@ -196,7 +196,12 @@ func (p *DigitalPet) trainingProgressLocked(t Trick, reactionMultiplier float64)
 	intelligence := p.Personality.Traits.Intelligence
 	liking := p.Memory.GetLearnedAffinity(types.InteractionTraining)
 	base := 0.15 + 0.25*intelligence + 0.1*liking
-	return max(base*reactionMultiplier/(1.0+0.3*float64(t.Difficulty-1)), 0.05)
+	// Young pets learn fastest; old age and lack of sleep slow learning
+	cognition := p.Biology.Processes.CognitiveCapacity / 0.8
+	if cognition <= 0 {
+		cognition = 1
+	}
+	return max(base*reactionMultiplier*cognition/(1.0+0.3*float64(t.Difficulty-1)), 0.05)
 }
 
 // TrainTrick practices a trick with the pet
@@ -238,7 +243,7 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 		return TrickResult{}, RefusedError{result.Refusal}
 	}
 	if methodID == "treats" || methodID == "clicker" {
-		p.useSupplyLocked(speciesTreats[p.speciesLocked()])
+		p.useSupplyLocked(p.defLocked().Treats)
 	}
 
 	if p.TrickSkills == nil {
@@ -624,6 +629,9 @@ func (p *DigitalPet) finishExploringLocked() {
 		} else {
 			adventure.Text = fmt.Sprintf("%s came home from %s empty-handed.", p.Name, where)
 		}
+	}
+	if adventure.Outcome != OutcomeInjured {
+		adventure.Text += p.visitPlaceLocked()
 	}
 	adventure.Text += p.takeFromPlaceLocked(adventure.Outcome)
 

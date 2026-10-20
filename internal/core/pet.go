@@ -71,18 +71,22 @@ type DigitalPet struct {
 	// Activities: trick skills (0.0 to 1.0, learned at 1.0), an exploring
 	// trip that ends at ExploringUntilAge (0 when home), souvenirs found
 	// while exploring, the most recent trip, and the last game bonus
-	TrickSkills       map[string]float64  `json:"trick_skills"`
-	TrickPracticedAge map[string]float64  `json:"trick_practiced_age"` // Age each trick was last trained or performed
-	TricksLearned     map[string]bool     `json:"tricks_learned"`      // Tricks the pet has ever learned
-	ExploringUntilAge float64             `json:"exploring_until_age"`
-	ExploringTo       string              `json:"exploring_to"` // Where the current or last trip went
-	TripsTaken        int                 `json:"trips_taken"`  // Trips finished, which discover new places
-	Souvenirs         []string            `json:"souvenirs"`
-	LastAdventure     *Adventure          `json:"last_adventure"`
-	LastGameReward    time.Time           `json:"last_game_reward"`
-	Injured           bool                `json:"injured"`       // Hurt while exploring; healed by medical care
-	LastBredAge       float64             `json:"last_bred_age"` // Age at the last breeding (0 if never)
-	BabiesWith        map[types.PetID]int `json:"babies_with"`   // Babies had with each mate
+	TrickSkills       map[string]float64   `json:"trick_skills"`
+	TrickPracticedAge map[string]float64   `json:"trick_practiced_age"` // Age each trick was last trained or performed
+	TricksLearned     map[string]bool      `json:"tricks_learned"`      // Tricks the pet has ever learned
+	ExploringUntilAge float64              `json:"exploring_until_age"`
+	ExploringTo       string               `json:"exploring_to"`      // Where the current or last trip went
+	ParasiteExposure  float64              `json:"parasite_exposure"` // Builds with trips to risky places (places.go)
+	TripsTaken        int                  `json:"trips_taken"`       // Trips finished, which discover new places
+	Souvenirs         []string             `json:"souvenirs"`
+	LastAdventure     *Adventure           `json:"last_adventure"`
+	LastGameReward    time.Time            `json:"last_game_reward"`
+	Injured           bool                 `json:"injured"`       // Hurt while exploring; healed by medical care
+	History           []HistoryEntry       `json:"history"`       // What happened to the pet, oldest first (records.go)
+	Goals             *GoalBoard           `json:"goals"`         // Today's adaptive goals (goals.go)
+	Achievements      map[string]time.Time `json:"achievements"`  // Achievements earned, by ID, with when
+	LastBredAge       float64              `json:"last_bred_age"` // Age at the last breeding (0 if never)
+	BabiesWith        map[types.PetID]int  `json:"babies_with"`   // Babies had with each mate
 
 	// Health care: how dirty the living area is (0.0 clean to 1.0
 	// filthy), the illness the pet has (nil if well), recent health
@@ -102,6 +106,10 @@ type DigitalPet struct {
 	KnownPets      map[types.PetID]string                `json:"known_pets"`      // Names of the pets it has met or is related to
 	choice         *careChoice                           // Variant of the care being given (not saved)
 	behavior       *ai.BehaviorStateMachine
+
+	// completedGoals are goals completed since TakeCompletedGoals was last
+	// called (not saved)
+	completedGoals []Goal
 
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
@@ -130,6 +138,7 @@ func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 		TotalInteractions: 0,
 		TotalPlayTime:     0,
 	}
+	pet.Memory.SetLongTermCapacity(maxLongTermMemories)
 	pet.ensureGenomeLocked()
 	return pet
 }
@@ -173,8 +182,10 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		return
 	}
 
-	// Belongings such as bowls and beds slow the pet's needs
+	// Belongings such as bowls and beds slow the pet's needs, and the body
+	// responds to its surroundings, needs and age
 	p.Biology.DecayMultipliers = p.decayMultipliersLocked()
+	p.prepareBodyLocked()
 
 	// Update biological systems in small steps, stopping if the pet
 	// hibernates or dies; the rest of the pet lives only that long
@@ -192,7 +203,7 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	deltaTime = elapsed
 
 	if !p.Biology.IsAlive {
-		if name := p.illnessNameLocked(); name != "" {
+		if name := p.illnessNameLocked(); name != "" && p.Biology.CauseOfDeath != causeOldAge {
 			p.Biology.CauseOfDeath = "Untreated " + strings.ToLower(name)
 		}
 		// A pet that dies on a trip or mid-game does not come back; record
@@ -211,6 +222,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 
 	// Tricks the pet hasn't practiced in a while get rusty
 	p.decayTricksLocked(deltaTime)
+
+	// Grooming itself and running around do the pet some good
+	p.selfCareLocked(deltaTime)
 
 	// Needs build up over time, and the weather and season affect the pet
 	p.updateNeedsLocked(deltaTime)
@@ -231,7 +245,7 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	p.Memory.ConsolidateMemories()
 
 	// Update relationships
-	p.Relationships.UpdateAll(deltaTime)
+	p.updateRelationshipsLocked(deltaTime)
 
 	// Loneliness and neglect change the pet's personality
 	p.evolveFromNeglectLocked(deltaTime)
@@ -366,6 +380,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	// Apply biological effects; the boost strengthens the benefits only
 	p.applyInteractionEffects(interactionType, intensity, boost)
+	p.careHormonesLocked(interactionType, boost, unwanted)
 	choiceLesson := p.applyChoiceLocked(boost) // The variant chosen, such as the food or toy
 	intensity *= boost
 
@@ -393,6 +408,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	// living area doesn't involve the pet)
 	if involved {
 		p.learnFromResponseLocked(behaviorBefore, contextBefore, valence*weight)
+		p.recordExperienceLocked(interactionType, contextBefore, valence, weight)
 		p.evolveFromCareLocked(interactionType, valence, weight)
 		if weight < diminishedWeight {
 			result.Repeated = fmt.Sprintf("%s has had plenty of this just now; more right away won't change how %s grows.",
@@ -411,13 +427,16 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	case choiceLesson != "":
 		result.Lesson = choiceLesson
 	case unwanted:
-		result.Lesson = unwantedAttentionLessons[p.speciesLocked()]
+		result.Lesson = p.defLocked().UnwantedAttentionLesson
 	}
 
 	// Update behavior
 	p.updateBehavior()
 
 	result.Changes = statChanges(before, *p.Biology.Vitals)
+	description, outcome := careHistoryText(interactionType, result)
+	p.addHistoryLocked(interactionType.String(), description, outcome)
+	p.progressGoalsLocked(interactionType)
 	return result
 }
 
@@ -433,10 +452,9 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		if p.choice != nil && p.choice.food != nil {
 			portion = p.choice.food.food.nutrition
 		}
-		vitals.Nutrition += 0.3 * portion * intensity * boost * p.Biology.Absorption()
 		vitals.Energy += 0.1 * intensity * boost
 		vitals.Happiness += 0.05 * intensity * boost
-		p.eatLocked(0.3 * portion * intensity)
+		p.digestLocked(biology.FoodItem{Bulk: 0.3 * portion * intensity, Nutrition: 0.3 * portion * intensity * boost})
 
 	case types.InteractionPetting:
 		vitals.Happiness += 0.15 * intensity * boost
@@ -446,7 +464,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.2 * intensity * boost
 		vitals.Energy -= 0.1 * intensity
 		vitals.Stress -= 0.05 * intensity * boost
-		p.Biology.Exercise(intensity)
+		p.Biology.ProcessExercise(biology.ExercisePlay, intensity)
 
 	case types.InteractionDrinking:
 		vitals.Hydration += 0.4 * intensity * boost
@@ -461,7 +479,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.15 * intensity * boost
 		vitals.Stress -= 0.05 * intensity * boost
 		vitals.Energy -= 0.15 * intensity
-		p.Biology.Exercise(1.5 * intensity)
+		p.Biology.ProcessExercise(biology.ExerciseExplore, 1.5*intensity)
 
 	case types.InteractionGrooming:
 		vitals.Cleanliness += 0.3 * intensity * boost
@@ -473,7 +491,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 
 	case types.InteractionRewards:
 		vitals.Happiness += 0.25 * intensity * boost
-		p.eatLocked(0.1 * intensity) // Treats are food too
+		p.digestLocked(biology.FoodItem{Bulk: 0.1 * intensity}) // Treats are food too
 
 	case types.InteractionCleaning:
 		p.LivingAreaWaste = 0
@@ -486,7 +504,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.15 * intensity * boost
 		vitals.Stress -= 0.05 * intensity * boost
 		vitals.Energy -= 0.08 * intensity
-		p.Biology.Exercise(intensity)
+		p.Biology.ProcessExercise(biology.ExerciseWalk, intensity)
 
 	case types.InteractionDiscipline:
 		vitals.Stress += 0.15 * intensity
@@ -529,6 +547,9 @@ const (
 // gradually change the learned preferences.
 func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 	learned := p.Memory.GetLearnedAffinity
+	// The season and weather make a pet more or less active, and bad
+	// weather draws it to its owner
+	drive, comfort := p.activityDriveLocked(), p.comfortSeekingLocked()
 
 	candidates := []struct {
 		behavior types.BehaviorState
@@ -537,14 +558,14 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 		{
 			// Enjoying play makes a pet more playful
 			types.BehaviorPlaying,
-			p.Personality.GetTraitInfluence("play") + learnedBehaviorWeight*learned(types.InteractionPlaying) +
+			p.Personality.GetTraitInfluence("play")*drive + learnedBehaviorWeight*learned(types.InteractionPlaying) +
 				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorPlaying),
 		},
 		{
 			// Enjoying petting draws a pet toward its owner; discipline
 			// (always negative) makes it more withdrawn
 			types.BehaviorSocialInteraction,
-			p.Personality.GetTraitInfluence("social") +
+			p.Personality.GetTraitInfluence("social") + comfort +
 				learnedBehaviorWeight*(learned(types.InteractionPetting)+learned(types.InteractionDiscipline)) +
 				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorSocialInteraction),
 		},
@@ -553,6 +574,18 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 			types.BehaviorInvestigating,
 			p.Personality.GetTraitInfluence("explore") + learnedBehaviorWeight*learned(types.InteractionEnvironmentalEnrichment) +
 				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorInvestigating),
+		},
+		{
+			// A pet grooms itself when its coat needs it; cats groom far
+			// more than dogs, and tidy pets more than others
+			types.BehaviorGrooming,
+			p.selfGroomingScoreLocked() + learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorGrooming),
+		},
+		{
+			// An energetic pet that hasn't had enough exercise runs around
+			// to burn off energy
+			types.BehaviorExercising,
+			p.selfExerciseScoreLocked()*drive + learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorExercising),
 		},
 	}
 
@@ -639,8 +672,16 @@ func Load(data []byte) (*DigitalPet, error) {
 	if err != nil {
 		return nil, err
 	}
+	if pet.Memory != nil {
+		pet.Memory.SetLongTermCapacity(maxLongTermMemories) // Older saves kept more
+	}
 	return &pet, nil
 }
+
+// maxLongTermMemories is how many long-term memories a pet keeps: the
+// strongest, which is enough for its behavior and keeps its save under
+// about a megabyte however long it is played
+const maxLongTermMemories = 1000
 
 // GetPersonalityDescription returns a description of the pet's personality
 func (p *DigitalPet) GetPersonalityDescription() string {
