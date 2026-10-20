@@ -51,9 +51,15 @@ func (m *MockPetStore) CreatePet(pet *core.DigitalPet) error {
 	return nil
 }
 
-func (m *MockPetStore) UpdatePet(pet *core.DigitalPet) error {
-	m.pets[pet.ID] = pet
-	return nil
+func (m *MockPetStore) ModifyPet(id types.PetID, change func(*core.DigitalPet) error) (*core.DigitalPet, error) {
+	pet, ok := m.pets[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if err := change(pet); err != nil {
+		return nil, err
+	}
+	return pet, nil
 }
 
 func (m *MockPetStore) DeletePet(id types.PetID) error {
@@ -384,5 +390,58 @@ func TestEmptyListsAreNotNull(t *testing.T) {
 		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"data":[]`) {
 			t.Errorf("%s: an empty list should be [], got %d %s", name, rr.Code, rr.Body.String())
 		}
+	}
+}
+
+// apiCall sends a request with a body to a handler for one pet
+func apiCall(handler http.HandlerFunc, method, petID, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, "/api/v1/pets/"+petID, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("petId", petID)
+	rr := httptest.NewRecorder()
+	handler(rr, req)
+	return rr
+}
+
+func TestIntensityMustBeInRange(t *testing.T) {
+	store := NewMockPetStore()
+	handler := NewHandler(store)
+	pet := core.NewDigitalPet("Mochi", "owner")
+	store.pets[pet.ID] = pet
+	id := string(pet.ID)
+	for _, call := range []struct {
+		handler http.HandlerFunc
+		body    string
+	}{
+		{handler.HandleInteraction, `{"type":"petting","intensity":1.7e308}`},
+		{handler.HandleInteraction, `{"type":"petting","intensity":-1}`},
+		{handler.HandleFeed, `{"quantity":2}`},
+		{handler.HandlePlay, `{"enthusiasm":-0.5}`},
+	} {
+		if rr := apiCall(call.handler, "POST", id, call.body); rr.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", call.body, rr.Code, rr.Body.String())
+		}
+	}
+	if pet.TotalInteractions != 0 {
+		t.Error("Refused interactions should change nothing")
+	}
+	if rr := apiCall(handler.HandleInteraction, "POST", id, `{"type":"petting","intensity":0.5}`); rr.Code != http.StatusOK {
+		t.Errorf("A valid interaction: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := apiCall(handler.HandleInteraction, "POST", "pet_missing", `{"type":"petting","intensity":0.5}`); rr.Code != http.StatusNotFound {
+		t.Errorf("A missing pet: %d", rr.Code)
+	}
+}
+
+func TestLocationMustBeAPlace(t *testing.T) {
+	store := NewMockPetStore()
+	handler := NewHandler(store)
+	pet := core.NewDigitalPet("Mochi", "owner")
+	store.pets[pet.ID] = pet
+	if rr := apiCall(handler.HandleUpdatePet, "PUT", string(pet.ID), `{"location":"<script>"}`); rr.Code != http.StatusBadRequest {
+		t.Errorf("An unknown location should be refused: %d", rr.Code)
+	}
+	if rr := apiCall(handler.HandleUpdatePet, "PUT", string(pet.ID), `{"location":"park"}`); rr.Code != http.StatusOK || pet.Location != "park" {
+		t.Errorf("A place should be accepted: %d %q", rr.Code, pet.Location)
 	}
 }

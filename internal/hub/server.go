@@ -104,7 +104,7 @@ func fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrVersionConflict), errors.Is(err, ErrTooManyPets), errors.Is(err, ErrPlaydateFull),
 		errors.Is(err, ErrAccountFull):
 		status = http.StatusConflict
-	case errors.Is(err, ErrTooManyPlaydate), errors.Is(err, ErrHubFull):
+	case errors.Is(err, ErrTooManyPlaydate), errors.Is(err, ErrHubFull), errors.Is(err, ErrBusy):
 		status = http.StatusServiceUnavailable
 	}
 	reply(w, status, errorReply{Error: err.Error()})
@@ -198,6 +198,12 @@ type putRequest struct {
 }
 
 func (h *Hub) handlePutPet(w http.ResponseWriter, r *http.Request, id string) {
+	done, err := h.startUpload(r.Context(), id)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer done()
 	var req putRequest
 	if !decode(w, r, MaxSaveBytes+64<<10, &req) {
 		return

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -344,6 +345,23 @@ type breedingPartner struct {
 
 // handleBreedPartners handles GET /api/breed/partners - lists the other
 // saved pets with their compatibility with the active pet
+// activeCopy returns a copy of the active pet and its slot, so other saves
+// can be read without holding up the game, or writes an error
+func (s *Server) activeCopy(w http.ResponseWriter) (*core.DigitalPet, string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return nil, "", false
+	}
+	pet, err := copyPet(s.pet)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Something went wrong"})
+		return nil, "", false
+	}
+	return pet, s.slot, true
+}
+
 func (s *Server) handleBreedPartners(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
@@ -354,13 +372,10 @@ func (s *Server) handleBreedPartners(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.pet == nil {
-		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+	pet, slot, ok := s.activeCopy(w)
+	if !ok {
 		return
 	}
-
 	saved, err := s.store.List()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not list saved pets"})
@@ -368,14 +383,14 @@ func (s *Server) handleBreedPartners(w http.ResponseWriter, r *http.Request) {
 	}
 	partners := []breedingPartner{}
 	for _, entry := range saved {
-		if entry.Slot == s.slot {
+		if entry.Slot == slot || entry.Unreadable {
 			continue
 		}
 		partner, _, _, err := s.store.Load(entry.Slot)
 		if err != nil {
 			continue
 		}
-		compatibility, reason := core.BreedingCompatibility(s.pet, partner)
+		compatibility, reason := core.BreedingCompatibility(pet, partner)
 		partners = append(partners, breedingPartner{
 			Slot: entry.Slot, Name: partner.Name, Compatibility: compatibility, Reason: reason,
 		})
@@ -406,6 +421,10 @@ func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Baby"
 	}
+	if !core.ValidPetName(name) {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: core.PetNameRule})
+		return
+	}
 
 	// Hold the save lock so the parents and baby are saved together
 	s.saveMu.Lock()
@@ -426,6 +445,10 @@ func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
 	partner, _, _, err := s.store.Load(req.PartnerSlot)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No saved pet in that slot"})
+		return
+	}
+	if s.store.Full() {
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: capitalize(errTooManyPets.Error()) + "."})
 		return
 	}
 
@@ -513,6 +536,9 @@ func (s *Server) handlePotion(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, core.ErrNoPotion):
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false,
 			Error: "There's no life-extension potion in the pantry. Buy one in the shop."})
+	case errors.Is(err, core.ErrPotionsUsedUp):
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: fmt.Sprintf(
+			"%s has had %d potions, as many as can help. Every pet's life ends one day.", name, core.MaxLifePotions)})
 	case err != nil:
 		writeActivityError(w, name, err)
 	default:

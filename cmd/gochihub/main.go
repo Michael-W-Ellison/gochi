@@ -53,8 +53,8 @@ func run(addr, dir, joinCode, tlsCert, tlsKey string) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/hub/v1/", h.Handler())
-	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig: hub.TLSConfig()}
+	server := &http.Server{Addr: addr, Handler: mux, TLSConfig: hub.TLSConfig()}
+	hub.SetTimeouts(server)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

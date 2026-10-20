@@ -1,6 +1,7 @@
 package ar
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -547,7 +548,7 @@ func TestSetPetBehavior(t *testing.T) {
 // ============================================================================
 
 func TestNewExerciseTracker(t *testing.T) {
-	tracker := NewExerciseTracker()
+	tracker := walkingTracker()
 
 	if tracker == nil {
 		t.Fatal("Tracker should not be nil")
@@ -559,7 +560,7 @@ func TestNewExerciseTracker(t *testing.T) {
 }
 
 func TestExerciseTrackerStartStop(t *testing.T) {
-	tracker := NewExerciseTracker()
+	tracker := walkingTracker()
 
 	tracker.StartTracking()
 
@@ -586,7 +587,7 @@ func TestExerciseTrackerStartStop(t *testing.T) {
 }
 
 func TestExerciseTrackerUpdatePosition(t *testing.T) {
-	tracker := NewExerciseTracker()
+	tracker := walkingTracker()
 	tracker.StartTracking()
 
 	// First position
@@ -603,7 +604,7 @@ func TestExerciseTrackerUpdatePosition(t *testing.T) {
 }
 
 func TestExerciseTrackerStepCounting(t *testing.T) {
-	tracker := NewExerciseTracker()
+	tracker := walkingTracker()
 	tracker.StepThreshold = 0.7 // 70cm per step
 	tracker.StartTracking()
 
@@ -621,7 +622,7 @@ func TestExerciseTrackerStepCounting(t *testing.T) {
 }
 
 func TestExerciseTrackerCalories(t *testing.T) {
-	tracker := NewExerciseTracker()
+	tracker := walkingTracker()
 	tracker.StepThreshold = 0.7
 	tracker.StartTracking()
 
@@ -638,7 +639,7 @@ func TestExerciseTrackerCalories(t *testing.T) {
 }
 
 func TestExerciseTrackerFilterNoise(t *testing.T) {
-	tracker := NewExerciseTracker()
+	tracker := walkingTracker()
 	tracker.StartTracking()
 
 	// Initial position
@@ -776,5 +777,35 @@ func TestTrackingStateChangeCallback(t *testing.T) {
 
 	if len(states) < 2 {
 		t.Errorf("Expected at least 2 state changes, got %d", len(states))
+	}
+}
+
+// walkingTracker returns an exercise tracker whose clock moves a second
+// each time it is read, as if the player sent a position each second
+func walkingTracker() *ExerciseTracker {
+	tracker := NewExerciseTracker()
+	clock := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	tracker.now = func() time.Time {
+		clock = clock.Add(time.Second)
+		return clock
+	}
+	return tracker
+}
+
+func TestExerciseTrackerIgnoresJumps(t *testing.T) {
+	tracker := walkingTracker()
+	tracker.StartTracking()
+	tracker.UpdatePosition(Vector3{})
+	for _, bad := range []Vector3{{X: 1e308}, {X: math.NaN()}, {Z: math.Inf(-1)}} {
+		tracker.UpdatePosition(bad)
+	}
+	tracker.UpdatePosition(Vector3{X: 50}) // Far faster than walking
+	tracker.UpdatePosition(Vector3{X: 51})
+	stats := tracker.StopTracking()
+	if stats.TotalDistance != 1 || math.IsNaN(stats.AverageSpeed) || math.IsInf(stats.AverageSpeed, 0) {
+		t.Errorf("Only the 1 m walked should count: %+v", stats)
+	}
+	if _, err := json.Marshal(stats); err != nil {
+		t.Error(err)
 	}
 }

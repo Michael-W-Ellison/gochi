@@ -62,6 +62,13 @@ func (a apiPetStore) findLocked(id types.PetID) (*core.DigitalPet, string, error
 		pet, err := copyPet(s.pet)
 		return pet, s.slot, err
 	}
+	return a.findSaved(id, s.slot)
+}
+
+// findSaved loads the saved pet with the given ID, other than the one in
+// skip (the active pet's slot)
+func (a apiPetStore) findSaved(id types.PetID, skip string) (*core.DigitalPet, string, error) {
+	s := a.s
 	if s.store == nil {
 		return nil, "", os.ErrNotExist
 	}
@@ -70,36 +77,50 @@ func (a apiPetStore) findLocked(id types.PetID) (*core.DigitalPet, string, error
 		return nil, "", err
 	}
 	for _, entry := range saved {
-		if entry.Slot == s.slot {
-			continue
-		}
-		pet, _, _, err := s.store.Load(entry.Slot)
-		if err == nil && pet.ID == id {
-			return pet, entry.Slot, nil
+		if entry.Slot != skip && entry.ID == string(id) {
+			pet, _, _, err := s.store.Load(entry.Slot)
+			return pet, entry.Slot, err
 		}
 	}
 	return nil, "", os.ErrNotExist
 }
 
+// activeCopy returns a copy of the active pet (nil if there is none) and
+// its slot
+func (a apiPetStore) activeCopy() (*core.DigitalPet, string, error) {
+	s := a.s
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		return nil, "", nil
+	}
+	pet, err := copyPet(s.pet)
+	return pet, s.slot, err
+}
+
+// GetPet returns a copy of a pet. Saved pets are read without holding up
+// the game.
 func (a apiPetStore) GetPet(id types.PetID) (*core.DigitalPet, error) {
-	a.s.mu.RLock()
-	defer a.s.mu.RUnlock()
-	pet, _, err := a.findLocked(id)
+	active, slot, err := a.activeCopy()
+	if err != nil {
+		return nil, err
+	}
+	if active != nil && active.ID == id {
+		return active, nil
+	}
+	pet, _, err := a.findSaved(id, slot)
 	return pet, err
 }
 
 func (a apiPetStore) GetPetsByOwner(owner types.UserID) ([]*core.DigitalPet, error) {
 	s := a.s
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	active, slot, err := a.activeCopy()
+	if err != nil {
+		return nil, err
+	}
 	var pets []*core.DigitalPet
-	if s.pet != nil {
-		pet, err := copyPet(s.pet)
-		if err != nil {
-			return nil, err
-		}
-		pets = append(pets, pet)
+	if active != nil {
+		pets = append(pets, active)
 	}
 	if s.store != nil {
 		saved, err := s.store.List()
@@ -107,7 +128,7 @@ func (a apiPetStore) GetPetsByOwner(owner types.UserID) ([]*core.DigitalPet, err
 			return nil, err
 		}
 		for _, entry := range saved {
-			if entry.Slot == s.slot {
+			if entry.Slot == slot || entry.Unreadable {
 				continue
 			}
 			if pet, _, _, err := s.store.Load(entry.Slot); err == nil {
@@ -134,6 +155,9 @@ func (a apiPetStore) CreatePet(pet *core.DigitalPet) error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 
+	if s.store.Full() {
+		return api.ErrTooManyPets
+	}
 	if err := s.store.SavePet(s.store.NewSlot(pet), pet); err != nil {
 		return err
 	}
@@ -141,28 +165,47 @@ func (a apiPetStore) CreatePet(pet *core.DigitalPet) error {
 	return nil
 }
 
-func (a apiPetStore) UpdatePet(pet *core.DigitalPet) error {
+// ModifyPet changes a pet and saves it: the active pet itself, under the
+// game's lock, so nothing the game does meanwhile is lost, or a saved pet.
+// Renaming needs the parent PIN, which the API can't give, so it is
+// refused while a PIN is set.
+func (a apiPetStore) ModifyPet(id types.PetID, change func(*core.DigitalPet) error) (*core.DigitalPet, error) {
 	s := a.s
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.pet != nil && s.pet.ID == pet.ID {
-		s.pet = pet
-		s.markActiveLocked(time.Now())
-		return s.saveActiveLocked()
+	pet, slot, active := s.pet, s.slot, s.pet != nil && s.pet.ID == id
+	if !active {
+		var err error
+		if pet, slot, err = a.findLocked(id); errors.Is(err, os.ErrNotExist) {
+			return nil, api.ErrNotFound
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	name, location := pet.Name, pet.Location
+	if err := change(pet); err != nil {
+		return nil, err
+	}
+	if pet.Name != name && s.parental != nil && s.parental.Locked() {
+		pet.Name, pet.Location = name, location
+		return nil, api.ErrNotPermitted
 	}
 
-	_, slot, err := a.findLocked(pet.ID)
-	if err != nil {
-		return err
+	if active {
+		s.markActiveLocked(time.Now())
+		if err := s.saveActiveLocked(); err != nil {
+			return nil, err
+		}
+		return copyPet(pet)
 	}
 	if err := s.store.SavePet(slot, pet); err != nil {
-		return err
+		return nil, err
 	}
 	s.observePet(pet, false)
-	return nil
+	return pet, nil
 }
 
 // DeletePet is not allowed: deleting a pet needs the confirmations the

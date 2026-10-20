@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -205,4 +206,10 @@ func (p *DigitalPet) visitPlaceLocked() string {
 		note += fmt.Sprintf(" %s may have picked something up there.", p.Name)
 	}
 	return note
+}
+
+// KnownPlace reports whether a place is one the game knows: home or a
+// place to explore
+func KnownPlace(id string) bool {
+	return id == "home" || slices.Contains(environment.TripDestinations(), id)
 }

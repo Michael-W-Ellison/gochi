@@ -51,7 +51,9 @@ func newTestServer(t testing.TB) *Server {
 func post(t *testing.T, handler http.HandlerFunc, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	handler(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:50000" // This computer
+	handler(rec, req)
 	return rec
 }
 

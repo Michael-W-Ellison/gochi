@@ -232,27 +232,25 @@ func main() {
 	}
 	store.timeScale, store.autosaveSeconds = config.Simulation.TimeScale, int(config.Simulation.Autosave.Seconds())
 	dataPath := filepath.Dir(store.SaveDir())
-	cloudConn, err := newCloud(dataPath)
-	if err != nil {
-		log.Fatalf("Could not read the cloud settings: %v", err)
-	}
+	cloudConn := loadOrSetAside("the cloud settings", filepath.Join(dataPath, "cloud.json"),
+		func() (*cloud, error) { return newCloud(dataPath) })
 	parental, err := loadParentalControls(dataPath)
 	if err != nil {
-		log.Fatalf("Could not read the parental controls: %v", err)
+		// Not started without the PIN, so damaging the file doesn't
+		// remove it
+		log.Fatalf("Could not read the parent PIN: %v\nTo start without a PIN (it can be set again in Privacy), remove %s",
+			err, filepath.Join(dataPath, "parental.json"))
 	}
 	owner, ownerPath, err := loadOwnerSchedule(dataPath)
 	if err != nil {
 		log.Printf("Warning: could not read the play schedule, starting a new one: %v", err)
 		owner = &ai.OwnerSchedule{}
 	}
-	stats, err := loadPlayerStats(dataPath)
-	if err != nil {
-		log.Fatalf("Could not read your statistics: %v", err)
-	}
-	pairing, err := loadDevicePairing(dataPath)
-	if err != nil {
-		log.Fatalf("Could not read the paired devices: %v", err)
-	}
+	stats := loadOrSetAside("your statistics", filepath.Join(dataPath, statsFileName),
+		func() (*playerStats, error) { return loadPlayerStats(dataPath) })
+	pairing := loadOrSetAside("the paired devices", filepath.Join(dataPath, "devices.json"),
+		func() (*devicePairing, error) { return loadDevicePairing(dataPath) })
+	removeTempFiles(dataPath)
 	var hubServer *hub.Hub
 	if config.Hub.Enabled {
 		if hubServer, err = hub.New(filepath.Join(dataPath, "hub"), config.Hub.JoinCode); err != nil {
@@ -352,8 +350,8 @@ func main() {
 		}
 		hubMux := http.NewServeMux()
 		hubMux.Handle("/hub/v1/", hubServer.Handler())
-		hubHTTP = &http.Server{Addr: config.Hub.Addr, Handler: hubMux, TLSConfig: hub.TLSConfig(),
-			ReadHeaderTimeout: 10 * time.Second}
+		hubHTTP = &http.Server{Addr: config.Hub.Addr, Handler: hubMux, TLSConfig: hub.TLSConfig()}
+		hub.SetTimeouts(hubHTTP)
 		go func() { serverErr <- hubHTTP.ListenAndServeTLS(certFile, keyFile) }()
 		log.Printf("Cloud hub at https://<this computer>%s/hub/v1", config.Hub.Addr)
 		log.Printf("Hub certificate fingerprint (players can compare it with the one their game shows): %s", fingerprint)
@@ -430,7 +428,8 @@ func main() {
 
 	// Start server
 	httpServer := &http.Server{Addr: config.Server.Addr, Handler: server.guard(securityHeaders(mux)), TLSConfig: tlsConfig(),
-		ReadHeaderTimeout: 10 * time.Second}
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second,
+		IdleTimeout: 2 * time.Minute}
 	scheme := "http"
 	go func() {
 		if config.usesTLS() {
@@ -536,8 +535,19 @@ func (s *Server) updateLoop() {
 	defer ticker.Stop()
 
 	for now := range ticker.C {
-		s.tick(now)
+		s.safeTick(now)
 	}
+}
+
+// safeTick runs tick, and if the pet's simulation fails (a damaged save
+// that loading did not catch) logs it instead of stopping the game
+func (s *Server) safeTick(now time.Time) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Error advancing the pet: %v", r)
+		}
+	}()
+	s.tick(now)
 }
 
 // tick advances the active pet to now, unless the game is paused
@@ -1282,7 +1292,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         name.textContent = speciesIcon(pet.species) + pet.name;
                         const meta = document.createElement('div');
                         meta.className = 'saved-pet-meta';
-                        const state = !pet.is_alive ? 'Passed away' :
+                        const state = pet.unreadable ? 'This save is damaged and can\'t be loaded' :
+                            !pet.is_alive ? 'Passed away' :
                             pet.hibernating ? 'Hibernating · ' + formatAge(pet.age) : formatAge(pet.age);
                         meta.textContent = state + ' · saved ' + new Date(pet.saved_at).toLocaleString();
                         info.append(name, meta);
@@ -1290,7 +1301,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         const btn = document.createElement('button');
                         btn.className = 'save-btn';
                         btn.textContent = isActive ? 'Playing' : 'Load';
-                        btn.disabled = isActive;
+                        btn.disabled = isActive || pet.unreadable;
                         btn.onclick = () => loadPet(pet.slot, btn);
 
                         const del = document.createElement('button');
@@ -2986,7 +2997,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const input = document.createElement('input');
             input.type = 'text';
             input.id = 'babyNameInput';
-            input.maxLength = 20;
+            input.maxLength = 24;
             input.placeholder = "Baby's name";
             input.style.cssText = 'width: 100%; padding: 8px 10px; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px;';
             p.append(input);
@@ -3229,7 +3240,6 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 
 	now := time.Now()
 	s.pet, s.slot = pet, slot
-	s.observePet(pet, false)
 	s.clock.SetPaused(true, now) // The new pet's time starts from now
 	s.manualPause = false
 	s.markActiveLocked(now)
@@ -3239,6 +3249,7 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 			log.Printf("Failed to save %s: %v", pet.Name, err)
 		}
 	}
+	s.observePet(pet, false) // Once it is saved, so the statistics never count a pet that wasn't
 	return nil
 }
 
@@ -3249,6 +3260,9 @@ func (s *Server) createPet(name string, species core.Species, randomize, hiberna
 	}
 
 	err := s.switchPet(func() (*core.DigitalPet, string, error) {
+		if s.store != nil && s.store.Full() {
+			return nil, "", errTooManyPets
+		}
 		pet := core.NewDigitalPet(name, localOwner)
 		if randomize {
 			pet = core.NewDigitalPetRandom(name, localOwner)
@@ -3545,20 +3559,27 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.Delete(req.Slot); err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("Delete failed: %v", err)
-		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not delete pet"})
-		return
-	}
+	// The statistics first: if the game stops before the save is
+	// removed, the pet is counted again when the game starts
 	if active {
 		s.observePet(s.pet, false) // Care since the last tick
-		s.pet, s.slot = nil, ""
 	}
 	if s.stats != nil && petID != "" {
 		s.stats.deleted(types.PetID(petID))
 		if err := s.stats.save(); err != nil {
 			log.Printf("Could not save your statistics: %v", err)
 		}
+	}
+	if err := s.store.Delete(req.Slot); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("Delete failed: %v", err)
+		if s.stats != nil && petID != "" {
+			s.stats.undelete(types.PetID(petID))
+		}
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not delete pet"})
+		return
+	}
+	if active {
+		s.pet, s.slot = nil, ""
 	}
 
 	log.Printf("Deleted %s (%s)", name, req.Slot)
@@ -3833,7 +3854,10 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.createPet(strings.TrimSpace(req.Name), species, req.Randomize, req.Hibernation); err != nil {
+	if err := s.createPet(strings.TrimSpace(req.Name), species, req.Randomize, req.Hibernation); errors.Is(err, errTooManyPets) {
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: capitalize(err.Error()) + "."})
+		return
+	} else if err != nil {
 		log.Printf("Create failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
 		return

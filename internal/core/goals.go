@@ -35,10 +35,11 @@ type Goal struct {
 
 // GoalBoard is the pet's goals for a day
 type GoalBoard struct {
-	Day            string  `json:"day"`
-	Level          float64 `json:"level"` // Difficulty, 1.0 to 5.0
-	Goals          []Goal  `json:"goals"`
-	LearnedAtStart int     `json:"learned_at_start"` // Tricks known when the day began
+	Day            string    `json:"day"`
+	Started        time.Time `json:"started"` // On the play clock
+	Level          float64   `json:"level"`   // Difficulty, 1.0 to 5.0
+	Goals          []Goal    `json:"goals"`
+	LearnedAtStart int       `json:"learned_at_start"` // Tricks known when the day began
 }
 
 // Goal difficulty
@@ -48,6 +49,11 @@ const (
 	goalLevelStep  = 0.5
 	pointsPerLevel = 5 // Reward per level of difficulty
 	goalHistory    = 7 * 24 * time.Hour
+
+	// minGoalDay is how long the game must have run since a day's goals
+	// started before the next day's can, so moving the computer's clock
+	// forward can't bring new goals straight away
+	minGoalDay = 15 * time.Minute
 )
 
 // careGoalTexts describe care goals; %s is the pet's name, %d the times
@@ -127,9 +133,9 @@ func (p *DigitalPet) planGoalsLocked(level float64) []Goal {
 // ensureGoalsLocked starts a new day's goals when the day changes,
 // adapting the level to how the last day went. Caller must hold p.mu.
 func (p *DigitalPet) ensureGoalsLocked() {
-	day := today()
-	if p.Goals != nil && p.Goals.Day == day {
-		return
+	day, played := today(), p.playNowLocked()
+	if p.Goals != nil && (day <= p.Goals.Day || played.Sub(p.Goals.Started) < minGoalDay) {
+		return // Still the same day, the clock went back, or too soon
 	}
 	level := minGoalLevel
 	if p.Goals != nil {
@@ -149,7 +155,7 @@ func (p *DigitalPet) ensureGoalsLocked() {
 		}
 		level = min(max(level, minGoalLevel), maxGoalLevel)
 	}
-	p.Goals = &GoalBoard{Day: day, Level: level, LearnedAtStart: len(p.TricksLearned)}
+	p.Goals = &GoalBoard{Day: day, Started: played, Level: level, LearnedAtStart: len(p.TricksLearned)}
 	p.Goals.Goals = p.planGoalsLocked(level)
 	p.checkGoalsLocked()
 }

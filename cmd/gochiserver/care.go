@@ -179,13 +179,10 @@ func (s *Server) handleIntroducePartners(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: []introductionPartner{}})
 		return
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.pet == nil {
-		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+	pet, slot, ok := s.activeCopy(w)
+	if !ok {
 		return
 	}
-
 	saved, err := s.store.List()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not list saved pets"})
@@ -193,7 +190,7 @@ func (s *Server) handleIntroducePartners(w http.ResponseWriter, r *http.Request)
 	}
 	partners := []introductionPartner{}
 	for _, entry := range saved {
-		if entry.Slot == s.slot || !entry.IsAlive {
+		if entry.Slot == slot || !entry.IsAlive {
 			continue
 		}
 		partner, _, _, err := s.store.Load(entry.Slot)
@@ -201,7 +198,7 @@ func (s *Server) handleIntroducePartners(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		partners = append(partners, introductionPartner{Slot: entry.Slot, Name: partner.Name,
-			Species: string(partner.GetSpecies()), Relationship: s.pet.RelationTo(partner.ID)})
+			Species: string(partner.GetSpecies()), Relationship: pet.RelationTo(partner.ID)})
 	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: partners})
 }

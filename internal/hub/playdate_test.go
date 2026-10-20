@@ -51,8 +51,9 @@ func TestPlaydateThroughAPI(t *testing.T) {
 		t.Errorf("Updating a playdate you haven't joined: %v", err)
 	}
 
-	// Positions are shared, kept near the center and rounded
-	if _, err := bob.UpdatePlaydate(ctx, started.Code, nil, Offset{X: 0.5123, Z: 99}, 0); err != nil {
+	// Positions are shared on the floor, rounded, and move at most
+	// maxPlaydateMove at a time
+	if _, err := bob.UpdatePlaydate(ctx, started.Code, nil, Offset{X: 0.3123, Y: 2, Z: 99}, 0); err != nil {
 		t.Fatal(err)
 	}
 	happy := card("Biscuit")
@@ -61,7 +62,7 @@ func TestPlaydateThroughAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := state.Members[1].Position; math.Abs(p.X-0.5) > 1e-9 || p.Z != maxPlaydateOffset {
+	if p := state.Members[1].Position; math.Abs(p.X-0.3) > 1e-9 || p.Y != 0 || p.Z != maxPlaydateMove {
 		t.Errorf("Bob's position = %+v", p)
 	}
 	if state.Members[0].Card.Look != "happy" {
@@ -247,5 +248,65 @@ func TestPlaydateRateLimitIsPerPlayer(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("An unknown key shouldn't escape the address limit: %d", resp.StatusCode)
+	}
+}
+
+// Numbers pass between players only as coarsely as the game needs, so they
+// can't carry messages
+func TestPlaydateNumbersAreCoarse(t *testing.T) {
+	h, err := New(t.TempDir(), "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	h.now = func() time.Time { return clock }
+	var ids []string
+	for i := 0; i < 2; i++ {
+		token, _, err := h.Register("secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := h.Authenticate(token)
+		ids = append(ids, id)
+	}
+	secret := card("a")
+	secret.Sociability = 0.123456789
+	pd, err := h.StartPlaydate(ids[0], secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := h.JoinPlaydate(ids[1], pd.Code, card("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := state.Members[0].Card.Sociability; math.Abs(s-0.1) > 1e-9 {
+		t.Errorf("Sociability = %v, want 0.1", s)
+	}
+	event, err := h.ReportPlay(ids[1], pd.Code, PlayReport{To: state.Members[0].Handle, Quality: 0.7777, Bond: -0.3333})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(event.Quality-0.8) > 1e-9 || math.Abs(event.Bond+0.3) > 1e-9 {
+		t.Errorf("Quality %v, bond %v", event.Quality, event.Bond)
+	}
+
+	// Positions change at most about once a second, by at most
+	// maxPlaydateMove
+	move := func(x float64) Offset {
+		state, err := h.UpdatePlaydate(ids[1], pd.Code, nil, Offset{X: x}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state.Members[1].Position
+	}
+	if p := move(0.3); math.Abs(p.X-0.3) > 1e-9 {
+		t.Errorf("First move = %+v", p)
+	}
+	if p := move(-0.2); math.Abs(p.X-0.3) > 1e-9 {
+		t.Errorf("A second change straight away should wait: %+v", p)
+	}
+	clock = clock.Add(time.Second)
+	if p := move(4); math.Abs(p.X-0.8) > 1e-9 {
+		t.Errorf("A far move should go maxPlaydateMove: %+v", p)
 	}
 }

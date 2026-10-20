@@ -35,19 +35,38 @@ func TestParentPIN(t *testing.T) {
 		t.Errorf("Removing the PIN needs the PIN: %v", err)
 	}
 
-	// Too many wrong tries lock it for a while
+	// Too many wrong tries lock it for a while, also after a restart, and
+	// each wait is longer than the one before until a right PIN
 	clock := time.Now()
 	p.now = func() time.Time { return clock }
-	p.failures = 0
-	for i := 0; i < maxPINTries; i++ {
-		p.Check("0000")
+	p.settings.Failures = 0
+	lockOut := func() {
+		t.Helper()
+		for i := 0; i < maxPINTries; i++ {
+			p.Check("0000")
+		}
+		if err := p.Check("2468"); err != errPINLockedOut {
+			t.Errorf("After %d wrong PINs even the right one waits: %v", maxPINTries, err)
+		}
 	}
+	lockOut()
+	p, _ = loadParentalControls(dir)
+	p.now = func() time.Time { return clock }
 	if err := p.Check("2468"); err != errPINLockedOut {
-		t.Errorf("After %d wrong PINs even the right one waits: %v", maxPINTries, err)
+		t.Errorf("Restarting shouldn't end the wait: %v", err)
 	}
 	clock = clock.Add(pinLockout + time.Second)
+	lockOut()
+	clock = clock.Add(pinLockout + time.Second)
+	if err := p.Check("2468"); err != errPINLockedOut {
+		t.Errorf("The second wait should be longer: %v", err)
+	}
+	clock = clock.Add(pinLockout)
 	if err := p.Check("2468"); err != nil {
 		t.Errorf("After the wait: %v", err)
+	}
+	if p.settings.Lockouts != 0 || p.settings.Failures != 0 {
+		t.Errorf("A right PIN should reset the count: %+v", p.settings)
 	}
 
 	if err := p.SetPIN("2468", ""); err != nil || p.Locked() {

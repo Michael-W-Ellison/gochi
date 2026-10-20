@@ -46,6 +46,18 @@ type cachedSave struct {
 	summary  savedPet
 }
 
+// maxSavedPets is how many pets the player can have saved at once
+const maxSavedPets = 100
+
+// errTooManyPets is returned when making a pet with maxSavedPets saved
+var errTooManyPets = fmt.Errorf("you have %d pets, the most there can be; delete one to make room", maxSavedPets)
+
+// Full reports whether as many pets as there can be are saved
+func (ps *petStore) Full() bool {
+	files, err := ps.dm.ListSaves()
+	return err == nil && len(files) >= maxSavedPets
+}
+
 // savedPet summarizes a saved pet for the pet list
 type savedPet struct {
 	ID          string    `json:"-"`
@@ -56,6 +68,7 @@ type savedPet struct {
 	IsAlive     bool      `json:"is_alive"`
 	Hibernating bool      `json:"hibernating"`
 	SavedAt     time.Time `json:"saved_at"`
+	Unreadable  bool      `json:"unreadable,omitempty"` // Neither the save nor its backups can be read
 }
 
 // newPetStore creates a store that keeps saves and backups under dir
@@ -224,9 +237,13 @@ func (ps *petStore) List() ([]savedPet, error) {
 
 	pets := make([]savedPet, 0, len(files))
 	for _, file := range files {
-		pet, err := ps.readSummary(strings.TrimSuffix(file.Filename, ".json"), file.Path)
+		slot := strings.TrimSuffix(file.Filename, ".json")
+		pet, err := ps.readSummary(slot, file.Path)
 		if err != nil {
-			continue
+			// Listed so the player can see it and delete it; it is named
+			// by its slot, which deleting it asks for
+			pet = savedPet{Slot: slot, Name: slot, Species: string(core.SpeciesCat), SavedAt: file.ModifiedAt,
+				Unreadable: true}
 		}
 		pets = append(pets, pet)
 	}

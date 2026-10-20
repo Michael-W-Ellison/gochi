@@ -408,7 +408,7 @@ func (p *DigitalPet) GuessHidingSpot(spot int) (GameResult, error) {
 			result.Text = fmt.Sprintf("You found %s %s, but it's too tired to play. %s", p.Name, hiding.Name, hiding.Icon)
 			return result, nil
 		}
-		if t := now(); t.Sub(p.LastGameReward) >= CareRewardCooldown {
+		if t := p.playNowLocked(); t.Sub(p.LastGameReward) >= CareRewardCooldown {
 			p.LastGameReward = t
 			p.FriendshipPoints += GameBonusPoints
 			p.PointsEarned += GameBonusPoints

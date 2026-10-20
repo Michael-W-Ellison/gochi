@@ -226,7 +226,7 @@ func (p *DigitalPet) awardCareLocked(interactionType types.InteractionType) int 
 		return 0
 	}
 
-	t := now()
+	t := p.playNowLocked()
 	if last, ok := p.LastCareReward[interactionType]; ok && t.Sub(last) < CareRewardCooldown {
 		return 0
 	}

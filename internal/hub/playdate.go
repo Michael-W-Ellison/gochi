@@ -30,9 +30,12 @@ const (
 	MaxPlaydateMembers = 6
 	maxPlaydates       = 500
 	maxPlaydateEvents  = 50
-	maxPlaydateOffset  = 10.0             // Meters from the center
-	positionStep       = 0.05             // Positions are rounded to 5 cm
-	memberTimeout      = 30 * time.Second // Members who stop updating leave
+	maxPlaydateOffset  = 5.0                    // Meters from the center
+	positionStep       = 0.1                    // Positions are rounded to 10 cm
+	maxPlaydateMove    = 0.5                    // Meters a pet moves at most per change
+	changeInterval     = 900 * time.Millisecond // A member's pet and position change at most about once a second
+	levelStep          = 0.1                    // Sociability, play quality and bond are rounded to tenths
+	memberTimeout      = 30 * time.Second       // Members who stop updating leave
 	playdateCodeLength = 6
 )
 
@@ -55,17 +58,24 @@ type Offset struct {
 	Z float64 `json:"z"`
 }
 
-// clamp keeps an offset within reach of the center, rounded to 5 cm, and
-// replaces values that aren't numbers with 0
-func (o Offset) clamp() Offset {
-	c := func(v float64) float64 {
+// clamp keeps an offset on the floor within reach of the center and
+// within maxPlaydateMove of from, rounded to 10 cm, and replaces values
+// that aren't numbers with 0. Positions carry little more than where the
+// pet is, so they can't be used to pass messages quickly.
+func (o Offset) clamp(from Offset) Offset {
+	c := func(v, from float64) float64 {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return 0
+			v = 0
 		}
-		v = min(max(v, -maxPlaydateOffset), maxPlaydateOffset)
+		v = min(max(v, from-maxPlaydateMove, -maxPlaydateOffset), from+maxPlaydateMove, maxPlaydateOffset)
 		return math.Round(v/positionStep) * positionStep
 	}
-	return Offset{c(o.X), c(o.Y), c(o.Z)}
+	return Offset{X: c(o.X, from.X), Z: c(o.Z, from.Z)}
+}
+
+// roundLevel rounds a level to tenths, within lowest and 1
+func roundLevel(v, lowest float64) float64 {
+	return math.Round(min(max(v, lowest), 1)/levelStep) * levelStep
 }
 
 // CardRequest is what a player's game says about its pet
@@ -103,7 +113,7 @@ func makeCard(accountID, handle string, req CardRequest) (Card, error) {
 	}
 	sum := sha256.Sum256([]byte("playmate:" + accountID + ":" + req.PetKey))
 	return Card{ID: "playmate_" + hex.EncodeToString(sum[:12]), Name: handle + "'s " + strings.ToLower(species.Def().Name),
-		Species: req.Species, Young: req.Young, Sociability: min(max(req.Sociability, 0), 1),
+		Species: req.Species, Young: req.Young, Sociability: roundLevel(req.Sociability, 0),
 		Unavailable: req.Unavailable, Look: req.Look}, nil
 }
 
@@ -114,6 +124,7 @@ type PlaydateMember struct {
 	Card     Card      `json:"card"`
 	Position Offset    `json:"position"`
 	Updated  time.Time `json:"updated"`
+	changed  time.Time // When its card or position last changed
 }
 
 // PlayReport is a play between two pets, as numbers only
@@ -318,14 +329,21 @@ func (h *Hub) UpdatePlaydate(id, code string, req *CardRequest, position Offset,
 	if err != nil {
 		return PlaydateState{}, err
 	}
+	var card *Card
 	if req != nil {
-		card, err := makeCard(id, m.Handle, *req)
+		c, err := makeCard(id, m.Handle, *req)
 		if err != nil {
 			return PlaydateState{}, err
 		}
-		m.Card = card
+		card = &c
 	}
-	m.Position, m.Updated = position.clamp(), h.now()
+	if now := h.now(); now.Sub(m.changed) >= changeInterval {
+		if card != nil {
+			m.Card = *card
+		}
+		m.Position, m.changed = position.clamp(m.Position), now
+	}
+	m.Updated = h.now()
 	return pd.stateLocked(m.Handle, after), nil
 }
 
@@ -351,10 +369,10 @@ func (h *Hub) ReportPlay(id, code string, report PlayReport) (PlaydateEvent, err
 	if to == nil {
 		return PlaydateEvent{}, errors.New("that player isn't at the playdate")
 	}
-	quality := min(max(report.Quality, 0), 1)
+	quality := roundLevel(report.Quality, 0)
 	pd.seq++
 	e := PlaydateEvent{Seq: pd.seq, Kind: "play", From: m.Handle, To: to.Handle, FromCard: m.Card, ToPet: to.Card.ID,
-		Quality: quality, Bond: min(max(report.Bond, -1), 1), Created: h.now(),
+		Quality: quality, Bond: roundLevel(report.Bond, -1), Created: h.now(),
 		Text: core.MeetingText(m.Card.Name, core.Species(m.Card.Species), to.Card.Name, quality)}
 	pd.events = append(pd.events, e)
 	if over := len(pd.events) - maxPlaydateEvents; over > 0 {

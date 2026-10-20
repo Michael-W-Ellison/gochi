@@ -1,6 +1,7 @@
 package environment
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -656,5 +657,51 @@ func TestSeasonEffectsBlendFromPreviousSeason(t *testing.T) {
 	sc.Update(seasonTransitionDays)
 	if sc.Effects.BreedingModifier != 1.0 {
 		t.Errorf("Summer should take over after %v days, breeding %.2f", seasonTransitionDays, sc.Effects.BreedingModifier)
+	}
+}
+
+// Out-of-range values (from a damaged save) and long times passing finish
+// quickly and leave the clock and calendar in range
+func TestEnvironmentExtremeValues(t *testing.T) {
+	for _, hour := range []float64{1e15, 1e308, -1e308, -5, math.NaN(), math.Inf(1)} {
+		env := NewEnvironment()
+		env.TimeOfDay = hour
+		env.Update(1)
+		if env.TimeOfDay < 0 || env.TimeOfDay >= 24 {
+			t.Errorf("Time of day from %v = %v", hour, env.TimeOfDay)
+		}
+		env.SetTimeOfDay(hour)
+		if env.TimeOfDay < 0 || env.TimeOfDay >= 24 {
+			t.Errorf("SetTimeOfDay(%v) = %v", hour, env.TimeOfDay)
+		}
+	}
+	for _, days := range []int{0, -1} {
+		sc := NewSeasonalCycle()
+		sc.DaysPerSeason = days
+		sc.Update(5)
+		if sc.DaysPerSeason < 1 {
+			t.Errorf("Days per season %d should be reset", days)
+		}
+	}
+
+	// Many years at once end where advancing a season at a time does
+	for _, days := range []float64{7500, 119, 120, 121, 30, 31} {
+		jumped := NewSeasonalCycle()
+		jumped.Update(days)
+		want := NewSeasonalCycle()
+		total := float64(want.DayOfSeason) + days
+		for total > float64(want.DaysPerSeason) {
+			total -= float64(want.DaysPerSeason)
+			want.advanceSeason()
+		}
+		if jumped.Year != want.Year || jumped.CurrentSeason != want.CurrentSeason || jumped.DayOfSeason != int(total) {
+			t.Errorf("After %v days: %d %v %d, want %d %v %d", days, jumped.Year, jumped.CurrentSeason,
+				jumped.DayOfSeason, want.Year, want.CurrentSeason, int(total))
+		}
+	}
+	huge := NewSeasonalCycle()
+	huge.Update(1e15)
+	if huge.DayOfSeason < 1 || huge.DayOfSeason > huge.DaysPerSeason {
+		t.Errorf("Day of season after a very long time = %d", huge.DayOfSeason)
 	}
 }

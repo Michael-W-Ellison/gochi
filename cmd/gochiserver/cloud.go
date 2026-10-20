@@ -132,6 +132,7 @@ func (c *cloud) saveLocked() error {
 	}
 	tmp := c.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		os.Remove(tmp) // Cut short (a full disk)
 		return err
 	}
 	return os.Rename(tmp, c.path)
@@ -563,7 +564,7 @@ func (s *Server) handleCloudConnect(w http.ResponseWriter, r *http.Request) {
 		AccountKey string `json:"account_key"`
 		ParentPIN  string `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
@@ -585,6 +586,9 @@ func (s *Server) handleCloudConnect(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCloudDisconnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	if !onlyThisComputer(w, r) {
 		return
 	}
 	var req struct {
@@ -628,7 +632,7 @@ func (s *Server) handleCloudProfile(w http.ResponseWriter, r *http.Request) {
 		ShareAchievements bool   `json:"share_achievements"`
 		ParentPIN         string `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
@@ -647,12 +651,12 @@ func (s *Server) handleCloudKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ParentPIN string `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
-		return
-	}
 	if !fromThisComputer(r) {
 		writeJSON(w, http.StatusForbidden, APIResponse{Success: false,
 			Error: "The account key is shown only on the computer running the game"})
+		return
+	}
+	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	c := s.cloud

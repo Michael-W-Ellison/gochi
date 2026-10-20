@@ -110,6 +110,16 @@ func CertificateFingerprint(certFile string) (string, error) {
 	return Fingerprint(block.Bytes), nil
 }
 
+// SetTimeouts sets how long a hub server waits for requests: a request,
+// including an upload, must arrive within a minute, so slow clients can't
+// hold connections open
+func SetTimeouts(server *http.Server) {
+	server.ReadHeaderTimeout = 10 * time.Second
+	server.ReadTimeout = time.Minute
+	server.WriteTimeout = 2 * time.Minute
+	server.IdleTimeout = 2 * time.Minute
+}
+
 // TLSConfig is the hub's TLS configuration: TLS 1.2 or later
 func TLSConfig() *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12}

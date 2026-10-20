@@ -14,6 +14,7 @@
 package hub
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -132,6 +133,53 @@ type Hub struct {
 	// Each account's pets' information, so listing pets and checking
 	// versions don't read saves
 	pets map[string]map[string]PetInfo // By account ID, then key
+
+	// Uploads being read, so many at once can't use up the hub's memory:
+	// a place for each upload across the hub, and the number per account
+	uploads   chan struct{}
+	uploading map[string]int
+}
+
+// Uploads read at once
+const (
+	maxUploads        = 16 // Across the hub
+	maxAccountUploads = 2  // From one account
+	uploadWait        = 30 * time.Second
+)
+
+// ErrBusy is returned when the hub is reading too many uploads to take
+// another now
+var ErrBusy = errors.New("the hub is busy; try again shortly")
+
+// startUpload reserves a place for an upload from an account, waiting a
+// while for one. Call the returned function when the upload has been
+// handled.
+func (h *Hub) startUpload(ctx context.Context, id string) (func(), error) {
+	h.mu.Lock()
+	if h.uploading[id] >= maxAccountUploads {
+		h.mu.Unlock()
+		return nil, ErrBusy
+	}
+	h.uploading[id]++
+	h.mu.Unlock()
+	release := func() {
+		h.mu.Lock()
+		if h.uploading[id]--; h.uploading[id] <= 0 {
+			delete(h.uploading, id)
+		}
+		h.mu.Unlock()
+	}
+
+	timer := time.NewTimer(uploadWait)
+	defer timer.Stop()
+	select {
+	case h.uploads <- struct{}{}:
+		return func() { <-h.uploads; release() }, nil
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	release()
+	return nil, ErrBusy
 }
 
 // New opens (or creates) a hub keeping its files in dir. Players need
@@ -142,7 +190,8 @@ func New(dir, joinCode string) (*Hub, error) {
 	}
 	h := &Hub{dir: dir, joinCode: joinCode, now: time.Now,
 		accounts: make(map[string]*account), byToken: make(map[string]string), byHandle: make(map[string]string),
-		playdates: make(map[string]*playdate), pets: make(map[string]map[string]PetInfo)}
+		playdates: make(map[string]*playdate), pets: make(map[string]map[string]PetInfo),
+		uploads: make(chan struct{}, maxUploads), uploading: make(map[string]int)}
 
 	var accounts []*account
 	if err := readJSON(filepath.Join(dir, "accounts.json"), &accounts); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -538,6 +587,7 @@ func writeJSON(path string, v interface{}) error {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		os.Remove(tmp) // Cut short (a full disk)
 		return err
 	}
 	return os.Rename(tmp, path)

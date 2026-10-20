@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // testHub returns a hub with join code "secret" and a client for it
@@ -347,5 +349,47 @@ func TestIndexesSurviveRestart(t *testing.T) {
 	}
 	if _, err := h.PutPet(id, PetInfo{Key: key}, json.RawMessage(`{}`), 0); !errors.Is(err, ErrVersionConflict) {
 		t.Errorf("The indexed version should be checked: %v", err)
+	}
+}
+
+func TestUploadsAreLimited(t *testing.T) {
+	h, err := New(t.TempDir(), "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var done []func()
+	for i := 0; i < maxAccountUploads; i++ {
+		d, err := h.startUpload(context.Background(), "a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		done = append(done, d)
+	}
+	if _, err := h.startUpload(context.Background(), "a"); !errors.Is(err, ErrBusy) {
+		t.Errorf("An account's third upload at once should wait: %v", err)
+	}
+	// Across the hub, uploads wait for a place
+	for i := maxAccountUploads; i < maxUploads; i++ {
+		d, err := h.startUpload(context.Background(), fmt.Sprint("acct", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		done = append(done, d)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := h.startUpload(ctx, "b"); !errors.Is(err, ErrBusy) {
+		t.Errorf("A full hub should refuse an upload that can't wait: %v", err)
+	}
+	for _, d := range done {
+		d()
+	}
+	if len(h.uploading) != 0 || len(h.uploads) != 0 {
+		t.Errorf("Places should be given back: %v %d", h.uploading, len(h.uploads))
+	}
+	if d, err := h.startUpload(context.Background(), "a"); err != nil {
+		t.Error(err)
+	} else {
+		d()
 	}
 }

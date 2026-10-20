@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,5 +202,65 @@ func TestStatsStayOnThisComputer(t *testing.T) {
 		if pet.Slot == "stats" {
 			t.Error("The statistics should not be in the pet saves")
 		}
+	}
+}
+
+func TestDamagedSaveDoesNotStopTheGame(t *testing.T) {
+	s, _ := statsServer(t)
+	if err := s.store.Save("bad", []byte(`{"id":"pet_bad","name":"Bad"}`)); err != nil {
+		t.Fatal(err)
+	}
+	good := core.NewDigitalPet("Good", localOwner)
+	savePet(t, s.store, "good", good)
+
+	s.recordSavedPets() // Used to crash at startup
+	if stats := getStats(t, s); stats.Raised != 1 || stats.Pets[0].Name != "Good" {
+		t.Errorf("Only the readable pet should be counted: %+v", stats)
+	}
+	if _, _, _, err := s.store.Load("bad"); err == nil {
+		t.Error("A save without the pet's body should be refused")
+	}
+}
+
+func TestUnreadableSavesAreListed(t *testing.T) {
+	s, _ := statsServer(t)
+	if err := os.WriteFile(filepath.Join(s.store.SaveDir(), "broken.json"), []byte("garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 1 || !saved[0].Unreadable || saved[0].Name != "broken" {
+		t.Fatalf("An unreadable save should be listed: %+v", saved)
+	}
+	if rec := post(t, s.handleDelete, `{"slot":"broken","confirm_name":"broken"}`); rec.Code != http.StatusOK {
+		t.Errorf("Deleting it: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBreedingChecksTheBabyName(t *testing.T) {
+	s, _ := statsServer(t)
+	if err := s.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	partner := core.NewDigitalPet("Bean", localOwner)
+	savePet(t, s.store, "bean", partner)
+	rec := post(t, s.handleBreed, `{"partner_slot":"bean","name":"`+strings.Repeat("x", 50)+`‮"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "A pet's name is") {
+		t.Errorf("A long name with control characters: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSavedPetsAreLimited(t *testing.T) {
+	s, _ := statsServer(t)
+	for i := 0; i < maxSavedPets; i++ {
+		if err := s.store.Save(fmt.Sprintf("p%d", i), []byte(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := post(t, s.handleCreate, `{"name":"One more","species":"cat"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "delete one") {
+		t.Errorf("Creating past the limit: %d %s", rec.Code, rec.Body.String())
 	}
 }

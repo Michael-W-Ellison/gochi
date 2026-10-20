@@ -900,8 +900,9 @@ shows. The hub refuses any other value and builds the card every member sees: an
 account and pet key (meaningless elsewhere) and the name "<handle>'s <species>". In AR each player
 taps the agreed spot to mark the center; each member has a slot, and the client places its pet 1 m
 from the center at an angle of 60 degrees per slot. About once a second the page posts its pet's
-position relative to the center to its server, which forwards it (the hub clamps it to 10 m and
-rounds it to 5 cm) and gets back the members and the events since the last it saw. Tapping another
+position relative to the center to its server, which forwards it (the hub keeps it within 5 m, on the
+floor, in 10 cm steps, at most 0.5 m per change) and gets back the members and the events since the
+last it saw. Tapping another
 pet makes the player's pet meet it as in an introduction (section 3.6.1: both sociabilities, species
 and the pet's earlier meetings decide the quality), recorded as care with points; the server reports
 the play to the hub as the other player's handle, the quality and the bond. The hub writes the
@@ -992,28 +993,44 @@ schedule (section 5.3) can be turned off and erased (/api/privacy).
 Child safety: an optional parent PIN (4 to 8 digits), stored as a 16-byte salt and 100,000 rounds of
 SHA-256 in parental.json, is then needed to connect to or disconnect from a hub, see the account key,
 change sharing, start or join a playdate, rename or delete a pet, unpair devices, and change privacy
-settings; 5 wrong PINs refuse every PIN for 5 minutes. COPPA compliance is a legal obligation of
+settings; 5 wrong PINs refuse every PIN for 5 minutes, each later wait doubling (up to a day) until a
+right PIN, with the count kept in parental.json across restarts. Connecting to or disconnecting from a
+hub, changing sharing, the account key, the PIN and privacy settings are accepted only from this
+computer, not from paired devices. COPPA compliance is a legal obligation of
 whoever operates a hub for children; the software collects no personal information and gives parents
 control of what is shared.
 No personal information and no messaging: the game asks for nothing about the player, pet IDs are
 random ("pet_" and 32 hex digits), and pet names (1 to 24 printable characters) never leave the
 computer. Nothing a player types reaches another player: other players see only hub-chosen handles,
 species, sprite states, achievements from the game's list, and text written by the hub; the hub
-refuses unknown fields and values outside its lists. Nearby pets, areas, chosen usernames, free-text
+refuses unknown fields and values outside its lists. Playdate numbers are coarse so they can't carry
+messages: sociability, play quality and bond are rounded to tenths, and positions are on the floor
+(y is 0), in 10 cm steps within 5 m of the center, changing at most every 0.9 s by at most 0.5 m per
+axis. Two modified games could still signal slowly through pet movement; nothing typed can pass. Nearby pets, areas, chosen usernames, free-text
 achievements and playdate messages were removed, as were the unused account (email and password),
 location, friend-request, sync and WebSocket parts of the REST API package, the unused social cloud
 service and the old page scripts. What remains shared beyond fixed values is a pet's sociability, its
-playdate position (rounded to 5 cm) and the timing of actions.
+playdate position (as above) and the timing of actions.
 The game's server: by default it listens on 127.0.0.1 only. Every request's Host must be "localhost"
 or an IP address (stopping DNS rebinding). Requests that change something must be JSON (Content-Type
 application/json) with no Origin or Sec-Fetch-Site from another site, and other sites' requests to
 /api/ are refused outright; responses carry no CORS headers. When the server listens on the network,
 requests from other devices need a device token: /api/pairing (from this computer only) makes an
 8-character code valid for 10 minutes; POST /pair with the code sets an HttpOnly, SameSite=Strict
-cookie, whose SHA-256 hash is kept in devices.json; 5 wrong codes stop pairing for 5 minutes and
-discard the code. The account key is given only to this computer (POST /api/cloud/key), never in the
+cookie, whose SHA-256 hash is kept in devices.json; each code pairs one device; 5 wrong codes from
+one address make that address wait 5 minutes, without affecting other devices. The account key is given only to this computer (POST /api/cloud/key), never in the
 cloud status. The REST API (/api/v1) keeps its bearer token and is subject only to the Host check.
 Static folders aren't listed.
+Robustness and limits: request bodies are limited to 64 KB (1 KB for /pair) and the servers have
+read, write and idle timeouts; a hub reads at most 16 uploads at once, 2 per account. Loading a pet
+refuses a save without its body or personality (the backup is used) and rebuilds or brings into range
+everything else, and saving replaces any value that isn't a number with 0, so a damaged save can
+neither stop the game nor make a pet unsaveable. Damaged stats.json, cloud.json and devices.json are
+set aside at startup; parental.json is not, so damaging it can't remove the PIN. The REST API accepts
+intensities from 0 to 1 only, places from the game's list, and no renames while a PIN is set. A player
+can keep up to 100 pets. Reward waits and the start of a new day's goals use a play clock that runs
+only while the game does (by the monotonic clock), so changing the computer's clock gains nothing; at
+most two life-extension potions help a pet.
 Offline: everything but the cloud features works without a network; at startup the game waits at
 most 15 s for a hub before restoring the last pet.
 

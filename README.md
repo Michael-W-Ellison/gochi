@@ -131,7 +131,19 @@ Each pet has its own save file in `<data-dir>/saves/`. The game saves the active
 
 The previous five saves of each pet are kept in `<data-dir>/backups/`. When the program starts, it
 restores the most recently saved pet. If a save file is damaged, the newest working backup is used
-instead.
+instead. A save missing the parts that make up the pet (its body or personality) counts as damaged;
+missing parts that older saves may not have are rebuilt, and values out of range (such as a time of
+day past 24) are brought back into range, so a damaged save can't stop the game. A pet whose save
+and backups are all damaged is still listed under **Switch Pet**, marked as damaged, so you can
+delete it.
+
+You can have up to 100 saved pets; delete one to make room for more.
+
+If one of the game's settings files in the data directory (`stats.json`, `cloud.json`,
+`devices.json`) can't be read, it is renamed to `<name>.damaged-<date>` and the game starts with
+fresh settings. If `parental.json` can't be read the game doesn't start, so damaging it can't remove
+the parent PIN; the message names the file to remove to start without a PIN. Temporary files left
+by a crash or a full disk are removed when the game starts.
 
 To play with a different pet, press **Switch Pet**. The pet list shows every saved pet; press **Load**
 to switch to one, or create a new pet below the list. Your current pet is saved first, so no
@@ -223,15 +235,20 @@ Press **🔒 Privacy**:
 - **Parent PIN**: a parent can set a PIN of 4 to 8 digits. Once it is set, the PIN is needed to
   connect to or disconnect from a cloud hub, see the account key, change what is shared, start or join
   a playdate, rename or delete a pet, unpair devices, and change these settings (the page asks for
-  it). After 5 wrong PINs, no PIN is accepted for 5 minutes. The PIN is stored as a salted hash in
-  `<data-dir>/parental.json`; it stops a child changing settings in the game, not someone who can edit
-  the computer's files.
+  it). After 5 wrong PINs, no PIN is accepted for 5 minutes, and each wait after that is twice as
+  long as the last (up to a day) until the right PIN is given; restarting the game doesn't end a
+  wait. The PIN is stored as a salted hash in `<data-dir>/parental.json`; it stops a child changing
+  settings in the game, not someone who can edit the computer's files.
+- **Only on this computer**: connecting to or disconnecting from a cloud hub, changing what is
+  shared, seeing the account key, the parent PIN and these privacy settings can be changed only on
+  the computer running the game, not from a paired phone or tablet.
 - **Play on a phone or tablet**: by default the game answers only the computer it runs on. To play on
   a phone or tablet on the same Wi-Fi (for example for AR), start the game with `-addr :8080`. Each
   device must then be paired: Privacy shows the address to open and a code (8 letters and digits,
-  valid for 10 minutes); the device shows a pairing page until the code is entered. After 5 wrong
-  codes, pairing stops for 5 minutes and the code is thrown away. Paired devices are remembered (as
-  hashes in `<data-dir>/devices.json`); **Unpair all devices** forgets them.
+  valid for 10 minutes); the device shows a pairing page until the code is entered. Each code pairs
+  one device. A device that sends 5 wrong codes must wait 5 minutes before trying again; other
+  devices can still pair. Paired devices are remembered (as hashes in `<data-dir>/devices.json`);
+  **Unpair all devices** forgets them.
 
 Your saves, backups and settings in the data directory can be read only by your user account (on
 macOS and Linux; older saves are made private as they are saved again).
@@ -245,7 +262,11 @@ macOS and Linux; older saves are made private as they are saved again).
   Everything another player sees comes from fixed lists (handles, species, how a pet looks,
   achievements) or is written by the game or the hub (what happened at a playdate). The hub refuses
   any request with fields it doesn't expect. The only things players share beyond those lists are a
-  pet's position at a playdate (rounded to 5 cm) and how sociable it is, and when things happen.
+  pet's position at a playdate and how sociable it is, and when things happen. These are coarse, so
+  they can't carry messages quickly: sociability and how well a play went are rounded to tenths, and
+  a position is on the floor, in 10 cm steps, and changes at most once a second by at most half a
+  meter. (Two players who both changed their games could still signal each other slowly by how they
+  move their pets; nothing can carry what a player types.)
 - **Other web sites can't use the game**: the game answers only requests from its own page (JSON
   from the same origin, to `localhost` or an IP address), so a web page the player visits can't read
   or change anything, even by pointing its own name at the computer (DNS rebinding). Responses carry
@@ -253,6 +274,9 @@ macOS and Linux; older saves are made private as they are saved again).
 - **Other devices need pairing**: the game answers only this computer unless started on the network,
   and then only paired devices.
 - **Parents can lock settings** with a PIN (see above).
+- **Limits**: the game reads requests of at most 64 KB (1 KB from a device that isn't paired) and
+  drops connections that are too slow, and a hub reads only a few uploads at a time, so neither can
+  be made to run out of memory.
 - **No analytics**: the game collects no statistics about how it is played, sends no crash reports
   and runs no experiments. The only statistics are the player's own ([My Stats](#my-stats)), which
   stay on their computer.
@@ -330,7 +354,8 @@ Goals start at level 1 and adapt to how you are doing: completing two or three o
 makes the next day's goals one half-level harder (up to level 5), and trying but completing none
 makes them half a level easier. Each goal earns 5 points per level (rounded), and the page announces
 each goal as you complete it. Goals are kept with the pet's save, and a new set starts each
-calendar day.
+calendar day, once the game has run for at least 15 minutes since the last set started (so moving
+the computer's clock forward doesn't bring new goals; moving it back keeps the goals you have).
 
 **Coming up** shows what your pet will ask for next if nothing changes, and when (for example "In
 about 13 minutes: Mochi is thirsty!"). The game works this out by running a copy of your pet
@@ -387,8 +412,8 @@ record of its wellbeing) up to 15%. Hover over the age line to see your pet's ca
 end the pet shows the warning sign **Very old and frail**, and it then dies of old age, unless gentle
 mode is on (see below). A **Life-extension potion** from the shop (1,000 points; it unlocks once the
 pet has earned 600 points over its life) adds about 1,500 game days (25 hours of play) each time;
-press **Give life-extension potion** under **Body** to give one. A pet that is well cared for and
-given a potion now and then can live on indefinitely.
+press **Give life-extension potion** under **Body** to give one. Only two potions help a pet; after
+that, more are kept in the pantry, and the pet's life still ends one day.
 
 **The living area** gets dirty as the pet relieves itself. A cat uses its litter box several times
 a day, so scoop it regularly; if the box gets too dirty, the cat goes elsewhere and gets stressed. A
@@ -586,8 +611,9 @@ before breeding again.
 ### Friendship Points and the Shop
 
 Caring for a pet earns it Friendship Points: 5 points for each kind of care (including training
-and exploring), at most once every 3 minutes per kind (more clicks still help your pet but earn nothing extra). Points belong to the
-pet that earned them. Press **Shop** to spend them on items for that pet:
+and exploring), at most once every 3 minutes per kind (more clicks still help your pet but earn nothing extra). The
+3 minutes are of the game running, not of the computer's clock, so changing the clock doesn't
+hurry them. Points belong to the pet that earned them. Press **Shop** to spend them on items for that pet:
 
 | Item | Price | Effect |
 |---|---|---|
@@ -714,8 +740,8 @@ the header `Authorization: Bearer my-secret`; `/health` and `/ready` need no tok
 | `GET /api/v1/pets` | All saved pets |
 | `POST /api/v1/pets` | Create a pet (`{"name": "...", "species": "cat", "randomize_traits": true}`; species is `cat` (default) or `dog`); it is saved without becoming the active pet |
 | `GET /api/v1/pets/{id}`, `GET /api/v1/pets/{id}/status` | One pet |
-| `PUT /api/v1/pets/{id}` | Rename a pet (`{"name": "..."}`) |
-| `POST /api/v1/pets/{id}/interactions` | Care for a pet (`{"type": "feed", "intensity": 1}`; types: feed, drink, pet, play, train, groom, medical, reward, discipline, clean, walk) |
+| `PUT /api/v1/pets/{id}` | Rename a pet (`{"name": "..."}`) or move it (`{"location": "park"}`: `home` or a place to explore) |
+| `POST /api/v1/pets/{id}/interactions` | Care for a pet (`{"type": "feed", "intensity": 1}`; types: feed, drink, pet, play, train, groom, medical, reward, discipline, clean, walk; intensity from 0 to 1) |
 | `POST /api/v1/pets/{id}/interactions/feed`, `.../play` | Shortcuts for feeding and playing |
 
 Each client (by IP address) may make 120 requests a minute (set with `server.api_rate_limit`;
@@ -724,8 +750,11 @@ token. Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a client
 gets status 429 with `X-RateLimit-Reset`, the time it may try again.
 
 Care through the API follows the game's rules: a pet that turns something down answers with
-status 409 and the reason. Pets can't be deleted through the API (403), because deleting asks for
-the confirmations described above. The API works only on the player's own pets: it has no accounts,
+status 409 and the reason. Intensities outside 0 to 1 are refused (400). Pets can't be deleted
+through the API (403), because deleting asks for the confirmations described above, and while a
+parent PIN is set they can't be renamed through it either (403). Creating a pet when 100 are saved
+is refused (409). Changes to the active pet are made to the pet itself while the game waits, so
+nothing the game does meanwhile is lost. The API works only on the player's own pets: it has no accounts,
 social or messaging routes.
 
 ## Augmented Reality
@@ -754,7 +783,7 @@ endpoints, and other AR clients can use them too:
 | `POST /api/ar/camera` | Report the camera's `{"transform": {...}}` and an optional `{"light": {...}}` estimate |
 | `POST /api/ar/place` | Place the active pet at `{"position": {...}}`, or in the middle of the largest floor or table |
 | `POST /api/ar/gesture` | A gesture (`{"type": "tap", "position": {...}}`). On the pet, a tap pets it, a double tap plays, a long press feeds it and a swipe throws a ball |
-| `POST /api/ar/exercise` | `{"action": "start"}`, `{"action": "position", "position": {...}}` while walking, then `{"action": "stop"}` |
+| `POST /api/ar/exercise` | `{"action": "start"}`, `{"action": "position", "position": {...}}` while walking, then `{"action": "stop"}`; a move faster than 3 m/s is taken as the tracking jumping and not counted, and positions more than 10 km out are ignored |
 
 Gestures follow the same rules as the care buttons. Stopping the session removes the pet from the
 scene. A walk counts towards the pet's **Exercise** need: every 500 m counts as much as one play
@@ -789,8 +818,10 @@ removed, and a playdate ends when everyone has left. Switching to another pet al
 Each device places pets in its own view of the room, so pets appear around the center in the same
 arrangement on every device but are not aligned to the same compass direction. The game tells the
 hub only each pet's species, whether it is young, how sociable it is, why it can't play if it can't
-(as a code, such as "asleep"), which of its species' pictures it shows, and its position relative to
-the center (rounded to 5 cm); when two pets play, only how well it went, as numbers. The hub names
+(as a code, such as "asleep"), which of its species' pictures it shows, and its position on the floor
+relative to the center; when two pets play, only how well it went, as numbers. The hub rounds these
+(see [Safety](#safety)): a pet moves at most half a meter a second there, so pets placed far apart
+walk over to their places. The hub names
 the pets and writes everything the players read, refuses anything else, and keeps playdates in
 memory only.
 

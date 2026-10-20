@@ -41,6 +41,19 @@ type petLog struct {
 	Hibernations int            `json:"hibernations"`
 }
 
+// clean makes counts from a hand-edited file at least 0
+func (entry *petLog) clean() {
+	entry.Interactions, entry.Hibernations = max(entry.Interactions, 0), max(entry.Hibernations, 0)
+	for kind, n := range entry.Care {
+		if n < 0 {
+			delete(entry.Care, kind)
+		}
+	}
+	if !(entry.Age >= 0) { // Also NaN
+		entry.Age = 0
+	}
+}
+
 // playerStats is the player's statistics, saved in stats.json
 type playerStats struct {
 	mu    sync.Mutex // Taken after any other lock and never held while taking one
@@ -70,6 +83,7 @@ func loadPlayerStats(dir string) (*playerStats, error) {
 		}
 		for id, entry := range saved.Pets {
 			if entry != nil {
+				entry.clean()
 				stats.pets[id] = entry
 			}
 		}
@@ -77,12 +91,13 @@ func loadPlayerStats(dir string) (*playerStats, error) {
 	return stats, nil
 }
 
-// known reports whether a pet is in the statistics
-func (ps *playerStats) known(id types.PetID) bool {
+// recorded reports whether a pet is in the statistics as a pet that is
+// still saved
+func (ps *playerStats) recorded(id types.PetID) bool {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	_, ok := ps.pets[id]
-	return ok
+	entry, ok := ps.pets[id]
+	return ok && !entry.Deleted
 }
 
 // observe brings a pet's record up to date. bred is whether it was just
@@ -101,6 +116,9 @@ func (ps *playerStats) observe(t core.Tally, bred bool) bool {
 	if died && ok {
 		entry.DiedAt = time.Now()
 	}
+	if entry.Deleted { // Its save is back: the game stopped while deleting it
+		entry.Deleted, ps.dirty = false, true
+	}
 	before := *entry
 	entry.Name, entry.Species, entry.Generation = t.Name, t.Species, t.Generation
 	entry.Alive, entry.CauseOfDeath, entry.Age = t.Alive, t.CauseOfDeath, t.Age
@@ -116,6 +134,15 @@ func (ps *playerStats) observe(t core.Tally, bred bool) bool {
 		ps.dirty = true
 	}
 	return !ok || died
+}
+
+// undelete records that a pet's save wasn't deleted after all
+func (ps *playerStats) undelete(id types.PetID) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if entry, ok := ps.pets[id]; ok && entry.Deleted {
+		entry.Deleted, ps.dirty = false, true
+	}
 }
 
 // deleted records that a pet's save was deleted
@@ -146,6 +173,7 @@ func (ps *playerStats) save() error {
 	}
 	tmp := ps.path + ".tmp"
 	if err := os.WriteFile(tmp, contents, 0o600); err != nil {
+		os.Remove(tmp) // Cut short (a full disk)
 		return err
 	}
 	if err := os.Rename(tmp, ps.path); err != nil {
@@ -286,12 +314,23 @@ func (s *Server) recordSavedPets() {
 		return
 	}
 	for _, entry := range saved {
-		if entry.ID == "" || s.stats.known(types.PetID(entry.ID)) {
+		if entry.ID == "" || s.stats.recorded(types.PetID(entry.ID)) {
 			continue
 		}
-		if pet, _, _, err := s.store.Load(entry.Slot); err == nil {
-			s.observePet(pet, false)
+		s.recordSavedPet(entry.Slot)
+	}
+}
+
+// recordSavedPet adds one saved pet to the statistics. A save that can't
+// be read is left for the player to see under Switch Pet.
+func (s *Server) recordSavedPet(slot string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Could not read the pet in %s for your statistics: %v", slot, r)
 		}
+	}()
+	if pet, _, _, err := s.store.Load(slot); err == nil {
+		s.observePet(pet, false)
 	}
 }
 

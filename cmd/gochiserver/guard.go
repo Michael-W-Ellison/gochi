@@ -39,8 +39,9 @@ import (
 const (
 	pairingCodeLength = 8
 	pairingCodeLife   = 10 * time.Minute
-	maxPairingTries   = 5               // Wrong codes before a wait
+	maxPairingTries   = 5               // Wrong codes from one address before it waits
 	pairingLockout    = 5 * time.Minute // The wait
+	maxPairingGuesser = 1000            // Addresses whose wrong codes are remembered
 	deviceCookie      = "gochi_device"
 	deviceCookieAge   = 365 * 24 * 60 * 60 // Seconds
 )
@@ -53,16 +54,25 @@ type devicePairing struct {
 	mu       sync.Mutex
 	path     string          // devices.json; "" keeps them in memory only
 	devices  map[string]bool // Hashes of paired devices' tokens
-	code     string          // The current pairing code, or ""
+	code     string          // The current pairing code, or ""; it pairs one device
 	expires  time.Time       // When the code stops working
-	failures int             // Wrong codes in a row
-	lockedTo time.Time       // No codes accepted until then
+	guessers map[string]*pairingGuesser
 	now      func() time.Time
+}
+
+// pairingGuesser is an address that has sent wrong codes. Each address
+// waits after its own wrong codes, so one device can't stop others
+// pairing; with 8 characters from 32, a code can't be guessed in the 10
+// minutes it lasts.
+type pairingGuesser struct {
+	failures int       // Wrong codes in a row
+	lockedTo time.Time // No codes accepted from it until then
+	last     time.Time // Its last wrong code
 }
 
 // loadDevicePairing reads the paired devices from devices.json in dir
 func loadDevicePairing(dir string) (*devicePairing, error) {
-	d := &devicePairing{devices: make(map[string]bool), now: time.Now}
+	d := &devicePairing{devices: make(map[string]bool), guessers: make(map[string]*pairingGuesser), now: time.Now}
 	if dir == "" {
 		return d, nil
 	}
@@ -99,6 +109,7 @@ func (d *devicePairing) saveLocked() error {
 	}
 	tmp := d.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		os.Remove(tmp) // Cut short (a full disk)
 		return err
 	}
 	return os.Rename(tmp, d.path)
@@ -132,24 +143,32 @@ var (
 	errPairingLockedOut = fmt.Errorf("too many wrong codes; try again in %d minutes", int(pairingLockout.Minutes()))
 )
 
-// Pair checks a pairing code and returns a token for the device
-func (d *devicePairing) Pair(code string) (string, error) {
+// Pair checks a pairing code sent from an address and returns a token for
+// the device
+func (d *devicePairing) Pair(code, address string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := d.now()
-	if now.Before(d.lockedTo) {
+	guesser := d.guessers[address]
+	if guesser != nil && now.Before(guesser.lockedTo) {
 		return "", errPairingLockedOut
 	}
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if d.code == "" || now.After(d.expires) || subtle.ConstantTimeCompare([]byte(code), []byte(d.code)) != 1 {
-		d.failures++
-		if d.failures >= maxPairingTries {
-			d.failures, d.lockedTo = 0, now.Add(pairingLockout)
-			d.code = "" // A guesser can't keep trying the same code
+		if guesser == nil {
+			d.forgetGuessersLocked(now)
+			guesser = &pairingGuesser{}
+			d.guessers[address] = guesser
+		}
+		guesser.failures++
+		guesser.last = now
+		if guesser.failures >= maxPairingTries {
+			guesser.failures, guesser.lockedTo = 0, now.Add(pairingLockout)
 		}
 		return "", errWrongPairingCode
 	}
-	d.failures = 0
+	delete(d.guessers, address)
+	d.code = "" // Each code pairs one device
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
@@ -161,6 +180,23 @@ func (d *devicePairing) Pair(code string) (string, error) {
 		return "", err
 	}
 	return token, nil
+}
+
+// forgetGuessersLocked forgets addresses that are no longer waiting and
+// haven't guessed lately, and if there are still too many, all of them.
+// Caller must hold d.mu.
+func (d *devicePairing) forgetGuessersLocked(now time.Time) {
+	if len(d.guessers) < maxPairingGuesser {
+		return
+	}
+	for address, g := range d.guessers {
+		if now.After(g.lockedTo) && now.Sub(g.last) > pairingLockout {
+			delete(d.guessers, address)
+		}
+	}
+	if len(d.guessers) >= maxPairingGuesser {
+		d.guessers = make(map[string]*pairingGuesser)
+	}
 }
 
 // Paired reports whether a device token is paired
@@ -189,13 +225,31 @@ func (d *devicePairing) Forget() error {
 	return d.saveLocked()
 }
 
-// fromThisComputer reports whether a request came from this computer
-func fromThisComputer(r *http.Request) bool {
+// onlyThisComputer refuses a request from another device, for settings
+// only the computer running the game may change (which hub the game uses
+// and what it shares, the parent PIN and privacy settings), and reports
+// whether it came from this computer
+func onlyThisComputer(w http.ResponseWriter, r *http.Request) bool {
+	if fromThisComputer(r) {
+		return true
+	}
+	writeJSON(w, http.StatusForbidden, APIResponse{Success: false,
+		Error: "Change this on the computer running the game"})
+	return false
+}
+
+// remoteHost returns the address a request came from, without its port
+func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		host = r.RemoteAddr
+		return r.RemoteAddr
 	}
-	ip := net.ParseIP(host)
+	return host
+}
+
+// fromThisComputer reports whether a request came from this computer
+func fromThisComputer(r *http.Request) bool {
+	ip := net.ParseIP(remoteHost(r))
 	return ip != nil && ip.IsLoopback()
 }
 
@@ -227,6 +281,13 @@ func changes(method string) bool {
 	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }
 
+// The largest request bodies the game reads: every request the page or the
+// REST API makes is far smaller
+const (
+	maxRequestBytes     = 64 << 10
+	maxPairRequestBytes = 1 << 10
+)
+
 // guardError writes a refusal
 func guardError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -242,6 +303,15 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			return
 		}
 		path := r.URL.Path
+		limit := int64(maxRequestBytes)
+		if path == "/pair" {
+			limit = maxPairRequestBytes // Answered for devices that aren't paired
+		}
+		if r.ContentLength > limit {
+			guardError(w, http.StatusRequestEntityTooLarge, "The request is too large.")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		restAPI := path == "/api/v1" || strings.HasPrefix(path, "/api/v1/") || path == "/health" || path == "/ready"
 		if restAPI {
 			next.ServeHTTP(w, r)
@@ -285,7 +355,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	if !decodePost(w, r, &req) {
 		return
 	}
-	token, err := s.pairing.Pair(req.Code)
+	token, err := s.pairing.Pair(req.Code, remoteHost(r))
 	if err != nil {
 		status := http.StatusForbidden
 		if errors.Is(err, errPairingLockedOut) {

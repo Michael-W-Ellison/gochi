@@ -148,7 +148,17 @@ func TestOtherDevicesNeedPairing(t *testing.T) {
 		t.Errorf("An expired code: %d", rec.Code)
 	}
 
-	// Guessing locks pairing for a while and throws the code away
+	// A code pairs one device only
+	request(h, http.MethodGet, "/api/pairing", local, "", nil)
+	code = s.pairing.code
+	if rec := request(h, http.MethodPost, "/pair", "192.168.1.30:5000", `{"code":"`+code+`"}`, jsonHeader); rec.Code != http.StatusOK {
+		t.Errorf("Pairing a second device: %d", rec.Code)
+	}
+	if rec := request(h, http.MethodPost, "/pair", "192.168.1.31:5000", `{"code":"`+code+`"}`, jsonHeader); rec.Code != http.StatusForbidden {
+		t.Errorf("A used code should not pair another device: %d", rec.Code)
+	}
+
+	// Guessing makes that address wait, but not others
 	request(h, http.MethodGet, "/api/pairing", local, "", nil)
 	code = s.pairing.code
 	for i := 0; i < maxPairingTries; i++ {
@@ -156,6 +166,9 @@ func TestOtherDevicesNeedPairing(t *testing.T) {
 	}
 	if rec := request(h, http.MethodPost, "/pair", remote, `{"code":"`+code+`"}`, jsonHeader); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("After %d wrong codes: %d", maxPairingTries, rec.Code)
+	}
+	if rec := request(h, http.MethodPost, "/pair", "192.168.1.40:5000", `{"code":"`+code+`"}`, jsonHeader); rec.Code != http.StatusOK {
+		t.Errorf("Another device should still pair: %d", rec.Code)
 	}
 
 	// Forgetting unpairs every device
@@ -171,7 +184,7 @@ func TestPairedDevicesAreKept(t *testing.T) {
 	dir := t.TempDir()
 	d, _ := loadDevicePairing(dir)
 	code, _, _ := d.NewCode()
-	token, err := d.Pair(code)
+	token, err := d.Pair(code, "192.168.1.20")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,5 +205,64 @@ func TestListensOnNetwork(t *testing.T) {
 	}
 	if defaultConfig().Server.Addr != "127.0.0.1:8080" || listensOnNetwork(defaultConfig().Server.Addr) {
 		t.Error("By default the game should answer only this computer")
+	}
+}
+
+func TestLargeRequestsAreRefused(t *testing.T) {
+	_, h := guarded(t)
+	big := `{"name":"` + strings.Repeat("x", maxRequestBytes) + `"}`
+	if rec := request(h, http.MethodPost, "/api/rename", local, big, jsonHeader); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("A large request should be refused: %d", rec.Code)
+	}
+	// Without a length, the body is cut off at the limit
+	req := httptest.NewRequest(http.MethodPost, "/api/rename", strings.NewReader(big))
+	req.ContentLength = -1
+	req.RemoteAddr, req.Host = local, "localhost:8080"
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Error("A large request without a length should be refused")
+	}
+	// Devices that aren't paired may send only a pairing code
+	pair := `{"code":"` + strings.Repeat("A", maxPairRequestBytes) + `"}`
+	if rec := request(h, http.MethodPost, "/pair", remote, pair, jsonHeader); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("A large pairing request should be refused: %d", rec.Code)
+	}
+}
+
+func TestSettingsOnlyOnThisComputer(t *testing.T) {
+	s, _ := guarded(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/privacy", s.handlePrivacy)
+	mux.HandleFunc("/api/cloud/connect", s.handleCloudConnect)
+	mux.HandleFunc("/api/cloud/disconnect", s.handleCloudDisconnect)
+	mux.HandleFunc("/api/cloud/profile", s.handleCloudProfile)
+	h := s.guard(mux)
+	s.pairing.NewCode()
+	token, err := s.pairing.Pair(s.pairing.code, "192.168.1.20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	phone := map[string]string{"Cookie": deviceCookie + "=" + token, "Content-Type": "application/json"}
+
+	for path, body := range map[string]string{
+		"/api/privacy":          `{"new_pin":"9999"}`,
+		"/api/cloud/connect":    `{"hub_url":"http://127.0.0.1:9","join_code":"x"}`,
+		"/api/cloud/disconnect": `{}`,
+		"/api/cloud/profile":    `{"share_achievements":true}`,
+	} {
+		if rec := request(h, http.MethodPost, path, remote, body, phone); rec.Code != http.StatusForbidden {
+			t.Errorf("%s from a paired device: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if s.parental.Locked() {
+		t.Error("A paired device must not set the parent PIN")
+	}
+	if rec := request(h, http.MethodGet, "/api/privacy", remote, "", phone); rec.Code != http.StatusOK {
+		t.Errorf("A paired device may see the settings: %d", rec.Code)
+	}
+	if rec := request(h, http.MethodPost, "/api/privacy", local, `{"new_pin":"9999"}`, jsonHeader); rec.Code != http.StatusOK || !s.parental.Locked() {
+		t.Errorf("This computer sets the PIN: %d %s", rec.Code, rec.Body.String())
 	}
 }

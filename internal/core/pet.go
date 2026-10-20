@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +72,11 @@ type DigitalPet struct {
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`
+
+	// The play clock (playclock.go), and the reading it was last advanced
+	// from (not saved)
+	PlayClock time.Time `json:"play_clock"`
+	playRef   time.Time
 
 	// Activities: trick skills (0.0 to 1.0, learned at 1.0), an exploring
 	// trip that ends at ExploringUntilAge (0 when home), souvenirs found
@@ -338,6 +344,11 @@ func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionTyp
 // interactLocked applies an interaction and awards Friendship Points.
 // Caller must hold p.mu.
 func (p *DigitalPet) interactLocked(interactionType types.InteractionType, intensity float64) InteractionResult {
+	// Care is given at an intensity from 0 to 1
+	if !(intensity >= 0) { // Also NaN
+		intensity = 0
+	}
+	intensity = min(intensity, 1)
 	// The living area can be cleaned while the pet is out exploring
 	away := p.isExploringLocked() && interactionType != types.InteractionCleaning
 	if !p.Biology.IsAlive || p.Hibernating || away {
@@ -670,19 +681,33 @@ func (p *DigitalPet) Save() ([]byte, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return json.MarshalIndent(p, "", "  ")
+	data, err := json.MarshalIndent(p, "", "  ")
+	var unsupported *json.UnsupportedValueError
+	if errors.As(err, &unsupported) {
+		// A value that isn't a number (from a damaged save the checks
+		// missed); the pet is saved with 0 in its place rather than not
+		// at all
+		replaceNonFinite(reflect.ValueOf(p).Elem())
+		data, err = json.MarshalIndent(p, "", "  ")
+	}
+	return data, err
 }
 
 // Load deserializes a pet from JSON
-func Load(data []byte) (*DigitalPet, error) {
+func Load(data []byte) (loaded *DigitalPet, err error) {
+	defer func() {
+		if r := recover(); r != nil { // A damaged save the checks missed
+			loaded, err = nil, fmt.Errorf("%w: %v", ErrDamagedSave, r)
+		}
+	}()
 	var pet DigitalPet
-	err := json.Unmarshal(data, &pet)
-	if err != nil {
+	if err := json.Unmarshal(data, &pet); err != nil {
 		return nil, err
 	}
-	if pet.Memory != nil {
-		pet.Memory.SetLongTermCapacity(maxLongTermMemories) // Older saves kept more
+	if err := pet.repair(); err != nil {
+		return nil, err
 	}
+	pet.Memory.SetLongTermCapacity(maxLongTermMemories) // Older saves kept more
 	return &pet, nil
 }
 
