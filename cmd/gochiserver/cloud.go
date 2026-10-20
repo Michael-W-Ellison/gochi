@@ -15,15 +15,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/internal/hub"
 )
 
 // Cloud: the player can connect this server to a Gochi hub (see the hub
-// package) to back up and sync their pets between devices, see pets
-// nearby and share achievements. The connection and what has been synced
-// are kept in cloud.json in the data directory.
+// package) to back up and sync their pets between devices and share
+// achievements. The hub gives the player a handle; nothing they type is
+// sent to it. The connection and what has been synced are kept in
+// cloud.json in the data directory.
 
 // cloudSyncInterval is how often pets are synced while connected
 const cloudSyncInterval = 5 * time.Minute
@@ -39,12 +39,10 @@ type cloudPet struct {
 // cloudState is the cloud connection, saved in cloud.json
 type cloudState struct {
 	HubURL     string               `json:"hub_url"`
-	Username   string               `json:"username"`
+	Handle     string               `json:"handle"` // Given by the hub
 	Token      string               `json:"token"`
-	Area       string               `json:"area"`
-	ShowNearby bool                 `json:"show_nearby"`
+	Pin        string               `json:"pin"` // The hub's certificate fingerprint, if it isn't from a certificate authority
 	ShareFeats bool                 `json:"share_achievements"`
-	Sharing    bool                 `json:"sharing,omitempty"` // Both, from older versions; read once
 	LastSync   time.Time            `json:"last_sync"`
 	LastReport syncReport           `json:"last_report"`
 	Pets       map[string]*cloudPet `json:"pets"` // By hub key
@@ -87,10 +85,11 @@ type cloud struct {
 	shares chan sharedAchievement // Achievements to share, from the update loop
 }
 
-// sharedAchievement is an achievement waiting to be shared
+// sharedAchievement is an achievement waiting to be shared: its ID and
+// the species of the pet that earned it
 type sharedAchievement struct {
-	petName     string
-	achievement core.Achievement
+	id      string
+	species core.Species
 }
 
 // newCloud loads the cloud connection from dir
@@ -109,8 +108,17 @@ func newCloud(dir string) (*cloud, error) {
 	if c.state.Pets == nil {
 		c.state.Pets = make(map[string]*cloudPet)
 	}
-	if c.state.Sharing {
-		c.state.ShowNearby, c.state.ShareFeats, c.state.Sharing = true, true, false
+	// Connections from older versions used usernames and plain HTTP; they
+	// are forgotten, and the player connects again
+	if c.state.HubURL != "" {
+		if _, err := hub.NormalizeURL(c.state.HubURL); err != nil || c.state.Handle == "" {
+			log.Printf("Forgetting the connection to %s, made by an older version; connect again from the Cloud panel",
+				c.state.HubURL)
+			c.state = cloudState{Pets: make(map[string]*cloudPet)}
+			if err := c.saveLocked(); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return c, nil
 }
@@ -137,7 +145,7 @@ func (c *cloud) connectedLocked() bool {
 
 // clientLocked returns a hub client. Caller must hold c.mu.
 func (c *cloud) clientLocked() *hub.Client {
-	return hub.NewClient(c.state.HubURL, c.state.Token)
+	return hub.NewClient(c.state.HubURL, c.state.Token, c.state.Pin)
 }
 
 // errNotConnected is returned when a cloud feature is used without a hub
@@ -145,8 +153,10 @@ var errNotConnected = errors.New("not connected to a cloud hub")
 
 // cloudConnect connects to a hub: with an account key (from another
 // device), it signs in to that account; otherwise it registers a new
-// account with the hub's join code
-func (s *Server) cloudConnect(ctx context.Context, address, username, joinCode, accountKey string) error {
+// account with the hub's join code, and the hub gives it a handle. A hub
+// whose certificate isn't from a certificate authority has its
+// certificate remembered (pinned) now and required from then on.
+func (s *Server) cloudConnect(ctx context.Context, address, joinCode, accountKey string) error {
 	if s.cloud == nil {
 		return errNotConnected
 	}
@@ -154,38 +164,34 @@ func (s *Server) cloudConnect(ctx context.Context, address, username, joinCode, 
 	if err != nil {
 		return err
 	}
-	client := hub.NewClient(baseURL, "")
+	pin, err := hub.ProbeCertificate(ctx, baseURL)
+	if err != nil {
+		return err
+	}
+	client := hub.NewClient(baseURL, "", pin)
 	if _, err := client.Status(ctx); err != nil {
 		return err
 	}
-	username = strings.TrimSpace(username)
 	token := strings.TrimSpace(accountKey)
-	if token != "" {
-		client.Token = token
-		profile, err := client.GetProfile(ctx)
-		if errors.Is(err, hub.ErrUnauthorized) || (err == nil && !strings.EqualFold(profile.Username, username)) {
-			return errors.New("that account key doesn't belong to that username on this hub")
-		}
-		if err != nil {
+	if token == "" {
+		if token, _, err = client.Register(ctx, joinCode); err != nil {
 			return err
 		}
-		username = profile.Username
-	} else {
-		var err error
-		if token, err = client.Register(ctx, username, joinCode); err != nil {
-			return err
-		}
+	}
+	client.Token = token
+	profile, err := client.GetProfile(ctx)
+	if errors.Is(err, hub.ErrUnauthorized) {
+		return errors.New("that account key isn't one this hub knows")
+	}
+	if err != nil {
+		return err
 	}
 
 	c := s.cloud
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.state = cloudState{HubURL: baseURL, Username: username, Token: token, Pets: make(map[string]*cloudPet)}
-	if token := client.Token; token != "" {
-		if profile, err := client.GetProfile(ctx); err == nil {
-			c.state.Area, c.state.ShowNearby, c.state.ShareFeats = profile.Area, profile.ShowNearby, profile.ShareAchievements
-		}
-	}
+	c.state = cloudState{HubURL: baseURL, Handle: profile.Handle, Token: token, Pin: pin,
+		ShareFeats: profile.ShareAchievements, Pets: make(map[string]*cloudPet)}
 	return c.saveLocked()
 }
 
@@ -201,18 +207,17 @@ func (s *Server) cloudDisconnect() error {
 	return c.saveLocked()
 }
 
-// cloudStatus describes the cloud connection for the page
+// cloudStatus describes the cloud connection for the page. The account
+// key isn't part of it (see handleCloudKey).
 type cloudStatus struct {
-	Connected  bool       `json:"connected"`
-	HubURL     string     `json:"hub_url"`
-	Username   string     `json:"username"`
-	Area       string     `json:"area"`
-	ShowNearby bool       `json:"show_nearby"`        // Pets appear to nearby players
-	ShareFeats bool       `json:"share_achievements"` // Achievements are posted to the hub
-	LastSync   *time.Time `json:"last_sync"`
-	LastReport string     `json:"last_report"`
-	Hosting    bool       `json:"hosting"`     // This server is a hub too
-	AccountKey string     `json:"account_key"` // To connect the player's other devices
+	Connected   bool       `json:"connected"`
+	HubURL      string     `json:"hub_url"`
+	Handle      string     `json:"handle"`
+	Fingerprint string     `json:"fingerprint"`        // The hub's pinned certificate, or "" if from a certificate authority
+	ShareFeats  bool       `json:"share_achievements"` // Achievements are posted to the hub
+	LastSync    *time.Time `json:"last_sync"`
+	LastReport  string     `json:"last_report"`
+	Hosting     bool       `json:"hosting"` // This server is a hub too
 }
 
 func (s *Server) cloudStatus() cloudStatus {
@@ -222,9 +227,8 @@ func (s *Server) cloudStatus() cloudStatus {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	status := cloudStatus{Connected: c.connectedLocked(), HubURL: c.state.HubURL, Username: c.state.Username,
-		Area: c.state.Area, ShowNearby: c.state.ShowNearby, ShareFeats: c.state.ShareFeats, Hosting: s.hub != nil,
-		AccountKey: c.state.Token}
+	status := cloudStatus{Connected: c.connectedLocked(), HubURL: c.state.HubURL, Handle: c.state.Handle,
+		Fingerprint: c.state.Pin, ShareFeats: c.state.ShareFeats, Hosting: s.hub != nil}
 	if !c.state.LastSync.IsZero() {
 		at := c.state.LastSync
 		status.LastSync = &at
@@ -233,9 +237,9 @@ func (s *Server) cloudStatus() cloudStatus {
 	return status
 }
 
-// cloudSetProfile sets the player's area and what they share
+// cloudSetProfile sets whether the player shares achievements
 // (enableSocialFeatures)
-func (s *Server) cloudSetProfile(ctx context.Context, area string, showNearby, shareAchievements bool) error {
+func (s *Server) cloudSetProfile(ctx context.Context, shareAchievements bool) error {
 	c := s.cloud
 	if c == nil {
 		return errNotConnected
@@ -245,26 +249,12 @@ func (s *Server) cloudSetProfile(ctx context.Context, area string, showNearby, s
 	if !c.connectedLocked() {
 		return errNotConnected
 	}
-	profile, err := c.clientLocked().EnableSocialFeatures(ctx, area, showNearby, shareAchievements)
+	profile, err := c.clientLocked().EnableSocialFeatures(ctx, shareAchievements)
 	if err != nil {
 		return err
 	}
-	c.state.Area, c.state.ShowNearby, c.state.ShareFeats = profile.Area, profile.ShowNearby, profile.ShareAchievements
+	c.state.ShareFeats = profile.ShareAchievements
 	return c.saveLocked()
-}
-
-// cloudNearby returns other players' pets in the player's area
-func (s *Server) cloudNearby(ctx context.Context) ([]hub.NearbyPet, error) {
-	c := s.cloud
-	if c == nil {
-		return nil, errNotConnected
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.connectedLocked() {
-		return nil, errNotConnected
-	}
-	return c.clientLocked().GetNearbyPets(ctx)
 }
 
 // cloudFeed returns achievements players have shared
@@ -289,7 +279,7 @@ func (s *Server) shareAchievementLocked(a core.Achievement) {
 		return
 	}
 	select {
-	case s.cloud.shares <- sharedAchievement{petName: s.pet.Name, achievement: a}:
+	case s.cloud.shares <- sharedAchievement{id: a.ID, species: s.pet.GetSpecies()}:
 	default: // Too many waiting; this one isn't shared
 	}
 }
@@ -305,10 +295,7 @@ func (s *Server) shareLoop(ctx context.Context) {
 			c := s.cloud
 			c.mu.Lock()
 			if c.connectedLocked() && c.state.ShareFeats {
-				a := shared.achievement
-				err := c.clientLocked().ShareAchievement(ctx, hub.SharedAchievement{PetName: shared.petName, ID: a.ID,
-					Name: a.Name, Icon: a.Icon, Description: a.Description})
-				if err != nil {
+				if err := c.clientLocked().ShareAchievement(ctx, shared.id, string(shared.species)); err != nil {
 					log.Printf("Could not share an achievement: %v", err)
 				}
 			}
@@ -331,17 +318,6 @@ func (s *Server) syncLoop(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// lifeStage names a life stage from an age in game days
-func lifeStage(age float64) string {
-	switch {
-	case age < biology.AdultAge:
-		return biology.StageYoung.String()
-	case age < biology.SeniorAge:
-		return biology.StageAdult.String()
-	}
-	return biology.StageSenior.String()
 }
 
 // cloudSync saves the active pet, then syncs every pet with the hub
@@ -406,7 +382,7 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 		state := c.state.Pets[key]
 		name := pet.Name
 		if !isLocal {
-			name = info.Name
+			name = "a pet from another device" // Its name is only in its encrypted save
 		}
 		fail := func(err error) { report.Errors = append(report.Errors, name+": "+err.Error()) }
 
@@ -416,8 +392,7 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 				fail(err)
 				return false
 			}
-			version, err := client.UploadPetData(ctx, hub.PetInfo{Key: key, SavedAt: saved.LastPlayed, Name: pet.Name,
-				Species: pet.Species, Stage: lifeStage(pet.Age), Alive: pet.IsAlive}, saved.JSON, base)
+			version, err := client.UploadPetData(ctx, hub.PetInfo{Key: key, SavedAt: saved.LastPlayed}, saved.JSON, base)
 			if err != nil {
 				fail(err)
 				return false
@@ -431,13 +406,17 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 				fail(err)
 				return false
 			}
+			var save struct {
+				PetData struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"pet_data"`
+			}
+			json.Unmarshal(contents, &save)
+			if save.PetData.Name != "" {
+				name = save.PetData.Name
+			}
 			if slot == "" {
-				var save struct {
-					PetData struct {
-						ID string `json:"id"`
-					} `json:"pet_data"`
-				}
-				json.Unmarshal(contents, &save)
 				slot = s.store.NewSlotFor(save.PetData.ID)
 			}
 			hash, err := s.store.Import(slot, contents)
@@ -575,11 +554,11 @@ func writeCloudError(w http.ResponseWriter, err error) {
 }
 
 // handleCloudConnect handles POST /api/cloud/connect with {"hub_url",
-// "username", "join_code"}: registers with a hub, then syncs
+// "join_code"} or {"hub_url", "account_key"}: registers with a hub (or
+// signs in), then syncs
 func (s *Server) handleCloudConnect(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		HubURL     string `json:"hub_url"`
-		Username   string `json:"username"`
 		JoinCode   string `json:"join_code"`
 		AccountKey string `json:"account_key"`
 		ParentPIN  string `json:"parent_pin"`
@@ -589,7 +568,7 @@ func (s *Server) handleCloudConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
 	defer cancel()
-	if err := s.cloudConnect(ctx, req.HubURL, req.Username, req.JoinCode, req.AccountKey); err != nil {
+	if err := s.cloudConnect(ctx, req.HubURL, req.JoinCode, req.AccountKey); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
 		return
 	}
@@ -642,12 +621,10 @@ func (s *Server) handleCloudSync(w http.ResponseWriter, r *http.Request) {
 		"report": report, "text": report.summary()}})
 }
 
-// handleCloudProfile handles POST /api/cloud/profile with {"area",
-// "show_nearby", "share_achievements"}
+// handleCloudProfile handles POST /api/cloud/profile with
+// {"share_achievements"}
 func (s *Server) handleCloudProfile(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Area              string `json:"area"`
-		ShowNearby        bool   `json:"show_nearby"`
 		ShareAchievements bool   `json:"share_achievements"`
 		ParentPIN         string `json:"parent_pin"`
 	}
@@ -656,27 +633,41 @@ func (s *Server) handleCloudProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
 	defer cancel()
-	if err := s.cloudSetProfile(ctx, req.Area, req.ShowNearby, req.ShareAchievements); err != nil {
+	if err := s.cloudSetProfile(ctx, req.ShareAchievements); err != nil {
 		writeCloudError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.cloudStatus()})
 }
 
-// handleCloudNearby handles GET /api/cloud/nearby
-func (s *Server) handleCloudNearby(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+// handleCloudKey handles POST /api/cloud/key (with "parent_pin" if a PIN
+// is set): the account key, for connecting the player's other devices.
+// Only the computer running the game is given it.
+func (s *Server) handleCloudKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ParentPIN string `json:"parent_pin"`
+	}
+	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
-	defer cancel()
-	pets, err := s.cloudNearby(ctx)
-	if err != nil {
-		writeCloudError(w, err)
+	if !fromThisComputer(r) {
+		writeJSON(w, http.StatusForbidden, APIResponse{Success: false,
+			Error: "The account key is shown only on the computer running the game"})
 		return
 	}
-	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: pets})
+	c := s.cloud
+	if c == nil {
+		writeCloudError(w, errNotConnected)
+		return
+	}
+	c.mu.Lock()
+	key, connected := c.state.Token, c.connectedLocked()
+	c.mu.Unlock()
+	if !connected {
+		writeCloudError(w, errNotConnected)
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]string{"account_key": key}})
 }
 
 // handleCloudFeed handles GET /api/cloud/feed

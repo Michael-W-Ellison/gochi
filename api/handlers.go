@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
@@ -13,10 +14,7 @@ import (
 
 // Handler provides HTTP handler methods for the API
 type Handler struct {
-	petStore      PetStore
-	userStore     UserStore
-	socialService SocialService
-	syncService   SyncService
+	petStore PetStore
 }
 
 // PetStore defines the interface for pet data storage
@@ -32,53 +30,9 @@ type PetStore interface {
 // operation through the API
 var ErrNotPermitted = errors.New("not permitted")
 
-// UserStore defines the interface for user data storage
-type UserStore interface {
-	GetUser(id types.UserID) (*User, error)
-	GetUserByEmail(email string) (*User, error)
-	CreateUser(user *User) error
-	UpdateUser(user *User) error
-	ValidateCredentials(email, password string) (*User, error)
-}
-
-// User represents a user in the system
-type User struct {
-	ID          types.UserID `json:"id"`
-	Email       string       `json:"email"`
-	DisplayName string       `json:"display_name"`
-	CreatedAt   time.Time    `json:"created_at"`
-}
-
-// SocialService defines the interface for social features
-type SocialService interface {
-	GetNearbyPets(location *Location, radiusMeters float64) ([]*NearbyPetResponse, error)
-	GetFriends(petID types.PetID) ([]*FriendResponse, error)
-	SendFriendRequest(fromPetID, toPetID types.PetID, message string) error
-	AcceptFriendRequest(requestID string) error
-	DeclineFriendRequest(requestID string) error
-	RemoveFriend(petID, friendID types.PetID) error
-}
-
-// Location represents a geographic location
-type Location struct {
-	Latitude  float64
-	Longitude float64
-}
-
-// SyncService defines the interface for cloud sync
-type SyncService interface {
-	Sync(userID types.UserID, request *SyncRequest) (*SyncResponse, error)
-	ResolveConflict(userID types.UserID, request *ConflictResolutionRequest) error
-}
-
 // NewHandler creates a new API handler
-func NewHandler(petStore PetStore, userStore UserStore, socialService SocialService, syncService SyncService) *Handler {
-	return &Handler{
-		petStore:      petStore,
-		userStore:     userStore,
-		socialService: socialService,
-		syncService:   syncService,
-	}
+func NewHandler(petStore PetStore) *Handler {
+	return &Handler{petStore: petStore}
 }
 
 // ============================================================================
@@ -182,6 +136,10 @@ func (h *Handler) HandleCreatePet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MISSING_NAME", "Pet name is required")
 		return
 	}
+	if !core.ValidPetName(req.Name) {
+		writeError(w, http.StatusBadRequest, "INVALID_NAME", core.PetNameRule)
+		return
+	}
 
 	userID := getUserIDFromContext(r)
 
@@ -255,7 +213,11 @@ func (h *Handler) HandleUpdatePet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name != "" {
-		pet.Name = req.Name
+		if !core.ValidPetName(req.Name) {
+			writeError(w, http.StatusBadRequest, "INVALID_NAME", core.PetNameRule)
+			return
+		}
+		pet.Name = strings.TrimSpace(req.Name)
 	}
 	if req.Location != "" {
 		pet.Location = req.Location
@@ -441,184 +403,6 @@ func (h *Handler) HandlePlay(w http.ResponseWriter, r *http.Request) {
 		Message:     interactionMessage(result, "Played with pet"),
 	})
 }
-
-// ============================================================================
-// Social Handlers
-// ============================================================================
-
-// HandleUpdateLocation handles PUT /api/v1/social/location
-func (h *Handler) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
-	var req LocationUpdateRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	// Validate coordinates
-	if req.Latitude < -90 || req.Latitude > 90 || req.Longitude < -180 || req.Longitude > 180 {
-		writeError(w, http.StatusBadRequest, "INVALID_COORDINATES", "Invalid latitude or longitude")
-		return
-	}
-
-	// Update location in social service (implementation depends on social service)
-	writeSuccess(w, map[string]interface{}{
-		"updated":   true,
-		"latitude":  req.Latitude,
-		"longitude": req.Longitude,
-	})
-}
-
-// HandleGetNearbyPets handles GET /api/v1/social/nearby
-func (h *Handler) HandleGetNearbyPets(w http.ResponseWriter, r *http.Request) {
-	lat := getQueryParamFloat(r, "latitude", 0)
-	lon := getQueryParamFloat(r, "longitude", 0)
-	radius := getQueryParamFloat(r, "radius", 1000) // Default 1km
-
-	if lat == 0 && lon == 0 {
-		writeError(w, http.StatusBadRequest, "MISSING_LOCATION", "Latitude and longitude are required")
-		return
-	}
-
-	location := &Location{Latitude: lat, Longitude: lon}
-	nearby, err := h.socialService.GetNearbyPets(location, radius)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "FETCH_FAILED", "Failed to fetch nearby pets")
-		return
-	}
-
-	if nearby == nil {
-		nearby = []*NearbyPetResponse{} // An empty list, not null
-	}
-	writeSuccess(w, nearby)
-}
-
-// HandleGetFriends handles GET /api/v1/social/friends
-func (h *Handler) HandleGetFriends(w http.ResponseWriter, r *http.Request) {
-	petID := types.PetID(getQueryParam(r, "pet_id", ""))
-	if petID == "" {
-		writeError(w, http.StatusBadRequest, "MISSING_PET_ID", "Pet ID is required")
-		return
-	}
-
-	friends, err := h.socialService.GetFriends(petID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "FETCH_FAILED", "Failed to fetch friends")
-		return
-	}
-
-	if friends == nil {
-		friends = []*FriendResponse{} // An empty list, not null
-	}
-	writeSuccess(w, friends)
-}
-
-// HandleSendFriendRequest handles POST /api/v1/social/friends/request
-func (h *Handler) HandleSendFriendRequest(w http.ResponseWriter, r *http.Request) {
-	var req FriendRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	// Get current user's pet ID from context
-	fromPetID := types.PetID(getQueryParam(r, "pet_id", ""))
-	if fromPetID == "" {
-		writeError(w, http.StatusBadRequest, "MISSING_PET_ID", "Source pet ID is required")
-		return
-	}
-
-	if err := h.socialService.SendFriendRequest(fromPetID, req.TargetPetID, req.Message); err != nil {
-		writeError(w, http.StatusInternalServerError, "REQUEST_FAILED", "Failed to send friend request")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"sent": true})
-}
-
-// HandleAcceptFriendRequest handles POST /api/v1/social/friends/requests/{requestId}/accept
-func (h *Handler) HandleAcceptFriendRequest(w http.ResponseWriter, r *http.Request) {
-	requestID := getPathParam(r, "requestId")
-
-	if err := h.socialService.AcceptFriendRequest(requestID); err != nil {
-		writeError(w, http.StatusInternalServerError, "ACCEPT_FAILED", "Failed to accept friend request")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"accepted": true})
-}
-
-// HandleDeclineFriendRequest handles POST /api/v1/social/friends/requests/{requestId}/decline
-func (h *Handler) HandleDeclineFriendRequest(w http.ResponseWriter, r *http.Request) {
-	requestID := getPathParam(r, "requestId")
-
-	if err := h.socialService.DeclineFriendRequest(requestID); err != nil {
-		writeError(w, http.StatusInternalServerError, "DECLINE_FAILED", "Failed to decline friend request")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"declined": true})
-}
-
-// HandleRemoveFriend handles DELETE /api/v1/social/friends/{petId}
-func (h *Handler) HandleRemoveFriend(w http.ResponseWriter, r *http.Request) {
-	friendPetID := types.PetID(getPathParam(r, "petId"))
-	myPetID := types.PetID(getQueryParam(r, "my_pet_id", ""))
-
-	if myPetID == "" {
-		writeError(w, http.StatusBadRequest, "MISSING_PET_ID", "Your pet ID is required")
-		return
-	}
-
-	if err := h.socialService.RemoveFriend(myPetID, friendPetID); err != nil {
-		writeError(w, http.StatusInternalServerError, "REMOVE_FAILED", "Failed to remove friend")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"removed": true})
-}
-
-// ============================================================================
-// Sync Handlers
-// ============================================================================
-
-// HandleSync handles POST /api/v1/sync
-func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
-	var req SyncRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	userID := getUserIDFromContext(r)
-	response, err := h.syncService.Sync(userID, &req)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "SYNC_FAILED", "Failed to sync")
-		return
-	}
-
-	writeSuccess(w, response)
-}
-
-// HandleResolveConflict handles POST /api/v1/sync/resolve
-func (h *Handler) HandleResolveConflict(w http.ResponseWriter, r *http.Request) {
-	var req ConflictResolutionRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	userID := getUserIDFromContext(r)
-	if err := h.syncService.ResolveConflict(userID, &req); err != nil {
-		writeError(w, http.StatusInternalServerError, "RESOLVE_FAILED", "Failed to resolve conflict")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"resolved": true})
-}
-
-// ============================================================================
-// Helper Converters
-// ============================================================================
 
 // convertPetToResponse converts a DigitalPet to a PetResponse
 func convertPetToResponse(pet *core.DigitalPet) *PetResponse {

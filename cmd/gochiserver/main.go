@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -48,6 +49,13 @@ type Server struct {
 
 	// The parent PIN, if one is set; nil means none
 	parental *parentalControls
+
+	// Devices other than this computer that may use the game, and where
+	// the server listens (see guard.go)
+	pairing    *devicePairing
+	listenAddr string
+	onNetwork  bool
+	usesTLS    bool
 
 	// A hash of the static files, added to their URLs so they can be
 	// cached until they change
@@ -158,6 +166,7 @@ func main() {
 	scaleName := flag.String("time-scale", defaults.Simulation.TimeScale, "game speed: game (1 game day per real minute), 24x, 4x or realtime")
 	hubEnabled := flag.Bool("hub", defaults.Hub.Enabled, "also run as a cloud hub other Gochi servers can connect to")
 	hubJoinCode := flag.String("hub-join-code", defaults.Hub.JoinCode, "the code players need to register with this hub")
+	hubAddr := flag.String("hub-addr", defaults.Hub.Addr, "address the hub listens on (always HTTPS)")
 	tlsCert := flag.String("tls-cert", defaults.Server.TLSCert, "serve HTTPS with this certificate (PEM; needs -tls-key)")
 	tlsKey := flag.String("tls-key", defaults.Server.TLSKey, "the HTTPS certificate's private key (PEM)")
 	flag.Parse()
@@ -199,6 +208,8 @@ func main() {
 			config.Hub.Enabled = *hubEnabled
 		case "hub-join-code":
 			config.Hub.JoinCode = *hubJoinCode
+		case "hub-addr":
+			config.Hub.Addr = *hubAddr
 		case "tls-cert":
 			config.Server.TLSCert = *tlsCert
 		case "tls-key":
@@ -230,6 +241,10 @@ func main() {
 		log.Printf("Warning: could not read the play schedule, starting a new one: %v", err)
 		owner = &ai.OwnerSchedule{}
 	}
+	pairing, err := loadDevicePairing(dataPath)
+	if err != nil {
+		log.Fatalf("Could not read the paired devices: %v", err)
+	}
 	var hubServer *hub.Hub
 	if config.Hub.Enabled {
 		if hubServer, err = hub.New(filepath.Join(dataPath, "hub"), config.Hub.JoinCode); err != nil {
@@ -250,6 +265,10 @@ func main() {
 		owner:        owner,
 		ownerPath:    ownerPath,
 		parental:     parental,
+		pairing:      pairing,
+		listenAddr:   config.Server.Addr,
+		onNetwork:    listensOnNetwork(config.Server.Addr),
+		usesTLS:      config.usesTLS(),
 	}
 
 	// Sync with the cloud hub first, so the newest saves are restored
@@ -311,13 +330,24 @@ func main() {
 		}
 	}
 
-	// The cloud hub, for other Gochi servers
+	// The cloud hub, for other Gochi servers, on its own HTTPS address
+	var hubHTTP *http.Server
+	serverErr := make(chan error, 2)
 	if hubServer != nil {
-		mux.Handle("/hub/v1/", hubServer.Handler())
-		if hubServer.RegistrationOpen() {
-			log.Printf("Cloud hub enabled at /hub/v1; players register with the join code")
-		} else {
-			log.Printf("Cloud hub enabled at /hub/v1; registration is closed (no join code)")
+		certFile, keyFile, fingerprint, err := hub.ServerCertificate(filepath.Join(dataPath, "hub"),
+			config.Server.TLSCert, config.Server.TLSKey)
+		if err != nil {
+			log.Fatalf("Could not set up the cloud hub's certificate: %v", err)
+		}
+		hubMux := http.NewServeMux()
+		hubMux.Handle("/hub/v1/", hubServer.Handler())
+		hubHTTP = &http.Server{Addr: config.Hub.Addr, Handler: hubMux, TLSConfig: hub.TLSConfig(),
+			ReadHeaderTimeout: 10 * time.Second}
+		go func() { serverErr <- hubHTTP.ListenAndServeTLS(certFile, keyFile) }()
+		log.Printf("Cloud hub at https://<this computer>%s/hub/v1", config.Hub.Addr)
+		log.Printf("Hub certificate fingerprint (players can compare it with the one their game shows): %s", fingerprint)
+		if !hubServer.RegistrationOpen() {
+			log.Printf("Registration is closed (no join code)")
 		}
 	}
 	mux.HandleFunc("/api/cloud", server.handleCloud)
@@ -325,7 +355,9 @@ func main() {
 	mux.HandleFunc("/api/cloud/disconnect", server.handleCloudDisconnect)
 	mux.HandleFunc("/api/cloud/sync", server.handleCloudSync)
 	mux.HandleFunc("/api/cloud/profile", server.handleCloudProfile)
-	mux.HandleFunc("/api/cloud/nearby", server.handleCloudNearby)
+	mux.HandleFunc("/api/cloud/key", server.handleCloudKey)
+	mux.HandleFunc("/api/pairing", server.handlePairing)
+	mux.HandleFunc("/pair", server.handlePair)
 	mux.HandleFunc("/api/cloud/feed", server.handleCloudFeed)
 
 	// Simple API routes
@@ -385,9 +417,8 @@ func main() {
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	httpServer := &http.Server{Addr: config.Server.Addr, Handler: securityHeaders(mux), TLSConfig: tlsConfig(),
+	httpServer := &http.Server{Addr: config.Server.Addr, Handler: server.guard(securityHeaders(mux)), TLSConfig: tlsConfig(),
 		ReadHeaderTimeout: 10 * time.Second}
-	serverErr := make(chan error, 1)
 	scheme := "http"
 	go func() {
 		if config.usesTLS() {
@@ -400,8 +431,12 @@ func main() {
 		scheme = "https"
 		log.Printf("Serving HTTPS with %s", config.Server.TLSCert)
 	}
-	log.Printf("Starting Gochi server at %s://localhost%s", scheme, config.Server.Addr)
-	log.Printf("Open your browser to %s://localhost%s to play! Press Ctrl+C to save and exit.", scheme, config.Server.Addr)
+	_, port, _ := net.SplitHostPort(config.Server.Addr)
+	log.Printf("Starting Gochi server on %s", config.Server.Addr)
+	log.Printf("Open your browser to %s://localhost:%s to play! Press Ctrl+C to save and exit.", scheme, port)
+	if server.onNetwork {
+		log.Printf("Other devices on the network can play after pairing (🔒 Privacy on this computer shows the code)")
+	}
 
 	select {
 	case err := <-serverErr:
@@ -416,6 +451,9 @@ func main() {
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Warning: HTTP shutdown: %v", err)
+	}
+	if hubHTTP != nil {
+		hubHTTP.Shutdown(shutdownCtx)
 	}
 
 	if err := server.saveOwner(); err != nil {
@@ -916,7 +954,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="pet-display">🐣</div>
             <div class="form-group">
                 <label for="petNameInput">What will you name your pet?</label>
-                <input type="text" id="petNameInput" placeholder="Enter a name..." maxlength="20" autofocus>
+                <input type="text" id="petNameInput" placeholder="Enter a name..." maxlength="24" autofocus>
                 <div class="species-choice" id="speciesChoice" role="radiogroup" aria-label="Kind of pet">
                     <label><input type="radio" name="species" value="cat" checked><span>🐱 Cat</span></label>
                 </div>
@@ -1117,6 +1155,16 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             return speciesInfo(id).icon + ' ';
         }
 
+        // Which sprite the pet shows now (one of each species' sprite states)
+        function spriteState(status) {
+            if (!status.is_alive) return 'dead';
+            if (status.hibernating) return 'hibernating';
+            const byBehavior = {Sleeping: 'sleeping', Sick: 'sick', Playing: 'playing', Exploring: 'exploring',
+                'Social Interaction': 'social', Eating: 'eating'};
+            if (byBehavior[status.behavior]) return byBehavior[status.behavior];
+            return status.happiness > 0.7 ? 'happy' : 'idle';
+        }
+
         // The sprites for the active pet's species
         function spriteSet(status) {
             return speciesInfo((status || lastStatus || {}).species).sprites;
@@ -1306,15 +1354,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const btn = document.getElementById('deleteFinalBtn');
             btn.disabled = true;
 
-            fetch('/api/delete', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    slot: deleteTarget.slot,
-                    confirm_name: document.getElementById('deleteConfirmInput').value
-                })
+            postJSON('/api/delete', {
+                slot: deleteTarget.slot,
+                confirm_name: document.getElementById('deleteConfirmInput').value
             })
-            .then(r => r.json())
             .then(data => {
                 closeDeleteModal();
                 if (data.success) {
@@ -1342,8 +1385,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         function revivePet() {
             const btn = document.getElementById('reviveBtn');
             btn.disabled = true;
-            fetch('/api/revive', {method: 'POST'})
-                .then(r => r.json())
+            postJSON('/api/revive', {})
                 .then(() => fetchStatus())
                 .catch(console.error)
                 .finally(() => { btn.disabled = false; });
@@ -1751,23 +1793,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 (status.life ? status.life.stage : 'Age') + ': ' + status.age.toFixed(1) + ' days | Wellbeing: ' +
                 (status.wellbeing * 100).toFixed(0) + '%';
 
-            const set = spriteSet(status);
-            let sprite = set.idle;
-            if (!status.is_alive) {
-                sprite = set.dead;
-                document.getElementById('petView').classList.add('dead');
-            } else {
-                document.getElementById('petView').classList.remove('dead');
-                if (status.hibernating) sprite = set.hibernating;
-                else if (status.behavior === 'Sleeping') sprite = set.sleeping;
-                else if (status.behavior === 'Sick') sprite = set.sick;
-                else if (status.behavior === 'Playing') sprite = set.playing;
-                else if (status.behavior === 'Exploring') sprite = set.exploring;
-                else if (status.behavior === 'Social Interaction') sprite = set.social;
-                else if (status.behavior === 'Eating') sprite = set.eating;
-                else if (status.happiness > 0.7) sprite = set.happy;
-            }
-            document.getElementById('petSprite').textContent = sprite;
+            document.getElementById('petView').classList.toggle('dead', !status.is_alive);
+            document.getElementById('petSprite').textContent = spriteSet(status)[spriteState(status)];
             updatePauseUI(status);
 
             const hibernating = status.is_alive && status.hibernating;
@@ -2425,35 +2452,46 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const p = panel();
             p.replaceChildren(panelHeader('Cloud'));
             if (cloud.hosting) {
-                cloudText(p, '🏠 This server is also a cloud hub. Other players connect to its address with the join code.', 'panel-text cloud-note');
+                cloudText(p, '🏠 This server is also a cloud hub. Other players connect to its HTTPS address with the join code.',
+                    'panel-text cloud-note');
             }
 
             if (!cloud.connected) {
-                cloudText(p, 'Connect to a Gochi hub to back up your pets, play them on your other devices, ' +
-                    'see pets nearby and share achievements. A hub is any Gochi server started with -hub.');
-                const url = cloudField(p, 'Hub address', 'cloudUrl', '', 'https://hub.example.com');
-                const user = cloudField(p, 'Username', 'cloudUser', '', 'your name on the hub');
+                cloudText(p, 'Connect to a Gochi hub to back up your pets, play them on your other devices, share ' +
+                    'achievements and meet at playdates. The hub gives you a name like "Blue Otter 42"; your own ' +
+                    'name and your pets\' names are never sent to it.');
+                const url = cloudField(p, 'Hub address', 'cloudUrl', '', 'hub.example.com or 192.168.1.10:8443');
                 const code = cloudField(p, 'Join code (new account)', 'cloudCode', '', 'from whoever runs the hub', 'password');
                 const key = cloudField(p, 'Or account key (already have an account)', 'cloudKey', '', 'from your other device', 'password');
                 const row = document.createElement('div');
                 row.className = 'save-row';
                 cloudButton(row, 'Connect', () => cloudPost('/api/cloud/connect',
-                    {hub_url: url.value, username: user.value, join_code: code.value, account_key: key.value}));
+                    {hub_url: url.value, join_code: code.value, account_key: key.value}));
                 p.append(row);
                 p.classList.remove('hidden');
                 return;
             }
 
-            cloudText(p, 'Connected to ' + cloud.hub_url + ' as ' + cloud.username + '.');
+            cloudText(p, 'Connected to ' + cloud.hub_url + ' as ' + cloud.handle + '.');
+            if (cloud.fingerprint) {
+                cloudText(p, 'Hub certificate fingerprint (ask whoever runs the hub to check it matches theirs): ' +
+                    cloud.fingerprint, 'panel-text cloud-key');
+            }
             cloudText(p, cloud.last_sync ? 'Last synced ' + new Date(cloud.last_sync).toLocaleString() + '. ' + cloud.last_report :
                 'Not synced yet.', 'panel-text cloud-note');
             const actions = document.createElement('div');
             actions.className = 'save-row';
             cloudButton(actions, '🔄 Sync now', () => cloudPost('/api/cloud/sync', {}));
             const keyBtn = cloudButton(actions, 'Show account key', () => {
-                keyLine.textContent = 'Account key for your other devices (keep it secret): ' + cloud.account_key;
-                keyLine.classList.remove('hidden');
-                keyBtn.disabled = true;
+                postJSON('/api/cloud/key', {}).then(data => {
+                    if (!data.success) {
+                        showPointsToast(data.error || 'Something went wrong');
+                        return;
+                    }
+                    keyLine.textContent = 'Account key for your other devices (keep it secret): ' + data.data.account_key;
+                    keyLine.classList.remove('hidden');
+                    keyBtn.disabled = true;
+                }).catch(console.error);
             });
             cloudButton(actions, 'Disconnect', () => {
                 if (confirm('Disconnect from the hub? Your pets stay on this device and on the hub.')) {
@@ -2465,48 +2503,27 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             renderPlaydateSection(p);
 
-            const title = cloudText(p, 'Nearby pets and sharing', 'section-title');
+            const title = cloudText(p, 'Sharing achievements', 'section-title');
             title.style.marginTop = '14px';
-            cloudText(p, 'Type your town or area, and choose what to share. Players who chose the same area and show ' +
-                'their pets see yours (name, species and age group), and you see theirs. Shared achievements are ' +
-                'posted to the hub for everyone on it. Nothing more precise than the area name is shared, and both ' +
-                'are off until you turn them on.', 'panel-text cloud-note');
-            const area = cloudField(p, 'Area', 'cloudArea', cloud.area, 'for example Leeds');
-            const checkbox = (label, checked) => {
-                const row = document.createElement('label');
-                row.className = 'method-row';
-                const box = document.createElement('input');
-                box.type = 'checkbox';
-                box.checked = checked;
-                row.append(box, ' ' + label);
-                p.append(row);
-                return box;
-            };
-            const nearbyBox = checkbox('Show my pets to players nearby (and see theirs)', cloud.show_nearby);
-            const feedBox = checkbox('Share my pets\' achievements', cloud.share_achievements);
-            const saveRow = document.createElement('div');
-            saveRow.className = 'save-row';
-            cloudButton(saveRow, 'Save', () => cloudPost('/api/cloud/profile',
-                {area: area.value, show_nearby: nearbyBox.checked, share_achievements: feedBox.checked},
-                () => showPointsToast('Sharing settings saved.')));
-            p.append(saveRow);
+            cloudText(p, 'When this is on, your pets\' achievements are posted to the hub for everyone on it to see, ' +
+                'as your hub name and your pet\'s species (for example "Blue Otter 42\'s cat"). It is off until you ' +
+                'turn it on.', 'panel-text cloud-note');
+            const row = document.createElement('label');
+            row.className = 'method-row';
+            const feedBox = document.createElement('input');
+            feedBox.type = 'checkbox';
+            feedBox.checked = cloud.share_achievements;
+            feedBox.onchange = () => cloudPost('/api/cloud/profile', {share_achievements: feedBox.checked},
+                () => showPointsToast(feedBox.checked ? 'Sharing achievements.' : 'Not sharing achievements.'));
+            row.append(feedBox, ' Share my pets\' achievements');
+            p.append(row);
 
-            const nearby = cloudText(p, cloud.show_nearby ? 'Looking for pets nearby…' : 'Show your pets nearby to see pets nearby.', 'panel-text');
             const feed = cloudText(p, '', 'panel-text');
             p.classList.remove('hidden');
-
-            if (cloud.show_nearby) {
-                fetch('/api/cloud/nearby').then(r => r.json()).then(data => {
-                    if (!data.success) { nearby.textContent = data.error; return; }
-                    nearby.textContent = data.data.length === 0 ? 'No pets nearby yet.' :
-                        'Nearby: ' + data.data.map(n => speciesIcon(n.species) + n.name + ' (' +
-                            n.stage.toLowerCase() + ', ' + n.owner + ')').join(' · ');
-                }).catch(console.error);
-            }
             fetch('/api/cloud/feed').then(r => r.json()).then(data => {
                 if (!data.success || data.data.length === 0) return;
                 feed.textContent = 'Shared achievements: ' + data.data.slice(0, 10).map(a =>
-                    a.icon + ' ' + a.pet_name + ' (' + a.owner + '): ' + a.name).join(' · ');
+                    a.icon + ' ' + a.handle + '\'s ' + speciesInfo(a.species).name.toLowerCase() + ': ' + a.name).join(' · ');
             }).catch(console.error);
         }
 
@@ -2528,7 +2545,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function playdateAction(body) {
-            body.sprite = document.getElementById('petSprite').textContent;
+            body.look = lastStatus ? spriteState(lastStatus) : 'idle';
             postJSON('/api/playdate', body).then(data => {
                 if (!data.success) {
                     showPointsToast(data.error || 'Something went wrong');
@@ -2594,7 +2611,34 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 cloudButton(pinRow, 'Remove PIN', () => privacyPost({remove_pin: true}, 'Parent PIN removed.'));
             }
             p.append(pinRow);
+
+            const devices = cloudText(p, 'Play on a phone or tablet', 'section-title');
+            devices.style.marginTop = '14px';
+            const pairing = cloudText(p, '', 'panel-text');
             p.classList.remove('hidden');
+            fetch('/api/pairing').then(r => r.json()).then(data => {
+                if (!data.success) {
+                    pairing.textContent = data.error || '';
+                    return;
+                }
+                const d = data.data;
+                if (!d.on_network) {
+                    pairing.textContent = 'The game answers only this computer. To play on a phone or tablet on the ' +
+                        'same Wi-Fi (for AR), start it with -addr :8080; each device then needs a code from here.';
+                    return;
+                }
+                pairing.textContent = 'On the phone or tablet, open ' + (d.addresses.join(' or ') || 'this computer\'s address') +
+                    ' and enter the code ' + d.code + ' (it works for 10 minutes). Paired devices: ' + d.devices + '.';
+                if (d.devices > 0) {
+                    const row = document.createElement('div');
+                    row.className = 'save-row';
+                    cloudButton(row, 'Unpair all devices', () => postJSON('/api/pairing', {forget: true}).then(r => {
+                        showPointsToast(r.success ? 'Every device must pair again.' : (r.error || 'Something went wrong'));
+                        openPrivacy();
+                    }));
+                    p.append(row);
+                }
+            }).catch(console.error);
         }
 
         function openTricks() {
@@ -2829,6 +2873,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 onMessage: text => showPointsToast(text),
                 onCare: result => { showResult(result, result.text); setTimeout(fetchStatus, 500); },
                 petSprite: () => document.getElementById('petSprite').textContent,
+                petLook: () => lastStatus ? spriteState(lastStatus) : 'idle',
+                spriteFor: (species, look) => speciesInfo(species).sprites[look] || speciesInfo(species).icon,
                 statusText: () => lastStatus ? lastStatus.name + ' ' + lastStatus.activity : '',
                 onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); },
                 playdate: !!(mode && mode.playdate)
@@ -2992,8 +3038,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const statusEl = document.getElementById('saveStatus');
             btn.disabled = true;
 
-            fetch('/api/save', {method: 'POST'})
-                .then(r => r.json())
+            postJSON('/api/save', {})
                 .then(data => {
                     if (data.success) {
                         statusEl.textContent = 'Saved at ' + new Date(data.data.saved_at).toLocaleTimeString();
@@ -3373,9 +3418,13 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Slot        string `json:"slot"`
 		ConfirmName string `json:"confirm_name"`
+		ParentPIN   string `json:"parent_pin"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !ValidSlot(req.Slot) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid save slot"})
+		return
+	}
+	if !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	if s.store == nil {
@@ -3646,12 +3695,17 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name      string `json:"name"`
+		ParentPIN string `json:"parent_pin"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid name"})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !core.ValidPetName(req.Name) {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: core.PetNameRule})
 		return
 	}
+	if !s.parentAllows(w, req.ParentPIN) {
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
 
 	s.mu.Lock()
 	if s.pet == nil {
@@ -3687,8 +3741,12 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown kind of pet"})
 		return
 	}
+	if req.Name != "" && !core.ValidPetName(req.Name) {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: core.PetNameRule})
+		return
+	}
 
-	if err := s.createPet(req.Name, species, req.Randomize, req.Hibernation); err != nil {
+	if err := s.createPet(strings.TrimSpace(req.Name), species, req.Randomize, req.Hibernation); err != nil {
 		log.Printf("Create failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
 		return
@@ -3732,7 +3790,6 @@ func (s *Server) getPetData() map[string]interface{} {
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
 }

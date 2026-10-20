@@ -5,8 +5,11 @@
 # keeps its default. Unknown settings stop the server with an error.
 
 server:
-  # Address and port the web server listens on
-  addr: ":8080"
+  # Address and port the web server listens on. The default answers only
+  # this computer. To play on a phone or tablet too (AR), use ":8080" to
+  # listen on the network; other devices must then be paired with a code
+  # shown under Privacy on this computer.
+  addr: "127.0.0.1:8080"
 
   # Directory for saved pets (saves/) and backups (backups/). Empty means
   # ~/.gochi. A relative path is relative to this file's directory.
@@ -29,13 +32,18 @@ server:
 hub:
   # Also run this server as a cloud hub at /hub/v1, which other Gochi
   # servers can connect to (from the Cloud panel) to back up and sync pets,
-  # see pets nearby and share achievements. Hub data is kept in the data
+  # share achievements and meet at playdates. Hub data is kept in the data
   # directory's hub/ folder.
   enabled: false
 
   # The code players need to register with the hub. Empty closes
   # registration (existing accounts still work).
   join_code: ""
+
+  # Where the hub listens. The hub always uses HTTPS: with the certificate
+  # above if one is set, otherwise its own, made on first start and kept in
+  # the hub/ folder (its fingerprint is printed at startup).
+  addr: ":8443"
 
 simulation:
   # Game speed: game (one game day per real minute), 24x (one game day per

@@ -25,66 +25,143 @@ func testHub(t *testing.T) (*Hub, *httptest.Server) {
 }
 
 // register registers a player through the API and returns their client
-func register(t *testing.T, server *httptest.Server, username string) *Client {
+func register(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
-	c := NewClient(server.URL, "")
-	token, err := c.Register(context.Background(), username, "secret")
+	c := NewClient(server.URL, "", "")
+	token, handle, err := c.Register(context.Background(), "secret")
 	if err != nil {
-		t.Fatalf("Register %s: %v", username, err)
+		t.Fatalf("Register: %v", err)
+	}
+	if !ValidHandle(handle) {
+		t.Fatalf("The hub should give a handle, got %q", handle)
 	}
 	c.Token = token
 	return c
 }
 
-var ctx = context.Background()
-
-func TestRegistration(t *testing.T) {
-	h, server := testHub(t)
-	c := NewClient(server.URL, "")
-	if status, err := c.Status(ctx); err != nil || !status.RegistrationOpen {
-		t.Fatalf("Status: %+v, %v", status, err)
-	}
-	if _, err := c.Register(ctx, "alice", "wrong"); err == nil || !strings.Contains(err.Error(), "wrong join code") {
-		t.Errorf("Wrong join code: %v", err)
-	}
-	if _, err := c.Register(ctx, "a b", "secret"); err == nil {
-		t.Error("Usernames can't have spaces")
-	}
-	token, err := c.Register(ctx, "Alice", "secret")
-	if err != nil || len(token) != 64 {
-		t.Fatalf("Register: %q, %v", token, err)
-	}
-	if _, err := c.Register(ctx, "alice", "secret"); err == nil || !strings.Contains(err.Error(), "taken") {
-		t.Errorf("Usernames are unique regardless of case: %v", err)
-	}
-	if user, err := h.Authenticate(token); err != nil || user != "Alice" {
-		t.Errorf("Authenticate: %q, %v", user, err)
-	}
-
-	// Only a hash of the token is stored
-	data, _ := os.ReadFile(filepath.Join(h.dir, "accounts.json"))
-	if strings.Contains(string(data), token) || !strings.Contains(string(data), hashToken(token)) {
-		t.Error("The token should be stored only as a hash")
-	}
-
-	// Accounts survive a restart
-	again, err := New(h.dir, "secret")
+// handleOf returns a client's handle
+func handleOf(t *testing.T, c *Client) string {
+	t.Helper()
+	profile, err := c.GetProfile(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user, err := again.Authenticate(token); err != nil || user != "Alice" {
-		t.Errorf("After restart: %q, %v", user, err)
+	return profile.Handle
+}
+
+var ctx = context.Background()
+
+// rawPost sends a request with any body, as a modified game could
+func rawPost(t *testing.T, method, url, token, body string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, url, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out strings.Builder
+	buf := make([]byte, 4096)
+	n, _ := resp.Body.Read(buf)
+	out.Write(buf[:n])
+	return resp.StatusCode, out.String()
+}
+
+func TestRegistrationGivesHandles(t *testing.T) {
+	h, server := testHub(t)
+	c := NewClient(server.URL, "", "")
+	if status, err := c.Status(ctx); err != nil || !status.RegistrationOpen {
+		t.Fatalf("Status: %+v, %v", status, err)
+	}
+	if _, _, err := c.Register(ctx, "wrong"); err == nil || !strings.Contains(err.Error(), "wrong join code") {
+		t.Errorf("Wrong join code: %v", err)
+	}
+	// Players can't choose a name
+	if code, _ := rawPost(t, http.MethodPost, server.URL+"/hub/v1/register", "", `{"join_code":"secret","username":"Sam Smith"}`); code != http.StatusBadRequest {
+		t.Errorf("A chosen username should be refused: %d", code)
+	}
+	handles := map[string]bool{}
+	for i := 0; i < 20; i++ {
+		token, handle, err := c.Register(ctx, "secret")
+		if err != nil || len(token) != 64 || !ValidHandle(handle) || handles[handle] {
+			t.Fatalf("Register: %q %q %v", token, handle, err)
+		}
+		handles[handle] = true
+		if id, err := h.Authenticate(token); err != nil || !idPattern.MatchString(id) {
+			t.Errorf("Authenticate: %q, %v", id, err)
+		}
+	}
+
+	// Tokens are stored only as hashes, and no name at all
+	data, _ := os.ReadFile(filepath.Join(h.dir, "accounts.json"))
+	if strings.Contains(string(data), `"username"`) {
+		t.Errorf("Accounts shouldn't hold usernames: %s", data)
 	}
 
 	closed, _ := New(t.TempDir(), "")
-	if _, err := closed.Register("bob", ""); !errors.Is(err, ErrRegistrationClosed) {
-		t.Errorf("Without a join code registration is closed: %v", err)
+	if _, _, err := closed.Register(""); !errors.Is(err, ErrRegistrationClosed) {
+		t.Errorf("A hub without a join code is closed: %v", err)
+	}
+}
+
+func TestValidHandle(t *testing.T) {
+	for _, good := range []string{"Blue Otter 42", "Teal Wren 10", "Amber Badger 99"} {
+		if !ValidHandle(good) {
+			t.Errorf("%q should be valid", good)
+		}
+	}
+	for _, bad := range []string{"", "Sam", "Blue Otter", "Blue Otter 9", "Blue Otter 100", "Blue Sam 42",
+		"blue otter 42", "Blue  Otter 42", "Blue Otter 42 hi"} {
+		if ValidHandle(bad) {
+			t.Errorf("%q should be invalid", bad)
+		}
+	}
+}
+
+func TestOldAccountsAreMigrated(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "pets", "sam_smith"), 0o700)
+	key := PetKey("pet_1")
+	os.WriteFile(filepath.Join(dir, "pets", "sam_smith", key+".json"),
+		[]byte(`{"key":"`+key+`","version":3,"name":"Biscuit","species":"cat","save":{"x":1}}`), 0o600)
+	os.WriteFile(filepath.Join(dir, "accounts.json"), []byte(`[{"username":"Sam_Smith","area":"Leeds",
+		"show_nearby":true,"token_hash":"`+hashToken("old-token")+`"}]`), 0o600)
+	os.WriteFile(filepath.Join(dir, "feed.json"), []byte(`[{"owner":"Sam_Smith","pet_name":"Biscuit",
+		"id":"first_trick","name":"call me","description":"555 0100"}]`), 0o600)
+
+	h, err := New(dir, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := h.Authenticate("old-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, _ := h.GetProfile(id)
+	if !ValidHandle(profile.Handle) || profile.ShareAchievements {
+		t.Errorf("A migrated account gets a handle and shares nothing: %+v", profile)
+	}
+	if pets, _ := h.ListPets(id); len(pets) != 1 || pets[0].Version != 3 {
+		t.Errorf("Its pets should come along: %+v", pets)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pets", "sam_smith")); !os.IsNotExist(err) {
+		t.Error("The directory named after the username should be gone")
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "accounts.json"))
+	for _, gone := range []string{"Sam_Smith", "Leeds", "area"} {
+		if strings.Contains(string(data), gone) {
+			t.Errorf("accounts.json still holds %q: %s", gone, data)
+		}
+	}
+	if feed := h.Feed(10); len(feed) != 0 {
+		t.Errorf("Old feed entries held text players typed and should be dropped: %+v", feed)
 	}
 }
 
 func TestUnauthorized(t *testing.T) {
 	_, server := testHub(t)
-	c := NewClient(server.URL, "not-a-token")
+	c := NewClient(server.URL, "not-a-token", "")
 	if _, err := c.ListPets(ctx); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("Unknown token: %v", err)
 	}
@@ -92,9 +169,9 @@ func TestUnauthorized(t *testing.T) {
 
 func TestPetVersions(t *testing.T) {
 	_, server := testHub(t)
-	alice := register(t, server, "alice")
+	alice := register(t, server)
 	key := PetKey("pet_1_Biscuit")
-	info := PetInfo{Key: key, Name: "Biscuit", Species: "cat", Stage: "Adult", Alive: true}
+	info := PetInfo{Key: key}
 
 	v, err := alice.UploadPetData(ctx, info, json.RawMessage(`{"n":1}`), 0)
 	if err != nil || v != 1 {
@@ -109,7 +186,7 @@ func TestPetVersions(t *testing.T) {
 	}
 
 	got, save, err := alice.DownloadPetData(ctx, key)
-	if err != nil || got.Version != 2 || string(save) != `{"n":2}` || got.Name != "Biscuit" {
+	if err != nil || got.Version != 2 || string(save) != `{"n":2}` || got.Size == 0 {
 		t.Errorf("Download: %+v %s %v", got, save, err)
 	}
 	pets, err := alice.ListPets(ctx)
@@ -118,7 +195,7 @@ func TestPetVersions(t *testing.T) {
 	}
 
 	// Another player can't see it
-	bob := register(t, server, "bob")
+	bob := register(t, server)
 	if _, _, err := bob.DownloadPetData(ctx, key); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Bob reading Alice's pet: %v", err)
 	}
@@ -140,67 +217,95 @@ func TestPetVersions(t *testing.T) {
 	}
 }
 
-func TestNearbyAndFeed(t *testing.T) {
-	_, server := testHub(t)
-	alice, bob, carol := register(t, server, "alice"), register(t, server, "bob"), register(t, server, "carol")
-	for i, c := range []*Client{alice, bob, carol} {
-		name := []string{"Biscuit", "Rex", "Mochi"}[i]
-		if _, err := c.UploadPetData(ctx, PetInfo{Key: PetKey(name), Name: name, Species: "cat", Alive: true},
-			json.RawMessage(`{}`), 0); err != nil {
-			t.Fatal(err)
-		}
+func TestPetInfoHoldsNoText(t *testing.T) {
+	h, server := testHub(t)
+	alice := register(t, server)
+	key := PetKey("pet_1")
+	// A modified game sending a name and other fields
+	code, body := rawPost(t, http.MethodPut, server.URL+"/hub/v1/pets/"+key, alice.Token,
+		`{"base_version":0,"info":{"name":"meet me at 4","species":"call 555"},"save":{}}`)
+	if code != http.StatusBadRequest {
+		t.Errorf("Unknown fields should be refused: %d %s", code, body)
 	}
-
-	// Nobody shares yet
-	if pets, _ := alice.GetNearbyPets(ctx); len(pets) != 0 {
-		t.Errorf("No one shares: %+v", pets)
-	}
-	alice.EnableSocialFeatures(ctx, "Leeds", true, true)
-	bob.EnableSocialFeatures(ctx, "  leeds ", true, true)
-	carol.EnableSocialFeatures(ctx, "York", true, true)
-
-	pets, err := alice.GetNearbyPets(ctx)
-	if err != nil || len(pets) != 1 || pets[0].Name != "Rex" || pets[0].Owner != "bob" {
-		t.Errorf("Alice should see Bob's pet in Leeds only: %+v %v", pets, err)
-	}
-	if profile, _ := bob.GetProfile(ctx); profile.Area != "leeds" || !profile.ShowNearby || !profile.ShareAchievements {
-		t.Errorf("Bob's profile: %+v", profile)
-	}
-
-	// Turning sharing off hides you and your view
-	bob.EnableSocialFeatures(ctx, "Leeds", false, false)
-	if pets, _ := alice.GetNearbyPets(ctx); len(pets) != 0 {
-		t.Errorf("Bob stopped sharing: %+v", pets)
-	}
-	if pets, _ := bob.GetNearbyPets(ctx); len(pets) != 0 {
-		t.Errorf("A player who doesn't share sees no one: %+v", pets)
-	}
-
-	if err := bob.ShareAchievement(ctx, SharedAchievement{PetName: "Rex", Name: "Explorer"}); err == nil {
-		t.Error("Only players who share can post achievements")
-	}
-	if err := alice.ShareAchievement(ctx, SharedAchievement{PetName: "Biscuit", ID: "first_trick", Name: "Good Pet", Icon: "🐾",
-		Description: "Learned a first trick"}); err != nil {
+	if _, err := alice.UploadPetData(ctx, PetInfo{Key: key}, json.RawMessage(`{}`), 0); err != nil {
 		t.Fatal(err)
 	}
+	id, _ := h.Authenticate(alice.Token)
+	stored, _ := os.ReadFile(filepath.Join(h.petDir(id), key+".json"))
+	if strings.Contains(string(stored), `"name"`) || strings.Contains(string(stored), `"species"`) {
+		t.Errorf("Stored information should hold no names: %s", stored)
+	}
+}
+
+func TestAccountQuota(t *testing.T) {
+	h, err := New(t.TempDir(), "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, _ := h.Register("secret")
+	id, _ := h.Authenticate(token)
+	save := json.RawMessage(`"` + strings.Repeat("x", MaxSaveBytes-10) + `"`)
+	n := MaxAccountBytes / len(save)
+	for i := 0; i < n; i++ {
+		if _, err := h.PutPet(id, PetInfo{Key: PetKey(string(rune('a' + i)))}, save, 0); err != nil {
+			t.Fatalf("Pet %d: %v", i, err)
+		}
+	}
+	if _, err := h.PutPet(id, PetInfo{Key: PetKey("one more")}, save, 0); !errors.Is(err, ErrAccountFull) {
+		t.Errorf("Saves beyond the account's space should be refused: %v", err)
+	}
+	// Replacing a pet with a save of the same size is fine
+	if _, err := h.PutPet(id, PetInfo{Key: PetKey("a")}, save, 1); err != nil {
+		t.Errorf("Replacing a pet: %v", err)
+	}
+}
+
+func TestAchievementsAreSharedByID(t *testing.T) {
+	_, server := testHub(t)
+	alice, bob := register(t, server), register(t, server)
+
+	if err := alice.ShareAchievement(ctx, "first_trick", "cat"); err == nil {
+		t.Error("Sharing is off for a new account")
+	}
+	if _, err := alice.EnableSocialFeatures(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.ShareAchievement(ctx, "first_trick", "cat"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []struct{ id, species string }{{"meet me at the park", "cat"}, {"first_trick", "call 555"}} {
+		if err := alice.ShareAchievement(ctx, bad.id, bad.species); err == nil {
+			t.Errorf("%+v should be refused", bad)
+		}
+	}
+	// A modified game sending its own text
+	if code, _ := rawPost(t, http.MethodPost, server.URL+"/hub/v1/achievements", alice.Token,
+		`{"id":"first_trick","species":"cat","name":"call me","description":"555 0100"}`); code != http.StatusBadRequest {
+		t.Errorf("Text with an achievement should be refused: %d", code)
+	}
+
 	feed, err := bob.Feed(ctx)
-	if err != nil || len(feed) != 1 || feed[0].Owner != "alice" || feed[0].PetName != "Biscuit" {
-		t.Errorf("Feed: %+v %v", feed, err)
+	if err != nil || len(feed) != 1 {
+		t.Fatalf("Feed: %+v %v", feed, err)
+	}
+	if a := feed[0]; a.Handle != handleOf(t, alice) || a.Name != "Good Pet" || a.Species != "cat" || a.Description == "" {
+		t.Errorf("The feed should hold the game's text: %+v", a)
 	}
 }
 
 func TestNormalizeURL(t *testing.T) {
 	for in, want := range map[string]string{
-		"hub.example.com":          "http://hub.example.com",
-		"https://hub.example.com/": "https://hub.example.com",
-		" 192.168.1.10:8080 ":      "http://192.168.1.10:8080",
-		"http://host:1/gochi/":     "http://host:1/gochi",
+		"hub.example.com":           "https://hub.example.com",
+		"https://hub.example.com/":  "https://hub.example.com",
+		" 192.168.1.10:8443 ":       "https://192.168.1.10:8443",
+		"http://localhost:1/gochi/": "http://localhost:1/gochi",
+		"http://127.0.0.1:9000":     "http://127.0.0.1:9000",
 	} {
 		if got, err := NormalizeURL(in); err != nil || got != want {
 			t.Errorf("NormalizeURL(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"", "ftp://x", "http://"} {
+	for _, bad := range []string{"", "ftp://x", "http://", "http://hub.example.com", "http://192.168.1.10:8080"} {
 		if _, err := NormalizeURL(bad); err == nil {
 			t.Errorf("%q should be rejected", bad)
 		}
@@ -210,109 +315,37 @@ func TestNormalizeURL(t *testing.T) {
 func TestStatusRejectsOtherServers(t *testing.T) {
 	other := httptest.NewServer(nil) // Answers 404
 	defer other.Close()
-	if _, err := NewClient(other.URL, "").Status(ctx); err == nil {
+	if _, err := NewClient(other.URL, "", "").Status(ctx); err == nil {
 		t.Error("A server that isn't a hub should be rejected")
 	}
 }
 
-func TestIndexesSurviveRestartAndFollowAreas(t *testing.T) {
+func TestIndexesSurviveRestart(t *testing.T) {
 	dir := t.TempDir()
 	h, err := New(dir, "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"alice", "bob"} {
-		if _, err := h.Register(name, "secret"); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := h.SetProfile(name, "Leeds", true, true); err != nil {
-			t.Fatal(err)
-		}
-	}
+	token, handle, _ := h.Register("secret")
+	id, _ := h.Authenticate(token)
 	key := PetKey("pet_1")
-	if _, err := h.PutPet("bob", PetInfo{Key: key, Name: "Rex", Species: "dog", Alive: true},
-		json.RawMessage(`{"big":"save"}`), 0); err != nil {
+	if _, err := h.PutPet(id, PetInfo{Key: key}, json.RawMessage(`{"big":"save"}`), 0); err != nil {
 		t.Fatal(err)
 	}
-
-	// A new hub on the same files has the same indexes
 	h, err = New(dir, "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nearby, _ := h.Nearby("alice"); len(nearby) != 1 || nearby[0].Name != "Rex" {
-		t.Fatalf("Nearby after a restart: %+v", nearby)
+	if again, _ := h.Authenticate(token); again != id {
+		t.Error("The account should survive a restart")
 	}
-	if pets, _ := h.ListPets("bob"); len(pets) != 1 || pets[0].Version != 1 {
+	if profile, _ := h.GetProfile(id); profile.Handle != handle {
+		t.Errorf("The handle should survive a restart: %q, want %q", profile.Handle, handle)
+	}
+	if pets, _ := h.ListPets(id); len(pets) != 1 || pets[0].Version != 1 || pets[0].Size == 0 {
 		t.Errorf("Pets after a restart: %+v", pets)
 	}
-	if _, err := h.PutPet("bob", PetInfo{Key: key, Name: "Rex", Alive: true}, json.RawMessage(`{}`), 0); !errors.Is(err, ErrVersionConflict) {
+	if _, err := h.PutPet(id, PetInfo{Key: key}, json.RawMessage(`{}`), 0); !errors.Is(err, ErrVersionConflict) {
 		t.Errorf("The indexed version should be checked: %v", err)
-	}
-
-	// Moving away
-	if _, err := h.SetProfile("bob", "York", true, true); err != nil {
-		t.Fatal(err)
-	}
-	if nearby, _ := h.Nearby("alice"); len(nearby) != 0 {
-		t.Errorf("Bob moved away: %+v", nearby)
-	}
-	if _, err := h.SetProfile("alice", " york ", true, true); err != nil {
-		t.Fatal(err)
-	}
-	if nearby, _ := h.Nearby("alice"); len(nearby) != 1 {
-		t.Errorf("Alice moved to York too: %+v", nearby)
-	}
-
-	// Deleting updates the index
-	if _, err := h.DeletePet("bob", key, 1); err != nil {
-		t.Fatal(err)
-	}
-	if nearby, _ := h.Nearby("alice"); len(nearby) != 0 {
-		t.Errorf("A deleted pet isn't nearby: %+v", nearby)
-	}
-}
-
-func TestSharingChoicesAreSeparate(t *testing.T) {
-	h, server := testHub(t)
-	alice, bob := register(t, server, "alice"), register(t, server, "bob")
-	bob.UploadPetData(ctx, PetInfo{Key: PetKey("rex"), Name: "Rex", Alive: true}, json.RawMessage(`{}`), 0)
-	alice.EnableSocialFeatures(ctx, "Leeds", true, false)
-
-	// Bob shares achievements but stays out of nearby pets
-	if _, err := bob.EnableSocialFeatures(ctx, "Leeds", false, true); err != nil {
-		t.Fatal(err)
-	}
-	if pets, _ := alice.GetNearbyPets(ctx); len(pets) != 0 {
-		t.Errorf("Bob doesn't show his pets nearby: %+v", pets)
-	}
-	if err := bob.ShareAchievement(ctx, SharedAchievement{PetName: "Rex", Name: "Explorer"}); err != nil {
-		t.Errorf("Bob shares achievements: %v", err)
-	}
-	if err := alice.ShareAchievement(ctx, SharedAchievement{PetName: "Biscuit", Name: "Explorer"}); err == nil {
-		t.Error("Alice doesn't share achievements")
-	}
-
-	// A game from before the choice was split sends "sharing" for both
-	req, _ := http.NewRequest(http.MethodPut, server.URL+"/hub/v1/profile", strings.NewReader(`{"area":"Leeds","sharing":true}`))
-	req.Header.Set("Authorization", "Bearer "+bob.Token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if profile, _ := bob.GetProfile(ctx); !profile.ShowNearby || !profile.ShareAchievements {
-		t.Errorf("The old setting turns both on: %+v", profile)
-	}
-
-	// An account saved by an older hub with sharing on keeps both on
-	os.WriteFile(filepath.Join(h.dir, "accounts.json"),
-		[]byte(`[{"username":"old","area":"Leeds","sharing":true,"token_hash":"x"}]`), 0o600)
-	h2, err := New(h.dir, "secret")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if profile, _ := h2.GetProfile("old"); !profile.ShowNearby || !profile.ShareAchievements {
-		t.Errorf("Old account: %+v", profile)
 	}
 }

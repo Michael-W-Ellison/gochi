@@ -22,7 +22,7 @@ type PlaymateCard struct {
 	Species     Species     `json:"species"`
 	Young       bool        `json:"young"`
 	Sociability float64     `json:"sociability"`           // How readily it takes to others, 0.0 to 1.0
-	Unavailable string      `json:"unavailable,omitempty"` // Why it can't play now, or ""
+	Unavailable string      `json:"unavailable,omitempty"` // Why it can't play now (an Unavailable code), or ""
 }
 
 // Card limits
@@ -38,13 +38,14 @@ const playdateMeeting = "played at a playdate"
 func (p *DigitalPet) PlaymateCard() PlaymateCard {
 	info := p.socialInfo()
 	return PlaymateCard{ID: info.id, Name: info.name, Species: info.species, Young: info.young,
-		Sociability: sociability(info.traits), Unavailable: info.unavailable()}
+		Sociability: sociability(info.traits), Unavailable: info.unavailableReason()}
 }
 
 // Valid reports whether a card from another game can be used
 func (c PlaymateCard) Valid() bool {
+	_, reasonKnown := unavailablePhrases[c.Unavailable]
 	return c.ID != "" && len(c.ID) <= maxCardIDLength && strings.TrimSpace(c.Name) != "" &&
-		len([]rune(c.Name)) <= maxCardNameLength && c.Species.Known()
+		len([]rune(c.Name)) <= maxCardNameLength && c.Species.Known() && (c.Unavailable == "" || reasonKnown)
 }
 
 // info returns the social information a card gives: traits whose
@@ -66,7 +67,7 @@ func (p *DigitalPet) PlayWithPlaymate(other PlaymateCard) (Meeting, float64, err
 		return Meeting{}, 0, ErrSamePet
 	}
 	if other.Unavailable != "" {
-		return Meeting{}, 0, RefusedError{other.Unavailable + "."}
+		return Meeting{}, 0, RefusedError{other.Name + " " + unavailablePhrases[other.Unavailable] + "."}
 	}
 	me := p.socialInfo()
 	if reason := me.unavailable(); reason != "" {

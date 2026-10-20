@@ -23,7 +23,7 @@ var errOffline = errors.New("this feature needs the cloud service, which this se
 // must carry "Authorization: Bearer <token>". Each client may make
 // rateLimit requests a minute (0 for no limit).
 func (s *Server) apiHandler(token string, rateLimit int) http.Handler {
-	handler := api.NewHandler(apiPetStore{s}, nil, offlineSocial{s}, offlineSync{})
+	handler := api.NewHandler(apiPetStore{s})
 	config := api.DefaultServerConfig()
 	config.RateLimit = rateLimit
 	return api.NewServer(config, handler, tokenValidator(token)).SetupRoutes()
@@ -161,47 +161,4 @@ func (a apiPetStore) UpdatePet(pet *core.DigitalPet) error {
 // game asks for
 func (a apiPetStore) DeletePet(types.PetID) error {
 	return api.ErrNotPermitted
-}
-
-// offlineSocial answers the social routes without a cloud service: a
-// pet's friends come from its own relationships, and features that need
-// other players are unavailable
-type offlineSocial struct{ s *Server }
-
-func (o offlineSocial) GetNearbyPets(*api.Location, float64) ([]*api.NearbyPetResponse, error) {
-	return nil, errOffline
-}
-
-func (o offlineSocial) GetFriends(petID types.PetID) ([]*api.FriendResponse, error) {
-	pet, err := apiPetStore(o).GetPet(petID)
-	if err != nil {
-		return nil, err
-	}
-	friends := []*api.FriendResponse{}
-	for _, rel := range pet.Relationships.GetClosestFriends(pet.Relationships.GetRelationshipCount()) {
-		friends = append(friends, &api.FriendResponse{
-			PetID:           rel.PetID,
-			OwnerID:         string(localOwner),
-			BondStrength:    rel.BondStrength,
-			FriendsSince:    rel.FirstMet,
-			LastInteraction: rel.LastInteraction,
-		})
-	}
-	return friends, nil
-}
-
-func (o offlineSocial) SendFriendRequest(types.PetID, types.PetID, string) error { return errOffline }
-func (o offlineSocial) AcceptFriendRequest(string) error                         { return errOffline }
-func (o offlineSocial) DeclineFriendRequest(string) error                        { return errOffline }
-func (o offlineSocial) RemoveFriend(types.PetID, types.PetID) error              { return errOffline }
-
-// offlineSync answers the sync routes without a cloud service
-type offlineSync struct{}
-
-func (offlineSync) Sync(types.UserID, *api.SyncRequest) (*api.SyncResponse, error) {
-	return nil, errOffline
-}
-
-func (offlineSync) ResolveConflict(types.UserID, *api.ConflictResolutionRequest) error {
-	return errOffline
 }

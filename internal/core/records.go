@@ -188,6 +188,16 @@ func AchievementCount() int {
 	return len(achievements)
 }
 
+// FindAchievement returns an achievement by its ID
+func FindAchievement(id string) (Achievement, bool) {
+	for _, a := range achievements {
+		if a.ID == id {
+			return a.Achievement, true
+		}
+	}
+	return Achievement{}, false
+}
+
 // Unlocks are what the pet has unlocked
 type Unlocks struct {
 	Places   []string // Places it has discovered

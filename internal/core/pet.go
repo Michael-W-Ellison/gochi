@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -118,7 +120,7 @@ type DigitalPet struct {
 // NewDigitalPet creates a new digital pet with default systems
 func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 	now := time.Now()
-	id := types.PetID(fmt.Sprintf("pet_%d_%s", now.Unix(), name))
+	id := newPetID()
 
 	pet := &DigitalPet{
 		ID:                id,
@@ -676,6 +678,15 @@ func Load(data []byte) (*DigitalPet, error) {
 		pet.Memory.SetLongTermCapacity(maxLongTermMemories) // Older saves kept more
 	}
 	return &pet, nil
+}
+
+// newPetID returns a random pet ID, which says nothing about the pet
+func newPetID() types.PetID {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		panic(err) // The system's random source failing is not recoverable
+	}
+	return types.PetID("pet_" + hex.EncodeToString(raw))
 }
 
 // maxLongTermMemories is how many long-term memories a pet keeps: the

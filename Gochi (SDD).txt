@@ -14,7 +14,7 @@ Unlike traditional Tamagotchi devices, this advanced system implements:
 
 Realistic biological simulation with multiple interconnected physiological systems
 Adaptive personality development based on care history
-Social networking capabilities with other digital pets
+Social play with other digital pets (without personal information or messaging)
 Evolutionary mechanics allowing trait inheritance
 Machine learning-driven behavioral adaptation
 Cross-platform synchronization and cloud persistence
@@ -799,37 +799,40 @@ cppclass CloudService {
     void uploadPetData(string userId, DigitalPet pet);
     DigitalPet downloadPetData(string userId);
     void enableSocialFeatures(string userId);
-    vector<DigitalPet> getNearbyPets(Location userLocation);
     void shareAchievement(Achievement achievement);
 };
+(getNearbyPets(Location) was removed for safety: the game collects no location; see section 6.2.)
 
 Implementation (internal/hub): the cloud service is a hub, which any Gochi server can run (-hub with
-a join code), or which runs on its own as gochihub (section 6.3). Players register with the join code and get an account key (32 random bytes; the hub
-stores its SHA-256 hash); other devices connect with the username and key. HTTP API at /hub/v1:
-register; list, get, put (with the base version: a stale upload is refused with 409 and the hub's
-version) and delete pets, keyed by a hash of the pet ID; get and set the profile (area and what is shared);
-nearby pets; the achievements feed; and AR playdates (section 5.2). uploadPetData / downloadPetData store and return a pet's
-whole save file, encrypted by the game (section 6.2; at most 8 MB, 50 pets per account); the hub keeps one previous version, and a
-deleted pet leaves a marker so other devices don't upload it again. enableSocialFeatures sets the
-player's area (typed by the player, at most 60 characters) and two separate choices, both off for a
-new account: show_nearby and share_achievements (an older game's single "sharing" sets both, and
-accounts saved with it keep both on). getNearbyPets returns, to a player who shows their pets, the
-living pets of other players who do and whose area matches (case and spacing ignored): owner, name,
-species, life stage and when last played. shareAchievement posts to a feed of the last 200 (players
-must share achievements); the game shares each achievement as it is earned. Each player may make 120 requests a
-minute; requests without a valid account key (such as registering) are limited to 120 a minute per
-IP address, so players sharing a network (as at a playdate) don't share a limit.
+a join code, on its own HTTPS address, hub.addr, default :8443), or which runs on its own as gochihub
+(section 6.3). Players never choose a name: registering with the join code returns an account key
+(32 random bytes; the hub stores its SHA-256 hash) and a handle the hub picks from fixed lists, a
+color, an animal and a number from 10 to 99 (such as "Blue Otter 42"); accounts are stored under a
+random ID. Other devices sign in with the account key alone. HTTP API at /hub/v1: register; list,
+get, put (with the base version: a stale upload is refused with 409 and the hub's version) and delete
+pets, keyed by a hash of the pet ID; get the profile (handle and sharing) and set sharing; the
+achievements feed; and AR playdates (section 5.2). Requests with fields the hub doesn't expect are
+refused. uploadPetData / downloadPetData store and return a pet's whole save file, encrypted by the
+game (section 6.2), with only its key, version, size and last-played time readable (at most 4 MB per
+pet, 50 pets and 64 MB per account, 10,000 accounts); the hub keeps one previous version, and a
+deleted pet leaves a marker so other devices don't upload it again. enableSocialFeatures sets whether
+the player shares achievements (off for a new account). shareAchievement takes only an achievement's
+ID (from the game's list) and the pet's species (a registered species); the hub fills in the
+achievement's name, icon and description, and posts it with the player's handle to a feed of the last
+200. Each player may make 120 requests a minute; requests without a valid account key (such as
+registering) are limited to 120 a minute per IP address, so players sharing a network (as at a
+playdate) don't share a limit. Accounts from hubs before handles are given an ID and a handle when
+loaded, their username and area are dropped, and feed entries holding text players typed are
+discarded.
 4.3 REST API
 cppclass RestAPI {   // /api/v1, enabled with -api-token; Bearer token required
     GET    /pets;  POST /pets;  GET /pets/{id};  PUT /pets/{id};  GET /pets/{id}/status;
     POST   /pets/{id}/interactions;  POST /pets/{id}/interactions/feed;  .../play;
-    GET    /social/friends;
 };
 
 The API works on copies of the saved pets and follows the game's rules: refused care returns
 status 409 with the reason, and pets cannot be deleted through it (deletion needs the
-confirmations in section 3.10.3). Social features that need other players and cloud sync are not
-available without a cloud service.
+confirmations in section 3.10.3). It has no accounts, social, sync or messaging routes.
 Rate limiting: each client (by IP address) may make api_rate_limit requests (default 120) in any
 minute, counted with a sliding window before authentication, so failed token guesses count. A
 client over the limit gets status 429; responses carry X-RateLimit-Limit, X-RateLimit-Remaining
@@ -890,21 +893,24 @@ as one play session (at most two per walk). The web page's AR view is such a cli
 it finds surfaces by hit testing from the center of the view; without it, it shows a drawn room.
 Playdates: players on the same cloud hub (section 4.2) meet in one place, each with the active pet
 from their own game. A player starts a playdate and gets a six-character code (from an alphabet
-without look-alike characters); up to five others join with it. Each game describes its pet with a
-PlaymateCard (ID, name, species, whether young, sociability, and why it can't play if so) plus how
-it looks; the hub passes cards on without reading them (at most 2 KB each). In AR each player taps
-the agreed spot to mark the center; each member has a slot, and the client places its pet 1 m from
-the center at an angle of 60 degrees per slot. About once a second the page posts its pet's
-position relative to the center (clamped to 10 m) to its server, which forwards it with the card
-and gets back the members and the events since the last it saw. Tapping another pet makes the
-player's pet meet it as in an introduction (section 3.6.1: both sociabilities, species and the
-pet's earlier meetings decide the quality), recorded as care with points; the server then posts a
-"play" event to the hub with the quality and bond, and the other pet's server records the same
-meeting from its side ("played at a playdate") when it next updates. Members that send nothing for
-30 seconds are removed; a playdate ends when empty. Playdates are kept in the hub's memory only
+without look-alike characters); up to five others join with it. Each game sends a card of fixed
+fields: the pet's hub key, species (registered), whether young, sociability (0 to 1), why it can't
+play as a code (gone, hibernating, exploring or asleep) and which of its species' sprite states it
+shows. The hub refuses any other value and builds the card every member sees: an ID derived from the
+account and pet key (meaningless elsewhere) and the name "<handle>'s <species>". In AR each player
+taps the agreed spot to mark the center; each member has a slot, and the client places its pet 1 m
+from the center at an angle of 60 degrees per slot. About once a second the page posts its pet's
+position relative to the center to its server, which forwards it (the hub clamps it to 10 m and
+rounds it to 5 cm) and gets back the members and the events since the last it saw. Tapping another
+pet makes the player's pet meet it as in an introduction (section 3.6.1: both sociabilities, species
+and the pet's earlier meetings decide the quality), recorded as care with points; the server reports
+the play to the hub as the other player's handle, the quality and the bond. The hub writes the
+event's text (core.MeetingText with the two cards' names), and the other pet's server records the
+same meeting from its side ("played at a playdate") when it next updates. Members that send nothing
+for 30 seconds are removed; a playdate ends when empty. Playdates are kept in the hub's memory only
 (at most 500 at once, the last 50 events each). Hub routes: POST /hub/v1/playdates (start),
-/playdates/{code}/join, /update, /events and /leave. Game routes: GET and POST /api/playdate
-(start, join, leave), POST /api/playdate/update and POST /api/playdate/play.
+/playdates/{code}/join, /update, /play and /leave. Game routes: GET and POST /api/playdate (start,
+join, leave), POST /api/playdate/update and POST /api/playdate/play.
 
 5.3 Machine Learning Adaptation
 
@@ -964,27 +970,50 @@ Child Safety: COPPA-compliant for users under 13
 Offline Mode: Full functionality without internet connection
 
 Implementation:
-In transit: the game and the hub serve HTTPS when given a certificate and key (server.tls_cert and
-server.tls_key, or -tls-cert and -tls-key; both checked at startup), with TLS 1.2 or later. Every
+In transit: the hub always uses HTTPS (TLS 1.2 or later), with the configured certificate or else
+a self-signed ECDSA P-256 certificate it makes on first start and keeps (hub-cert.pem, hub-key.pem),
+printing its SHA-256 fingerprint. When the game connects, it probes the hub's certificate: one this
+computer trusts is checked normally from then on; otherwise its fingerprint is pinned in cloud.json and
+every later connection must present it. Hub addresses default to https://, and plain http:// is
+refused except for a hub on this computer. The game serves HTTPS too when given a certificate and key
+(server.tls_cert and server.tls_key, or -tls-cert and -tls-key; both checked at startup). Every
 response carries X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN and Referrer-Policy:
 same-origin.
 At rest on the hub: the hub client seals each save before upload with AES-256-GCM under a key
 HMAC-SHA256(account key, "gochi save encryption v1"), a random 12-byte nonce, and the pet's hub key
 as additional data, stored as {"gochi_sealed": 1, "nonce", "data"}; downloads are opened the same way,
 and unsealed saves from older versions are accepted. The hub keeps only the account key's hash, so
-its files can't be decrypted on their own. Pet names, species and life stages stay readable (nearby
-pets need them).
-At rest locally: saves, backups, cloud.json, owner.json and parental.json are written with mode 0600
+its files can't be decrypted on their own; nothing else about a pet is stored on the hub.
+At rest locally: saves, backups, cloud.json, owner.json, parental.json and devices.json are written with mode 0600
 in directories made 0700 (existing ones too). Saves aren't encrypted locally: the key would have to
 be stored beside them; the operating system's disk encryption is the means for that.
-Privacy controls: nearby visibility and achievement sharing are separate choices (section 4.2), off
-until chosen. Learning the play schedule (section 5.3) can be turned off and erased (/api/privacy).
+Privacy controls: sharing achievements is off until chosen (section 4.2). Learning the play
+schedule (section 5.3) can be turned off and erased (/api/privacy).
 Child safety: an optional parent PIN (4 to 8 digits), stored as a 16-byte salt and 100,000 rounds of
-SHA-256 in parental.json, is then needed to connect to or disconnect from a hub, change sharing, start
-or join a playdate, and change privacy settings; 5 wrong PINs refuse every PIN for 5 minutes. There
-is no chat; other players see only usernames, pet names, species, life stages, area names and
-achievements. COPPA compliance is a legal obligation of whoever operates a hub for children; the
-software keeps shared data to that minimum and gives parents control of it.
+SHA-256 in parental.json, is then needed to connect to or disconnect from a hub, see the account key,
+change sharing, start or join a playdate, rename or delete a pet, unpair devices, and change privacy
+settings; 5 wrong PINs refuse every PIN for 5 minutes. COPPA compliance is a legal obligation of
+whoever operates a hub for children; the software collects no personal information and gives parents
+control of what is shared.
+No personal information and no messaging: the game asks for nothing about the player, pet IDs are
+random ("pet_" and 32 hex digits), and pet names (1 to 24 printable characters) never leave the
+computer. Nothing a player types reaches another player: other players see only hub-chosen handles,
+species, sprite states, achievements from the game's list, and text written by the hub; the hub
+refuses unknown fields and values outside its lists. Nearby pets, areas, chosen usernames, free-text
+achievements and playdate messages were removed, as were the unused account (email and password),
+location, friend-request, sync and WebSocket parts of the REST API package, the unused social cloud
+service and the old page scripts. What remains shared beyond fixed values is a pet's sociability, its
+playdate position (rounded to 5 cm) and the timing of actions.
+The game's server: by default it listens on 127.0.0.1 only. Every request's Host must be "localhost"
+or an IP address (stopping DNS rebinding). Requests that change something must be JSON (Content-Type
+application/json) with no Origin or Sec-Fetch-Site from another site, and other sites' requests to
+/api/ are refused outright; responses carry no CORS headers. When the server listens on the network,
+requests from other devices need a device token: /api/pairing (from this computer only) makes an
+8-character code valid for 10 minutes; POST /pair with the code sets an HttpOnly, SameSite=Strict
+cookie, whose SHA-256 hash is kept in devices.json; 5 wrong codes stop pairing for 5 minutes and
+discard the code. The account key is given only to this computer (POST /api/cloud/key), never in the
+cloud status. The REST API (/api/v1) keeps its bearer token and is subject only to the Host check.
+Static folders aren't listed.
 Offline: everything but the cloud features works without a network; at startup the game waits at
 most 15 s for a hub before restoring the last pet.
 
@@ -1007,15 +1036,15 @@ RegisterSpecies checks a definition is complete; species_cat.go and species_dog.
 species; elsewhere the game names them only as
 the species constants and the default for saves without a species (cat). GET /api/species gives the page each species'
 name, icon, sprites, clean-up label and whether it walks.
-Hub queries: the hub keeps each account's pets' information and the accounts in each area in memory,
-loaded at startup and kept current by uploads, deletions and profile changes, so listing pets,
-version checks and nearby pets read no saves. With 300 players of two 64 KB saves each in 30 areas,
-a nearby query went from 6.2 ms and 2.7 MB to 9 microseconds and 10 KB.
+Hub queries: the hub keeps each account's pets' information (key, version, size, last played) in
+memory, loaded at startup and kept current by uploads and deletions, so listing pets, version checks
+and the per-account space check read no saves.
 Content delivery: static files are requested with ?v= and a hash of their contents and are then
 served with Cache-Control: public, max-age=31536000, immutable, so a CDN or proxy can cache them;
 other requests for them are revalidated.
-Services: cmd/gochihub runs the hub alone (-addr, -dir, -join-code, -tls-cert, -tls-key), separate
-from any game; a game server can still run one with -hub.
+Services: cmd/gochihub runs the hub alone over HTTPS (-addr, default :8443, -dir, -join-code,
+-tls-cert, -tls-key), separate from any game; a game server can still run one with -hub, on its own
+HTTPS listener.
 
 
 7. Testing Strategy

@@ -66,15 +66,41 @@ func (p *DigitalPet) socialInfo() socialInfo {
 
 // unavailable explains why a pet can't meet another now, or returns ""
 func (s socialInfo) unavailable() string {
+	if reason := s.unavailableReason(); reason != "" {
+		return s.name + " " + unavailablePhrases[reason]
+	}
+	return ""
+}
+
+// Why a pet can't meet another, as codes that can be passed to another
+// game without any text
+const (
+	UnavailableGone        = "gone"
+	UnavailableHibernating = "hibernating"
+	UnavailableExploring   = "exploring"
+	UnavailableAsleep      = "asleep"
+)
+
+// unavailablePhrases describe each reason after a pet's name
+var unavailablePhrases = map[string]string{
+	UnavailableGone:        "has passed away",
+	UnavailableHibernating: "is hibernating",
+	UnavailableExploring:   "is out exploring",
+	UnavailableAsleep:      "is asleep",
+}
+
+// unavailableReason returns why a pet can't meet another now as a code,
+// or ""
+func (s socialInfo) unavailableReason() string {
 	switch {
 	case !s.alive:
-		return s.name + " has passed away"
+		return UnavailableGone
 	case s.hibernating:
-		return s.name + " is hibernating"
+		return UnavailableHibernating
 	case s.exploring:
-		return s.name + " is out exploring"
+		return UnavailableExploring
 	case s.asleep:
-		return s.name + " is asleep"
+		return UnavailableAsleep
 	}
 	return ""
 }
@@ -141,17 +167,21 @@ func (a *DigitalPet) meet(infoA, infoB socialInfo, what string) (Meeting, float6
 	description := a.recordMeetingLocked(infoB, bond, what)
 	a.mu.Unlock()
 
-	meeting := Meeting{InteractionResult: result, Quality: quality, Relationship: description}
-	verb := threatSignal(infoA.species)
+	meeting := Meeting{InteractionResult: result, Quality: quality, Relationship: description,
+		Text: MeetingText(infoA.name, infoA.species, infoB.name, quality)}
+	return meeting, bond, nil
+}
+
+// MeetingText describes how a meeting went (quality, 0.0 to 1.0) between
+// pet a, of a species, and pet b
+func MeetingText(a string, species Species, b string, quality float64) string {
 	switch {
 	case quality >= goodMeeting:
-		meeting.Text = fmt.Sprintf("%s and %s played together happily!", infoA.name, infoB.name)
+		return fmt.Sprintf("%s and %s played together happily!", a, b)
 	case quality >= cautiousMeeting:
-		meeting.Text = fmt.Sprintf("%s and %s sniffed each other cautiously and kept their distance.", infoA.name, infoB.name)
-	default:
-		meeting.Text = fmt.Sprintf("%s %s %s. The meeting didn't go well.", infoA.name, verb, infoB.name)
+		return fmt.Sprintf("%s and %s sniffed each other cautiously and kept their distance.", a, b)
 	}
-	return meeting, bond, nil
+	return fmt.Sprintf("%s %s %s. The meeting didn't go well.", a, threatSignal(species), b)
 }
 
 // recordMeetingLocked records time spent with another pet (what they did)

@@ -39,12 +39,13 @@ func TestSealedSaves(t *testing.T) {
 
 func TestHubStoresOnlySealedSaves(t *testing.T) {
 	h, server := testHub(t)
-	alice := register(t, server, "alice")
+	alice := register(t, server)
+	id, _ := h.Authenticate(alice.Token)
 	key := PetKey("pet_1_Biscuit")
-	if _, err := alice.UploadPetData(ctx, PetInfo{Key: key, Name: "Biscuit"}, json.RawMessage(`{"secret":"tuna"}`), 0); err != nil {
+	if _, err := alice.UploadPetData(ctx, PetInfo{Key: key}, json.RawMessage(`{"secret":"tuna"}`), 0); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := os.ReadFile(filepath.Join(h.petDir("alice"), key+".json"))
+	stored, err := os.ReadFile(filepath.Join(h.petDir(id), key+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}

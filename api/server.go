@@ -94,19 +94,6 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.Handle("POST /api/v1/pets/{petId}/interactions/feed", authMiddleware(http.HandlerFunc(s.handler.HandleFeed)))
 	mux.Handle("POST /api/v1/pets/{petId}/interactions/play", authMiddleware(http.HandlerFunc(s.handler.HandlePlay)))
 
-	// Social routes
-	mux.Handle("PUT /api/v1/social/location", authMiddleware(http.HandlerFunc(s.handler.HandleUpdateLocation)))
-	mux.Handle("GET /api/v1/social/nearby", authMiddleware(http.HandlerFunc(s.handler.HandleGetNearbyPets)))
-	mux.Handle("GET /api/v1/social/friends", authMiddleware(http.HandlerFunc(s.handler.HandleGetFriends)))
-	mux.Handle("POST /api/v1/social/friends/request", authMiddleware(http.HandlerFunc(s.handler.HandleSendFriendRequest)))
-	mux.Handle("POST /api/v1/social/friends/requests/{requestId}/accept", authMiddleware(http.HandlerFunc(s.handler.HandleAcceptFriendRequest)))
-	mux.Handle("POST /api/v1/social/friends/requests/{requestId}/decline", authMiddleware(http.HandlerFunc(s.handler.HandleDeclineFriendRequest)))
-	mux.Handle("DELETE /api/v1/social/friends/{petId}", authMiddleware(http.HandlerFunc(s.handler.HandleRemoveFriend)))
-
-	// Sync routes
-	mux.Handle("POST /api/v1/sync", authMiddleware(http.HandlerFunc(s.handler.HandleSync)))
-	mux.Handle("POST /api/v1/sync/resolve", authMiddleware(http.HandlerFunc(s.handler.HandleResolveConflict)))
-
 	return mux
 }
 
@@ -141,14 +128,7 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 		"endpoints": map[string]string{
 			"pets":         "/api/v1/pets",
 			"interactions": "/api/v1/pets/{petId}/interactions",
-			"social":       "/api/v1/social",
-			"feed":         "/api/v1/feed",
-			"events":       "/api/v1/events",
-			"leaderboards": "/api/v1/leaderboards",
-			"sync":         "/api/v1/sync",
-			"achievements": "/api/v1/achievements",
 		},
-		"documentation": "/api/v1/docs",
 	})
 }
 
@@ -280,13 +260,13 @@ func GenerateAPIDoc(baseURL string) *APIDoc {
 func generateEndpointDocs() []EndpointDoc {
 	var docs []EndpointDoc
 
-	for _, group := range GetRoutes() {
-		for _, route := range group.Routes {
+	for _, route := range endpoints {
+		{
 			docs = append(docs, EndpointDoc{
-				Method:       route.Method,
-				Path:         group.Prefix + route.Path,
-				Description:  route.Description,
-				RequiresAuth: route.RequiresAuth,
+				Method:       route.method,
+				Path:         route.path,
+				Description:  route.description,
+				RequiresAuth: route.auth,
 				Responses: []ResponseDoc{
 					{StatusCode: 200, Description: "Success"},
 					{StatusCode: 400, Description: "Bad Request"},
@@ -298,4 +278,23 @@ func generateEndpointDocs() []EndpointDoc {
 	}
 
 	return docs
+}
+
+// endpoints are the API's routes, for its documentation
+var endpoints = []struct {
+	method, path, description string
+	auth                      bool
+}{
+	{"GET", "/health", "Health check", false},
+	{"GET", "/ready", "Readiness check", false},
+	{"GET", "/api/v1", "API information", false},
+	{"POST", "/api/v1/pets", "Create a pet", true},
+	{"GET", "/api/v1/pets", "List pets", true},
+	{"GET", "/api/v1/pets/{petId}", "Get a pet", true},
+	{"PUT", "/api/v1/pets/{petId}", "Update a pet", true},
+	{"DELETE", "/api/v1/pets/{petId}", "Delete a pet", true},
+	{"GET", "/api/v1/pets/{petId}/status", "A pet's status", true},
+	{"POST", "/api/v1/pets/{petId}/interactions", "Care for a pet", true},
+	{"POST", "/api/v1/pets/{petId}/interactions/feed", "Feed a pet", true},
+	{"POST", "/api/v1/pets/{petId}/interactions/play", "Play with a pet", true},
 }

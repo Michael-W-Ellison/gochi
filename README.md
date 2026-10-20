@@ -105,7 +105,7 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | Option | Default | Description |
 |---|---|---|
 | `-config` | `configs/config.yaml` | Settings file (see [Configuration](#configuration)); the default is used only if it exists |
-| `-addr` | `:8080` | Address and port the web server listens on |
+| `-addr` | `127.0.0.1:8080` | Address and port the game listens on. The default answers only this computer; `:8080` lets paired phones and tablets on the network play too (see [Privacy](#privacy-and-parental-controls)) |
 | `-data-dir` | `~/.gochi` | Directory for saved pets (`saves/`) and backups (`backups/`) |
 | `-autosave` | `1m` | How often the active pet is saved automatically; `0` turns autosave off |
 | `-away-pause` | `2m` | Pause time once the player has been away this long; `0` turns the away pause off |
@@ -113,7 +113,8 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | `-time-scale` | `game` | Game speed: `game` (one game day per real minute), `24x` (one game day per real hour), `4x` (one game day per six real hours) or `realtime` |
 | `-hub` | off | Also run as a cloud hub (see [Cloud](#cloud-backup-sync-and-sharing)) |
 | `-hub-join-code` | (none) | The code players need to register with the hub |
-| `-tls-cert`, `-tls-key` | (none) | Serve HTTPS with this certificate and private key (PEM files); set both |
+| `-hub-addr` | `:8443` | Address the hub listens on, always over HTTPS |
+| `-tls-cert`, `-tls-key` | (none) | Serve the game (and the hub) over HTTPS with this certificate and private key (PEM files); set both |
 
 Durations use Go syntax, such as `30s`, `5m` or `1h`.
 
@@ -149,36 +150,47 @@ listed under **About** and announced under **Recently** when earned.
 ### Cloud: Backup, Sync and Sharing
 
 A Gochi server can also run as a **cloud hub** that other Gochi servers connect to, so you can back up
-your pets, play them on other devices, see other players' pets nearby and share achievements. The hub
-is self-hosted: it is just another Gochi server, and nothing is sent anywhere else.
+your pets, play them on other devices, share achievements and meet at [AR playdates](#ar-playdates).
+The hub is self-hosted: it is just another Gochi server, and nothing is sent anywhere else.
+
+**What other players see**: players never choose a name. The hub gives each account a handle made of
+a color, an animal and a number, such as "Blue Otter 42", and that is the only name other players
+see. Your pets' names never leave your computer: other players see "Blue Otter 42's dog". Nothing a
+player types is ever shown to another player; there is no chat or messaging of any kind. See
+[Safety](#safety).
 
 **Running a hub**: start a server with `-hub -hub-join-code SOMECODE` (or `hub.enabled` and
 `hub.join_code` in the config file) and give the join code to the people who may register. The hub
-answers at `/hub/v1` on the same address as the game; its data is kept in `<data-dir>/hub/`
-(accounts, with account keys stored only as hashes, each player's pets, and the shared achievements).
-With no join code, nobody new can register. The hub allows each player 120 requests a minute (and
-requests without an account, such as registering, 120 a minute from each address) and each player
-50 pets. To use a hub over the internet, serve it over HTTPS, with `-tls-cert` and `-tls-key` (for
-example a certificate from Let's Encrypt) or behind an HTTPS reverse proxy, so account keys aren't
-sent in the clear; the hub accepts TLS 1.2 and later. The hub keeps an index of pets in memory, so
-listing pets and finding nearby ones don't read saves from disk.
+listens on its own address, `-hub-addr` (`:8443` by default), separate from the game, and always uses
+HTTPS (TLS 1.2 or later): with the certificate given by `-tls-cert` and `-tls-key` if there is one,
+otherwise with its own certificate, made on first start and kept in `<data-dir>/hub/`. The hub prints
+the certificate's fingerprint when it starts. Its data is kept in `<data-dir>/hub/`: accounts (with
+account keys stored only as hashes), each player's encrypted pets, and the shared achievements. With
+no join code, nobody new can register. The hub allows each player 120 requests a minute (requests
+without an account, such as registering, 120 a minute from each address), 50 pets and 64 MB of saves
+per account (4 MB per pet), and 10,000 accounts.
 
 To run a hub as its own service, without the game, use `gochihub` (`make build` puts it in `bin/`):
-`gochihub -join-code SOMECODE -dir /var/lib/gochi-hub -addr :8090 -tls-cert cert.pem -tls-key key.pem`.
-It serves only `/hub/v1` and keeps its data in `-dir` (default `~/.gochi-hub`).
+`gochihub -join-code SOMECODE -dir /var/lib/gochi-hub -addr :8443`. It serves only `/hub/v1`, always
+over HTTPS (with `-tls-cert` and `-tls-key`, or its own certificate), and keeps its data in `-dir`
+(default `~/.gochi-hub`).
+
+**Connecting**: press **☁️ Cloud**, enter the hub's address (`https://` is assumed; plain `http://` is
+refused unless the hub is on this computer) and the join code, and press **Connect**. The hub gives
+you a handle, and your pets are uploaded straight away. If the hub uses its own certificate rather
+than one from a certificate authority, the game remembers the certificate when it connects and
+refuses any other afterwards, so nobody can stand in for the hub later; the Cloud panel shows the
+certificate's fingerprint, which a parent can compare with the one the hub printed. To connect
+another device to the same account, press **Show account key** on the computer running the game (other
+devices are never shown it) and enter that key on the other device instead of the join code. The
+connection is kept in `<data-dir>/cloud.json`, readable only by you. Connections made by older
+versions (with usernames, or over plain HTTP) are forgotten; connect again.
 
 **Encryption**: your game encrypts each pet's save (AES-256-GCM, with a key made from your account
 key) before uploading it, and decrypts it after downloading. The hub stores only a hash of your
-account key, so its files alone, or a copy of them, can't be read. Whoever runs the hub could still
-change it to record account keys as they arrive, so use a hub run by someone you trust. Pets'
-names, species and age groups stay readable on the hub, since nearby pets need them. Saves uploaded
-by older versions are read as before and are encrypted when next uploaded.
-
-**Connecting**: press **☁️ Cloud**, enter the hub's address, a username and the join code, and press
-**Connect**. Your pets are uploaded straight away. To connect another device to the same account, press
-**Show account key** on the first device and enter that key (with the same username) on the other
-device instead of the join code. The connection is kept in `<data-dir>/cloud.json`, readable only by
-you.
+account key, so its files alone, or a copy of them, can't be read. All the hub knows about a pet is a
+random-looking key, its version and size, and when it was last played. Whoever runs the hub could
+still change it to record account keys as they arrive, so use a hub run by someone you trust.
 
 **Syncing** happens when the program starts (before your last pet is restored; if the hub can't be
 reached within 15 seconds, the game starts with the saves on this device), every 5 minutes, when
@@ -195,17 +207,11 @@ network connection. For each pet:
 - deleting a pet removes it from the hub. Your other devices then report that it was deleted on
   another device and stop syncing it, but keep their copy until you delete it there too.
 
-**Nearby pets and sharing**: in the Cloud panel, type your town or area and choose what to share;
-both choices start off.
-
-- **Show my pets to players nearby (and see theirs)**: players on the same hub who chose the same
-  area (ignoring capitals and extra spaces) and show their pets see your pets' names, species and
-  age groups, and you see theirs. With it off you neither appear nor see anyone.
-- **Share my pets' achievements**: your pets' achievements are posted to the hub's feed as they are
-  earned, for everyone on the hub to see.
-
-The panel shows recent achievements from everyone sharing on the hub. Nothing more precise than the
-area name is shared.
+**Sharing achievements**: in the Cloud panel, turn on **Share my pets' achievements** to post your
+pets' achievements to the hub as they are earned, for everyone on the hub to see. It is off until you
+turn it on. The game sends only which achievement it was and your pet's species; the hub writes the
+achievement's name and description from the game's own list, shown as, for example, "🐾 Blue Otter
+42's cat: Good Pet". The panel shows recent achievements from everyone sharing on the hub.
 
 ### Privacy and Parental Controls
 
@@ -215,16 +221,41 @@ Press **🔒 Privacy**:
   [Daily Goals and What's Coming Up](#daily-goals-and-whats-coming-up)). Turn it off to stop, and
   press **Erase what was learned** to forget it. It never leaves your computer.
 - **Parent PIN**: a parent can set a PIN of 4 to 8 digits. Once it is set, the PIN is needed to
-  connect to or disconnect from a cloud hub, change what is shared, start or join a playdate, and
-  change these settings (the page asks for it). After 5 wrong PINs, no PIN is accepted for 5
-  minutes. The PIN is stored as a salted hash in `<data-dir>/parental.json`; it stops a child
-  changing settings in the game, not someone who can edit the computer's files.
+  connect to or disconnect from a cloud hub, see the account key, change what is shared, start or join
+  a playdate, rename or delete a pet, unpair devices, and change these settings (the page asks for
+  it). After 5 wrong PINs, no PIN is accepted for 5 minutes. The PIN is stored as a salted hash in
+  `<data-dir>/parental.json`; it stops a child changing settings in the game, not someone who can edit
+  the computer's files.
+- **Play on a phone or tablet**: by default the game answers only the computer it runs on. To play on
+  a phone or tablet on the same Wi-Fi (for example for AR), start the game with `-addr :8080`. Each
+  device must then be paired: Privacy shows the address to open and a code (8 letters and digits,
+  valid for 10 minutes); the device shows a pairing page until the code is entered. After 5 wrong
+  codes, pairing stops for 5 minutes and the code is thrown away. Paired devices are remembered (as
+  hashes in `<data-dir>/devices.json`); **Unpair all devices** forgets them.
 
 Your saves, backups and settings in the data directory can be read only by your user account (on
-macOS and Linux; older saves are made private as they are saved again). There is no chat, and other
-players see only usernames, pet names, species, age groups, area names and achievements. Whoever
-runs a hub for children is responsible for meeting child-privacy laws such as COPPA; the game keeps
-what it shares to the minimum above and lets parents control it.
+macOS and Linux; older saves are made private as they are saved again).
+
+### Safety
+
+- **No personal information**: the game never asks for a name, email, age, location or anything else
+  about the player. Hub accounts have a handle the hub chooses, and pet names (1 to 24 characters)
+  stay on the player's computer. Pet IDs are random.
+- **No way to pass messages**: there is no chat, and nothing a player types reaches another player.
+  Everything another player sees comes from fixed lists (handles, species, how a pet looks,
+  achievements) or is written by the game or the hub (what happened at a playdate). The hub refuses
+  any request with fields it doesn't expect. The only things players share beyond those lists are a
+  pet's position at a playdate (rounded to 5 cm) and how sociable it is, and when things happen.
+- **Other web sites can't use the game**: the game answers only requests from its own page (JSON
+  from the same origin, to `localhost` or an IP address), so a web page the player visits can't read
+  or change anything, even by pointing its own name at the computer (DNS rebinding). Responses carry
+  no CORS headers.
+- **Other devices need pairing**: the game answers only this computer unless started on the network,
+  and then only paired devices.
+- **Parents can lock settings** with a PIN (see above).
+
+Whoever runs a hub for children is responsible for meeting child-privacy laws such as COPPA; the game
+collects no personal information and lets parents control what is shared.
 
 ### Pausing Time
 
@@ -660,7 +691,6 @@ the header `Authorization: Bearer my-secret`; `/health` and `/ready` need no tok
 | `PUT /api/v1/pets/{id}` | Rename a pet (`{"name": "..."}`) |
 | `POST /api/v1/pets/{id}/interactions` | Care for a pet (`{"type": "feed", "intensity": 1}`; types: feed, drink, pet, play, train, groom, medical, reward, discipline, clean, walk) |
 | `POST /api/v1/pets/{id}/interactions/feed`, `.../play` | Shortcuts for feeding and playing |
-| `GET /api/v1/social/friends?pet_id=...` | A pet's friends |
 
 Each client (by IP address) may make 120 requests a minute (set with `server.api_rate_limit`;
 0 turns the limit off). Requests that fail authentication count too, which limits guessing the
@@ -669,8 +699,8 @@ gets status 429 with `X-RateLimit-Reset`, the time it may try again.
 
 Care through the API follows the game's rules: a pet that turns something down answers with
 status 409 and the reason. Pets can't be deleted through the API (403), because deleting asks for
-the confirmations described above. Social features that need other players (nearby pets, friend
-requests) and cloud sync answer with an error, because the server has no cloud service.
+the confirmations described above. The API works only on the player's own pets: it has no accounts,
+social or messaging routes.
 
 ## Augmented Reality
 
@@ -701,7 +731,12 @@ endpoints, and other AR clients can use them too:
 | `POST /api/ar/exercise` | `{"action": "start"}`, `{"action": "position", "position": {...}}` while walking, then `{"action": "stop"}` |
 
 Gestures follow the same rules as the care buttons. Stopping the session removes the pet from the
-scene.
+scene. A walk counts towards the pet's **Exercise** need: every 500 m counts as much as one play
+session (at most two per walk) and uses a little energy. A sleeping, tired, hibernating or exploring
+pet can't go for a walk.
+
+To use AR on a phone or tablet while the game runs on a computer, start the game with `-addr :8080`
+and pair the device (see [Privacy and Parental Controls](#privacy-and-parental-controls)).
 
 ### AR Playdates
 
@@ -714,28 +749,31 @@ pet from their own game.
 2. The others type the code under **AR playdate** and press **Join**.
 3. Everyone agrees on a spot they can all see, such as the middle of a table, and taps it in their
    own AR view. That marks the playdate's center; each pet walks to its own place around it, and
-   the other players' pets appear around it too, with their names.
+   the other players' pets appear around it too, named by their owner's handle and species, such as
+   "Blue Otter 42's dog".
 4. Tap another player's pet to have yours play with it. How it goes is worked out like an
    introduction (both pets' sociability, their species and how earlier meetings went), and both
    pets remember it: your game records it for your pet, earning care points as usual, and the
-   other player's game records it for theirs. The panel shows what has happened and how your pet
+   other player's game records it for theirs. The panel shows what has happened (written by the hub,
+   such as "Blue Otter 42's dog and Teal Wren 17's cat played together happily!") and how your pet
    gets along with each of the others.
 
 Closing AR leaves the playdate; a player whose game stops sending updates for 30 seconds is
 removed, and a playdate ends when everyone has left. Switching to another pet also leaves it.
 Each device places pets in its own view of the room, so pets appear around the center in the same
-arrangement on every device but are not aligned to the same compass direction. The hub passes on
-only each pet's name, species, whether it is young, how sociable it is, how it looks and its
-position relative to the center, and keeps playdates in memory only.
+arrangement on every device but are not aligned to the same compass direction. The game tells the
+hub only each pet's species, whether it is young, how sociable it is, why it can't play if it can't
+(as a code, such as "asleep"), which of its species' pictures it shows, and its position relative to
+the center (rounded to 5 cm); when two pets play, only how well it went, as numbers. The hub names
+the pets and writes everything the players read, refuses anything else, and keeps playdates in
+memory only.
 
 | Route | Description |
 |---|---|
 | `GET /api/playdate` | The playdate you are at, as last updated: its code, the players and their pets, and what happened |
-| `POST /api/playdate` | `{"action": "start"}`, `{"action": "join", "code": "..."}` or `{"action": "leave"}`; also takes `"sprite"`, how your pet looks |
-| `POST /api/playdate/update` | Send your pet's `{"position": {...}}` relative to the center (and `"sprite"`); returns the playdate. Send it about once a second |
-| `POST /api/playdate/play` | `{"owner": "..."}`: your pet plays with that player's pet | A walk counts towards the pet's **Exercise**
-need: every 500 m counts as much as one play session (at most two per walk) and uses a little
-energy. A sleeping, tired, hibernating or exploring pet can't go for a walk.
+| `POST /api/playdate` | `{"action": "start"}`, `{"action": "join", "code": "..."}` or `{"action": "leave"}`; also takes `"look"`, which picture your pet shows (`idle`, `happy`, `sleeping` and so on) |
+| `POST /api/playdate/update` | Send your pet's `{"position": {...}}` relative to the center (and `"look"`); returns the playdate. Send it about once a second |
+| `POST /api/playdate/play` | `{"handle": "..."}`: your pet plays with that player's pet |
 
 ## Configuration
 
@@ -745,12 +783,13 @@ options:
 
 | Setting | Option | Default |
 |---|---|---|
-| `server.addr` | `-addr` | `":8080"` |
+| `server.addr` | `-addr` | `"127.0.0.1:8080"` (this computer only) |
 | `server.data_dir` | `-data-dir` | `""` (`~/.gochi`); a relative path is relative to the file |
 | `server.api_token` | `-api-token` | `""` (REST API off) |
 | `server.api_rate_limit` | | `120` REST API requests a minute per client (0 for no limit) |
 | `hub.enabled` | `-hub` | `false` (also run as a cloud hub) |
 | `hub.join_code` | `-hub-join-code` | `""` (registration closed) |
+| `hub.addr` | `-hub-addr` | `":8443"` (always HTTPS) |
 | `simulation.time_scale` | `-time-scale` | `"game"` |
 | `simulation.autosave` | `-autosave` | `1m` |
 | `simulation.away_pause` | `-away-pause` | `2m` |

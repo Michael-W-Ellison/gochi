@@ -67,7 +67,7 @@ func TestParentPINGuardsSocialFeatures(t *testing.T) {
 	if rec := post(t, s.handlePrivacy, `{"new_pin":"2468"}`); rec.Code != http.StatusOK {
 		t.Fatalf("Setting the PIN: %d %s", rec.Code, rec.Body)
 	}
-	connect := `{"hub_url":"` + hubURL + `","username":"kid","join_code":"code"`
+	connect := `{"hub_url":"` + hubURL + `","join_code":"code"`
 	if rec := post(t, s.handleCloudConnect, connect+`}`); rec.Code != http.StatusForbidden ||
 		!strings.Contains(rec.Body.String(), "parent_pin_needed") {
 		t.Errorf("Connecting without the PIN: %d %s", rec.Code, rec.Body)
@@ -76,7 +76,9 @@ func TestParentPINGuardsSocialFeatures(t *testing.T) {
 		t.Fatalf("Connecting with the PIN: %d %s", rec.Code, rec.Body)
 	}
 	for name, try := range map[string]func() int{
-		"sharing":          func() int { return post(t, s.handleCloudProfile, `{"area":"Leeds","show_nearby":true}`).Code },
+		"sharing":          func() int { return post(t, s.handleCloudProfile, `{"share_achievements":true}`).Code },
+		"renaming":         func() int { return post(t, s.handleRename, `{"name":"Rex"}`).Code },
+		"deleting":         func() int { return post(t, s.handleDelete, `{"slot":"`+s.slot+`","confirm_name":"Biscuit"}`).Code },
 		"a playdate":       func() int { return post(t, s.handlePlaydate, `{"action":"start"}`).Code },
 		"privacy":          func() int { return post(t, s.handlePrivacy, `{"learn_schedule":false}`).Code },
 		"removing the PIN": func() int { return post(t, s.handlePrivacy, `{"remove_pin":true}`).Code },
@@ -86,11 +88,11 @@ func TestParentPINGuardsSocialFeatures(t *testing.T) {
 			t.Errorf("Changing %s without the PIN: %d", name, code)
 		}
 	}
-	if rec := post(t, s.handleCloudProfile, `{"area":"Leeds","show_nearby":true,"parent_pin":"2468"}`); rec.Code != http.StatusOK {
+	if rec := post(t, s.handleCloudProfile, `{"share_achievements":true,"parent_pin":"2468"}`); rec.Code != http.StatusOK {
 		t.Errorf("Sharing with the PIN: %d %s", rec.Code, rec.Body)
 	}
-	if st := s.cloudStatus(); !st.ShowNearby || st.ShareFeats {
-		t.Errorf("Only nearby pets should be shared: %+v", st)
+	if st := s.cloudStatus(); !st.ShareFeats {
+		t.Errorf("Achievements should be shared: %+v", st)
 	}
 	// Leaving a playdate never needs the PIN
 	if rec := post(t, s.handlePlaydate, `{"action":"leave"}`); rec.Code != http.StatusOK {

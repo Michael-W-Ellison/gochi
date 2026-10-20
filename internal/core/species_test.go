@@ -151,3 +151,16 @@ func TestRegisterSpeciesRejectsBadDefinitions(t *testing.T) {
 		}()
 	}
 }
+
+func TestValidPetName(t *testing.T) {
+	for _, good := range []string{"Mochi", "Mr. Biscuit", " Rex ", "Ünïcödé", strings.Repeat("a", MaxPetNameLength)} {
+		if !ValidPetName(good) {
+			t.Errorf("%q should be valid", good)
+		}
+	}
+	for _, bad := range []string{"", "   ", strings.Repeat("a", MaxPetNameLength+1), "line\nbreak", "tab\there", "​zero"} {
+		if ValidPetName(bad) {
+			t.Errorf("%q should be invalid", bad)
+		}
+	}
+}

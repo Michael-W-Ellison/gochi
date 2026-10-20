@@ -64,120 +64,12 @@ func (m *MockPetStore) DeletePet(id types.PetID) error {
 	return nil
 }
 
-// MockUserStore is a mock implementation of UserStore
-type MockUserStore struct {
-	users map[types.UserID]*User
-}
-
-func NewMockUserStore() *MockUserStore {
-	return &MockUserStore{
-		users: make(map[types.UserID]*User),
-	}
-}
-
-func (m *MockUserStore) GetUser(id types.UserID) (*User, error) {
-	user, ok := m.users[id]
-	if !ok {
-		return nil, http.ErrNoLocation
-	}
-	return user, nil
-}
-
-func (m *MockUserStore) GetUserByEmail(email string) (*User, error) {
-	for _, user := range m.users {
-		if user.Email == email {
-			return user, nil
-		}
-	}
-	return nil, http.ErrNoLocation
-}
-
-func (m *MockUserStore) CreateUser(user *User) error {
-	m.users[user.ID] = user
-	return nil
-}
-
-func (m *MockUserStore) UpdateUser(user *User) error {
-	m.users[user.ID] = user
-	return nil
-}
-
-func (m *MockUserStore) ValidateCredentials(email, password string) (*User, error) {
-	for _, user := range m.users {
-		if user.Email == email {
-			return user, nil
-		}
-	}
-	return nil, http.ErrNoLocation
-}
-
-// MockSocialService is a mock implementation of SocialService
-type MockSocialService struct {
-	nearbyPets []*NearbyPetResponse
-	friends    map[types.PetID][]*FriendResponse
-}
-
-func NewMockSocialService() *MockSocialService {
-	return &MockSocialService{
-		nearbyPets: make([]*NearbyPetResponse, 0),
-		friends:    make(map[types.PetID][]*FriendResponse),
-	}
-}
-
-func (m *MockSocialService) GetNearbyPets(location *Location, radiusMeters float64) ([]*NearbyPetResponse, error) {
-	return m.nearbyPets, nil
-}
-
-func (m *MockSocialService) GetFriends(petID types.PetID) ([]*FriendResponse, error) {
-	return m.friends[petID], nil
-}
-
-func (m *MockSocialService) SendFriendRequest(fromPetID, toPetID types.PetID, message string) error {
-	return nil
-}
-
-func (m *MockSocialService) AcceptFriendRequest(requestID string) error {
-	return nil
-}
-
-func (m *MockSocialService) DeclineFriendRequest(requestID string) error {
-	return nil
-}
-
-func (m *MockSocialService) RemoveFriend(petID, friendID types.PetID) error {
-	return nil
-}
-
-// MockSyncService is a mock implementation of SyncService
-type MockSyncService struct{}
-
-func NewMockSyncService() *MockSyncService {
-	return &MockSyncService{}
-}
-
-func (m *MockSyncService) Sync(userID types.UserID, request *SyncRequest) (*SyncResponse, error) {
-	return &SyncResponse{
-		Status:        "up_to_date",
-		ServerVersion: 1,
-		LastSyncTime:  time.Now(),
-	}, nil
-}
-
-func (m *MockSyncService) ResolveConflict(userID types.UserID, request *ConflictResolutionRequest) error {
-	return nil
-}
-
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
 func createTestHandler() *Handler {
-	return NewHandler(
-		NewMockPetStore(),
-		NewMockUserStore(),
-		NewMockSocialService(),
-		NewMockSyncService(),
-	)
+	return NewHandler(NewMockPetStore())
 }
 
 func makeRequest(handler http.HandlerFunc, method, path string, body interface{}) *httptest.ResponseRecorder {
@@ -343,93 +235,6 @@ func TestHandleGetPetNotFound(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateLocation(t *testing.T) {
-	handler := createTestHandler()
-
-	req := LocationUpdateRequest{
-		Latitude:  37.7749,
-		Longitude: -122.4194,
-	}
-
-	rr := makeRequest(handler.HandleUpdateLocation, "PUT", "/api/v1/social/location", req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rr.Code)
-	}
-
-	response := parseResponse(rr)
-	if !response.Success {
-		t.Error("Expected success to be true")
-	}
-}
-
-func TestHandleUpdateLocationInvalidCoordinates(t *testing.T) {
-	handler := createTestHandler()
-
-	// Test invalid latitude
-	req := LocationUpdateRequest{
-		Latitude:  100, // Invalid
-		Longitude: -122.4194,
-	}
-
-	rr := makeRequest(handler.HandleUpdateLocation, "PUT", "/api/v1/social/location", req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Expected status 400, got %d", rr.Code)
-	}
-
-	response := parseResponse(rr)
-	if response.Error.Code != "INVALID_COORDINATES" {
-		t.Errorf("Expected error code INVALID_COORDINATES, got %s", response.Error.Code)
-	}
-}
-
-func TestHandleGetNearbyPets(t *testing.T) {
-	handler := createTestHandler()
-
-	req := httptest.NewRequest("GET", "/api/v1/social/nearby?latitude=37.7749&longitude=-122.4194", nil)
-	rr := httptest.NewRecorder()
-
-	handler.HandleGetNearbyPets(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rr.Code)
-	}
-}
-
-func TestHandleGetNearbyPetsMissingLocation(t *testing.T) {
-	handler := createTestHandler()
-
-	req := httptest.NewRequest("GET", "/api/v1/social/nearby", nil)
-	rr := httptest.NewRecorder()
-
-	handler.HandleGetNearbyPets(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Expected status 400, got %d", rr.Code)
-	}
-}
-
-func TestHandleSync(t *testing.T) {
-	handler := createTestHandler()
-
-	req := SyncRequest{
-		LastSyncTime: time.Now().Add(-1 * time.Hour),
-		LocalVersion: 1,
-	}
-
-	rr := makeRequest(handler.HandleSync, "POST", "/api/v1/sync", req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rr.Code)
-	}
-
-	response := parseResponse(rr)
-	if !response.Success {
-		t.Error("Expected success to be true")
-	}
-}
-
 func TestMapStringToInteractionType(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -572,12 +377,6 @@ func TestEmptyListsAreNotNull(t *testing.T) {
 	for name, run := range map[string]func(*httptest.ResponseRecorder){
 		"pets": func(rr *httptest.ResponseRecorder) {
 			handler.HandleGetPets(rr, httptest.NewRequest("GET", "/api/v1/pets", nil))
-		},
-		"nearby": func(rr *httptest.ResponseRecorder) {
-			handler.HandleGetNearbyPets(rr, httptest.NewRequest("GET", "/api/v1/social/nearby?latitude=37.7749&longitude=-122.4194", nil))
-		},
-		"friends": func(rr *httptest.ResponseRecorder) {
-			handler.HandleGetFriends(rr, httptest.NewRequest("GET", "/api/v1/social/friends?pet_id=none", nil))
 		},
 	} {
 		rr := httptest.NewRecorder()

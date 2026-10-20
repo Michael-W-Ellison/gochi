@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Static files (scripts, styles, images) are cacheable: the page refers to
@@ -46,6 +47,10 @@ func staticVersion(dir string) (string, error) {
 func (s *Server) staticHandler(dir string) http.Handler {
 	files := http.StripPrefix("/static/", http.FileServer(http.Dir(dir)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r) // No folder listings
+			return
+		}
 		if v := r.URL.Query().Get("v"); v != "" && v == s.staticVersion {
 			w.Header().Set("Cache-Control", staticMaxAge)
 		} else {
