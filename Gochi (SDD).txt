@@ -1,6 +1,6 @@
 Software Design Document (SDD)
 Advanced Tamagotchi Digital Pet System
-Version: 1.3
+Version: 1.4
 Date: October 2026
 Author: System Architecture Team
 
@@ -295,7 +295,12 @@ struct InteractionPreference {          // One per interaction type
     int experience;                     // Interactions learned from
 };
 
-Each interaction updates the preference for its type. Early interactions are averaged equally;
+Each interaction updates the preference for its type from how the pet experienced it: its innate
+reaction score / 0.3, limited to -1.0 to 1.0. The learned preference is left out so that
+preferences follow the pet's nature and when care is given rather than reinforcing themselves; a
+pet that dislikes attention learns to dislike petting however often it is petted. Each interaction
+counts by its repeat weight (section 3.3.2, repeated care), so repeats in quick succession add less
+experience and move the preference less. Early interactions are averaged equally;
 once established, each new interaction moves the preference by at least 2%, so a loved pet's
 behavior stays consistent unless the way it is treated changes over time. A preference has half
 of its full influence on behavior after 10 interactions. Preferences do not decay; they are shown
@@ -500,10 +505,21 @@ been alone for 3 game days or its affection or social need is low, then play, tr
 exploring for low exercise, mental stimulation or exploration needs. The matching button is
 highlighted.
 
-Reactions: before care is applied, a reaction score is computed from the learned preference
-(section 3.3.2), personality and current state (for example, hunger for feeding, loneliness and
-affection for petting, energy and playfulness for play). The score selects a reaction level and
-text, and scales the care's benefits by 0.6 to 1.4.
+Reactions: before care is applied, a reaction score is computed as 0.5 x the learned preference
+(section 3.3.2) plus an innate score from personality, species and current state (for example,
+hunger for feeding, energy and playfulness for play). The score selects a reaction level and text,
+and scales the care's benefits by 0.6 to 1.4.
+
+Attention: how much a pet enjoys being handled is, by nature, (affectionate - 0.5) x 0.6 -
+(independence - 0.5) x 0.4 + (extraversion - 0.5) x 0.2 - (neuroticism - 0.5) x 0.2 - 0.05, plus
+0.1 for dogs. At or above 0.1 the pet loves attention, at or above -0.15 it tolerates it, and
+below that it prefers its own space (with random personalities, roughly 27% / 39% / 34% of cats and
+41% / 38% / 20% of dogs). Petting's innate score adds (loneliness - 0.2) x 0.8 and subtracts 0.08 for
+each recent petting (overstimulation, fading with the 3-minute half-life of repeated care);
+grooming uses half the attention score and the same overstimulation. Petting, grooming, play,
+training and walks given to a reluctant pet are unwanted attention: stress rises 0.1, happiness
+falls 0.12, the emotional response is annoyance and fear instead of pleasure, and the lesson shown
+explains the signs that a cat or dog has had enough.
 
 3.10 Session and Lifecycle Management
 3.10.1 Pausing

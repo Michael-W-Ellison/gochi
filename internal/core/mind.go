@@ -188,25 +188,29 @@ type RecentCare struct {
 	At    time.Time `json:"at"`    // When it was last counted
 }
 
+// recentCareLocked is how many times the pet has had a kind of care
+// lately, with older care fading over repeatHalfLife. Caller must hold
+// p.mu.
+func (p *DigitalPet) recentCareLocked(interactionType types.InteractionType) float64 {
+	recent := p.RecentCare[interactionType]
+	if recent == nil {
+		return 0
+	}
+	if elapsed := now().Sub(recent.At); elapsed > 0 {
+		return recent.Count * math.Pow(0.5, elapsed.Seconds()/repeatHalfLife.Seconds())
+	}
+	return recent.Count
+}
+
 // repeatWeightLocked returns how much a kind of care counts towards
 // learning and personality now (1.0 the first time, less when repeated
 // in quick succession) and records it. Caller must hold p.mu.
 func (p *DigitalPet) repeatWeightLocked(interactionType types.InteractionType) float64 {
-	t := now()
+	count := p.recentCareLocked(interactionType)
 	if p.RecentCare == nil {
 		p.RecentCare = make(map[types.InteractionType]*RecentCare)
 	}
-	recent := p.RecentCare[interactionType]
-	if recent == nil {
-		recent = &RecentCare{}
-		p.RecentCare[interactionType] = recent
-	}
-
-	count := recent.Count
-	if elapsed := t.Sub(recent.At); elapsed > 0 {
-		count *= math.Pow(0.5, elapsed.Seconds()/repeatHalfLife.Seconds())
-	}
-	recent.Count, recent.At = count+1, t
+	p.RecentCare[interactionType] = &RecentCare{Count: count + 1, At: now()}
 	return 1 / (1 + count)
 }
 

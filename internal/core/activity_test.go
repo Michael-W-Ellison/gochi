@@ -17,6 +17,7 @@ func TestEveryBehaviorHasActivityDescription(t *testing.T) {
 func TestLearnedBehaviorIsDescribed(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 		setCalmHealthyState(pet)
 	}
@@ -80,14 +81,17 @@ func TestLikesAndDislikes(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 		setCalmHealthyState(pet)
 	}
 	for i := 0; i < 3; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPetting, 1.0)
 		setCalmHealthyState(pet)
 	}
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionDiscipline, 1.0)
 		setCalmHealthyState(pet)
 	}
@@ -146,6 +150,7 @@ func TestLonelyPetAsksForFavoriteAttention(t *testing.T) {
 
 	// A pet that has learned to love play asks to play instead
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 		setCalmHealthyState(pet)
 	}

@@ -235,6 +235,7 @@ func TestLovingExploringMakesPetAdventurous(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 	for i := 0; i < 12; i++ {
 		setCalmHealthyState(pet)
+		pet.RecentCare = nil // Trips spread out over time
 		pet.SendExploring()
 		pet.Update(exploreDuration + 0.1)
 	}

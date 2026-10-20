@@ -97,6 +97,8 @@ type PetStatus struct {
 	Wellbeing        float64                `json:"wellbeing"`
 	Personality      string                 `json:"personality"`
 	Changes          []string               `json:"personality_changes"` // How its personality has changed
+	Attention        string                 `json:"attention"`           // How much it enjoys attention by nature
+	Tolerates        []string               `json:"tolerates"`           // Care it neither likes nor dislikes
 	Likes            []string               `json:"likes"`
 	Dislikes         []string               `json:"dislikes"`
 	Slot             string                 `json:"slot"`
@@ -809,7 +811,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             <div class="about" id="about">
                 <div id="aboutPersonality"></div>
+                <div id="aboutAttention"></div>
                 <div id="aboutLikes"></div>
+                <div id="aboutTolerates"></div>
                 <div id="aboutDislikes"></div>
                 <div id="aboutChanges"></div>
                 <div id="aboutTreasures"></div>
@@ -1330,7 +1334,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 el.append(strong, items.length ? items.join(', ') : none);
             };
             setList('aboutLikes', 'Likes', status.likes || [], 'nothing yet');
+            setList('aboutTolerates', 'Puts up with', status.tolerates || [], 'nothing yet');
             setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
+            setList('aboutAttention', 'Attention', status.attention ? [status.name + ' ' + status.attention] : [], 'unknown');
             setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
             document.getElementById('activity').textContent =
                 status.is_alive ? status.name + ' ' + status.activity :
@@ -2514,6 +2520,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		petStatus.LastAdventure = a
 	}
 	petStatus.Changes = s.pet.PersonalityChanges()
+	petStatus.Attention = s.pet.AttentionStyle()
+	petStatus.Tolerates = s.pet.Tolerates()
 	petStatus.Likes, petStatus.Dislikes = s.pet.LikesAndDislikes()
 	if petStatus.Likes == nil {
 		petStatus.Likes = []string{}

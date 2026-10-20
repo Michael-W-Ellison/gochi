@@ -229,8 +229,21 @@ The lessons and guide give general care advice. For a real pet, follow your vete
 - **Requests**: your pet asks for what it needs in a speech bubble (a drink, food, grooming,
   attention or play), the matching button is highlighted, and the browser tab title shows 💬.
   A pet left alone for a while asks for the kind of attention it likes best.
-- **About**: shows your pet's personality, its likes and dislikes (learned from how you care for
-  it), how its personality has changed since you adopted it, and the treasures it has found.
+- **About**: shows your pet's personality, how much it enjoys attention, what it likes, puts up
+  with and dislikes, how its personality has changed since you adopted it, and the treasures it
+  has found.
+- **Attention**: by nature, some pets love attention, some tolerate it in moderation and some
+  prefer their own space. Affectionate, outgoing pets love it; independent and nervous ones would
+  rather be left alone; dogs are on the whole keener than cats. A pet that is lonely welcomes
+  attention more. Too much petting or grooming in a short time overstimulates any pet. Attention a
+  pet doesn't want (petting, grooming, play, training or walks it is reluctant about) stresses it
+  instead of pleasing it, and the page explains the signs that a cat or dog has had enough.
+- **Likes and dislikes**: a pet learns them from how it takes each kind of care, which depends on
+  its nature and when the care is given, not just on the care itself. A pet that loves attention
+  learns to like being petted; one that prefers its own space learns to dislike it, however often
+  it is petted; one that tolerates it learns to put up with it. Care a pet has had five or more
+  times but neither likes nor dislikes is listed under "Puts up with". Care repeated in quick
+  succession counts less towards what it learns.
 - **A personality that grows**: a pet's personality changes slowly with how it is treated.
   Enjoyed play makes it more playful, enjoyed petting more affectionate, good trips more curious,
   and consistent care calmer and more attached to you. Scolding, injuries, illness and accidents

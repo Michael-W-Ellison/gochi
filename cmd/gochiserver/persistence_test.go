@@ -662,6 +662,8 @@ func TestStatusShowsPersonalityAndPreferences(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
+		server.pet.RecentCare = nil          // Care spread out over time
+		server.pet.Emotions.Loneliness = 0.6 // Petting is welcome when the pet wants company
 		server.pet.ProcessUserInteraction(types.InteractionPetting, 1.0)
 	}
 	if body := statusBody(); !strings.Contains(body, `"likes":["being petted"]`) {

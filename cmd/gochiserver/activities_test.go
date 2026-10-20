@@ -495,3 +495,17 @@ func TestRepeatedCareIsReported(t *testing.T) {
 		t.Errorf("Repeated care should be reported: %s", body)
 	}
 }
+
+func TestStatusShowsAttentionStyle(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	status := statusOf(t, server)
+	if status["attention"] != core.AttentionTolerates {
+		t.Errorf("A balanced cat tolerates attention: %v", status["attention"])
+	}
+	if tolerates, ok := status["tolerates"].([]interface{}); !ok || len(tolerates) != 0 {
+		t.Errorf("A new pet tolerates nothing yet: %v", status["tolerates"])
+	}
+}

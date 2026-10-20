@@ -219,25 +219,32 @@ func TestSpamClickingChangesPersonalityLess(t *testing.T) {
 	for i := 0; i < 40; i++ { // Clicks a second apart
 		*clock = clock.Add(time.Second)
 		setCalmHealthyState(spammed)
-		last = spammed.Interact(types.InteractionPetting, 1.0)
+		last = spammed.Interact(types.InteractionPlaying, 1.0)
 	}
-	for i := 0; i < 40; i++ { // Care an hour apart
+	for i := 0; i < 40; i++ { // Play an hour apart
 		*clock = clock.Add(time.Hour)
 		setCalmHealthyState(spaced)
-		spaced.Interact(types.InteractionPetting, 1.0)
+		spaced.Interact(types.InteractionPlaying, 1.0)
 	}
 
-	start := NewDigitalPet("Start", "user123").Personality.Traits.Affectionate
-	spacedGain := spaced.Personality.Traits.Affectionate - start
-	spammedGain := spammed.Personality.Traits.Affectionate - start
-	t.Logf("Affection gained: 40 rapid pettings %.4f, 40 spread out %.4f", spammedGain, spacedGain)
+	start := NewDigitalPet("Start", "user123").Personality.Traits.Playfulness
+	spacedGain := spaced.Personality.Traits.Playfulness - start
+	spammedGain := spammed.Personality.Traits.Playfulness - start
+	t.Logf("Playfulness gained: 40 rapid play sessions %.4f, 40 spread out %.4f", spammedGain, spacedGain)
 	if spammedGain <= 0 || spammedGain > spacedGain/4 {
-		t.Errorf("40 rapid pettings should change a pet far less than 40 spread out: %f vs %f", spammedGain, spacedGain)
+		t.Errorf("40 rapid play sessions should change a pet far less than 40 spread out: %f vs %f", spammedGain, spacedGain)
 	}
 	if !strings.Contains(last.Repeated, "won't change how Mochi grows") {
 		t.Errorf("The player should be told repeated care no longer counts: %q", last.Repeated)
 	}
 	if spammed.Biology.Vitals.Happiness < 0.8 {
-		t.Error("Repeated care should still make the pet happy")
+		t.Error("Repeated play should still make the pet happy")
+	}
+
+	// Repeats also count less towards learned likes
+	spacedExp := spaced.Memory.Preferences[types.InteractionPlaying].Experience
+	spammedExp := spammed.Memory.Preferences[types.InteractionPlaying].Experience
+	if spacedExp < 39.9 || spammedExp > 6 {
+		t.Errorf("Learned likes should count repeats less: %f spread out, %f rapid", spacedExp, spammedExp)
 	}
 }

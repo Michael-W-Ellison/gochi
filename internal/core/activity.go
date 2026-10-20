@@ -113,6 +113,27 @@ func (p *DigitalPet) LikesAndDislikes() (likes, dislikes []string) {
 	return strongestFirst(liked), strongestFirst(disliked)
 }
 
+// toleratedExperience is how much experience of a kind of care the pet
+// needs before it is said to tolerate it (neither liking nor disliking it)
+const toleratedExperience = 5
+
+// Tolerates returns the kinds of care the pet has had often enough to
+// know, but neither likes nor dislikes: it puts up with them
+func (p *DigitalPet) Tolerates() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	tolerated := []string{}
+	for _, care := range careNames {
+		pref, ok := p.Memory.Preferences[care.interaction]
+		affinity := p.Memory.GetLearnedAffinity(care.interaction)
+		if ok && pref.Experience >= toleratedExperience && affinity < likeThreshold && affinity > dislikeThreshold {
+			tolerated = append(tolerated, care.name)
+		}
+	}
+	return tolerated
+}
+
 // PersonalityDescription describes the pet's personality using its name
 func (p *DigitalPet) PersonalityDescription() string {
 	return strings.Replace(p.Personality.GetPersonalityDescription(), "This pet", p.Name, 1)

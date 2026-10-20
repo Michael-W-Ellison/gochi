@@ -333,10 +333,16 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	// How much the pet enjoys this, from what it has learned, its
 	// personality and its needs, scales the benefits
 	result := InteractionResult{Applied: true, ReactionMultiplier: 1}
-	if interactionType != types.InteractionCleaning { // The pet isn't part of cleaning
+	involved := interactionType != types.InteractionCleaning // The pet isn't part of cleaning
+	innate, weight := 0.0, 0.0
+	if involved {
 		result.Reaction, result.ReactionMultiplier = p.reactionLocked(interactionType)
 		result.ReactionText = reactionText(interactionType, result.Reaction, p.Name)
+		innate = p.innateReactionLocked(interactionType)
+		weight = p.repeatWeightLocked(interactionType) // After the reaction, which counts earlier repeats
 	}
+	// Attention a pet doesn't want stresses it instead of pleasing it
+	unwanted := attentionCare[interactionType] && result.Reaction == ReactionReluctant
 	boost := result.ReactionMultiplier
 
 	// Belongings such as toys and brushes make care more effective
@@ -351,18 +357,27 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	// Apply emotional effects
 	stimulus := ai.CreateStimulusFromInteraction(interactionType, intensity)
+	if unwanted {
+		p.Biology.Vitals.Stress += 0.1
+		p.Biology.Vitals.Happiness -= 0.12
+		p.Biology.Vitals.Clamp()
+		stimulus = ai.EmotionalStimulus{AngerDelta: 0.1, FearDelta: 0.05, ContentmentDelta: -0.05,
+			Source: interactionType.String()}
+	}
 	p.Emotions.ApplyEmotionalStimulus(stimulus)
 
-	// Record memory; its valence also updates the learned preference
-	// for this interaction type, which shapes future behavior
+	// Record memory. The learned preference for this kind of care comes
+	// from how the pet itself took it (its nature and state, not what it
+	// already learned), with care repeated in quick succession counting
+	// less; it shapes future reactions and behavior
 	valence := stimulus.Valence()
-	p.Memory.RecordInteractionFull(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion, valence, math.Abs(valence))
+	p.Memory.RecordInteractionExperience(interactionType, p.Biology.GetAgeInDays(), intensity, p.Emotions.DominantEmotion,
+		valence, math.Abs(valence), experiencedValence(innate), weight)
 
 	// The pet learns how its owner responds to what it was doing, and its
 	// personality slowly changes with how it is treated (cleaning the
 	// living area doesn't involve the pet)
-	if interactionType != types.InteractionCleaning {
-		weight := p.repeatWeightLocked(interactionType)
+	if involved {
 		p.learnFromResponseLocked(behaviorBefore, contextBefore, valence*weight)
 		p.evolveFromCareLocked(interactionType, valence, weight)
 		if weight < diminishedWeight {
@@ -375,6 +390,9 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	result.PointsEarned = p.awardCareLocked(interactionType)
 	p.checkOffLocked(interactionType)
 	result.Lesson = p.lessonLocked(interactionType, treated)
+	if unwanted {
+		result.Lesson = unwantedAttentionLessons[p.speciesLocked()]
+	}
 
 	// Update behavior
 	p.updateBehavior()
