@@ -79,6 +79,24 @@ var reactionTexts = map[types.InteractionType]map[ReactionLevel]string{
 		ReactionOkay:      "%s had a quiet walk around.",
 		ReactionReluctant: "%s is glad to be home.",
 	},
+	types.InteractionWalking: {
+		ReactionDelighted: "%s pulls happily on the leash, sniffing everything!",
+		ReactionHappy:     "%s trots along beside you.",
+		ReactionOkay:      "%s takes a short stroll.",
+		ReactionReluctant: "%s drags its paws and wants to go home.",
+	},
+	types.InteractionEnvironmentChange: {
+		ReactionDelighted: "%s rushes over to investigate!",
+		ReactionHappy:     "%s explores the change with interest.",
+		ReactionOkay:      "%s gives it a quick sniff.",
+		ReactionReluctant: "%s eyes the change warily.",
+	},
+	types.InteractionSocialIntroduction: {
+		ReactionDelighted: "%s is thrilled to have company!",
+		ReactionHappy:     "%s seems glad of the company.",
+		ReactionOkay:      "%s watches carefully.",
+		ReactionReluctant: "%s wants to get away.",
+	},
 	types.InteractionDiscipline: {
 		ReactionDelighted: "%s looks sad and lowers its ears.",
 		ReactionHappy:     "%s looks sad and lowers its ears.",
@@ -92,45 +110,14 @@ var reactionTexts = map[types.InteractionType]map[ReactionLevel]string{
 // It returns the reaction level and a multiplier (0.6 to 1.4) for the
 // interaction's benefits. Caller must hold p.mu.
 func (p *DigitalPet) reactionLocked(interactionType types.InteractionType) (ReactionLevel, float64) {
-	traits := p.Personality.Traits
-	v := p.Biology.Vitals
-
-	// What the pet has learned about this kind of care
-	score := 0.5 * p.Memory.GetLearnedAffinity(interactionType)
-
-	// Personality and current needs
-	switch interactionType {
-	case types.InteractionFeeding:
-		score += (0.5 - v.Nutrition) * 0.8
-	case types.InteractionDrinking:
-		score += (0.5 - v.Hydration) * 0.8
-	case types.InteractionPetting:
-		score += (traits.Affectionate-0.5)*0.6 - (traits.Independence-0.5)*0.4
-		score += (p.Emotions.Loneliness - 0.2) * 0.8
-	case types.InteractionPlaying:
-		score += (traits.Playfulness - 0.5) * 0.6
-		score += (v.Energy - 0.5) * 0.6
-	case types.InteractionGrooming:
-		score += (traits.Conscientiousness - 0.5) * 0.4
-		score += (0.5 - v.Cleanliness) * 0.6
-	case types.InteractionMedicalCare:
-		score -= 0.1 + (traits.Neuroticism-0.5)*0.4
-		score += (0.6 - v.Health) * 0.8
-		if p.Injured {
-			score += 0.3 // Relief at being treated
-		}
-	case types.InteractionRewards:
-		score += 0.2
-	case types.InteractionTraining:
-		score += (traits.Intelligence - 0.5) * 0.6
-		score += (v.Energy - 0.5) * 0.4
-	case types.InteractionEnvironmentalEnrichment:
-		score += (traits.Curiosity - 0.5) * 0.6
-		score += (v.Energy - 0.5) * 0.4
-	case types.InteractionDiscipline:
+	if interactionType == types.InteractionDiscipline {
 		// Discipline is never enjoyed and has no benefits to scale
 		return ReactionReluctant, 1.0
 	}
+
+	// What the pet has learned about this kind of care, plus how it takes
+	// it by nature and in its current state
+	score := 0.5*p.Memory.GetLearnedAffinity(interactionType) + p.innateReactionLocked(interactionType)
 
 	level := ReactionReluctant
 	switch {
@@ -145,9 +132,148 @@ func (p *DigitalPet) reactionLocked(interactionType types.InteractionType) (Reac
 	return level, min(max(1.0+0.5*score, 0.6), 1.4)
 }
 
-// reactionText describes a reaction, or returns "" for interactions
-// without reaction texts
-func reactionText(interactionType types.InteractionType, level ReactionLevel, name string) string {
+// overstimulation is how much less welcome each recent petting or grooming
+// makes the next one
+const overstimulation = 0.08
+
+// innateReactionLocked is how the pet takes an interaction apart from what
+// it has learned: from its personality, its species and its current state
+// (roughly -1.0 to 1.0). Caller must hold p.mu.
+func (p *DigitalPet) innateReactionLocked(interactionType types.InteractionType) float64 {
+	traits := p.Personality.Traits
+	v := p.Biology.Vitals
+	score := p.choiceReactionLocked() // The food, toy, spot or method chosen
+
+	switch interactionType {
+	case types.InteractionFeeding:
+		score += (0.5 - v.Nutrition) * 0.8
+	case types.InteractionDrinking:
+		score += (0.5 - v.Hydration) * 0.8
+	case types.InteractionPetting:
+		score += p.attentionLikingLocked()
+		score += (p.Emotions.Loneliness - 0.2) * 0.8
+		score -= overstimulation * p.recentCareLocked(types.InteractionPetting)
+	case types.InteractionPlaying:
+		score += (traits.Playfulness - 0.5) * 0.6
+		score += (v.Energy - 0.5) * 0.6
+		score += speciesLiking[p.speciesLocked()][interactionType]
+	case types.InteractionGrooming:
+		score += (traits.Conscientiousness - 0.5) * 0.4
+		score += (0.5 - v.Cleanliness) * 0.6
+		score += 0.5 * p.attentionLikingLocked() // Being handled
+		score -= overstimulation * p.recentCareLocked(types.InteractionGrooming)
+	case types.InteractionMedicalCare:
+		score -= 0.1 + (traits.Neuroticism-0.5)*0.4
+		score += (0.6 - v.Health) * 0.8
+		if p.Injured || p.Illness != nil {
+			score += 0.3 // Relief at being treated
+		}
+	case types.InteractionRewards:
+		score += 0.2
+	case types.InteractionTraining:
+		score += (traits.Intelligence - 0.5) * 0.6
+		score += (v.Energy - 0.5) * 0.4
+	case types.InteractionEnvironmentalEnrichment:
+		score += (traits.Curiosity - 0.5) * 0.6
+		score += (v.Energy - 0.5) * 0.4
+	case types.InteractionWalking:
+		score += (traits.EnergyLevel - 0.5) * 0.6
+		score += (v.Energy - 0.5) * 0.4
+		ph := p.Biology.Physiology
+		score += max(ph.Bowel, ph.Bladder) * 0.4 // Relief at going outside
+		score += speciesLiking[p.speciesLocked()][interactionType]
+	case types.InteractionDiscipline:
+		score -= 0.5
+	}
+	return score
+}
+
+// speciesLiking is how much more each species enjoys some kinds of care:
+// dogs are, on the whole, more eager for company and activity
+var speciesLiking = map[Species]map[types.InteractionType]float64{
+	SpeciesDog: {
+		types.InteractionPetting: 0.1,
+		types.InteractionPlaying: 0.05,
+		types.InteractionWalking: 0.1,
+	},
+}
+
+// attentionLikingLocked is how much the pet enjoys being handled and given
+// attention by nature, when it isn't especially lonely (roughly -0.6 to
+// 0.5): affectionate, outgoing pets love it; most tolerate it; independent
+// and nervous ones would rather be left alone. Caller must hold p.mu.
+func (p *DigitalPet) attentionLikingLocked() float64 {
+	traits := p.Personality.Traits
+	return (traits.Affectionate-0.5)*0.6 - (traits.Independence-0.5)*0.4 +
+		(traits.Extraversion-0.5)*0.2 - (traits.Neuroticism-0.5)*0.2 - 0.05 +
+		speciesLiking[p.speciesLocked()][types.InteractionPetting]
+}
+
+// experiencedValence is how the pet took an interaction (-1.0 to 1.0),
+// from its innate reaction: delighted is 1.0, merely putting up with it
+// is near 0, and reluctance is negative. Learned preferences come from
+// this, so they follow the pet's nature and when care is given rather
+// than reinforcing themselves.
+func experiencedValence(innate float64) float64 {
+	return max(-1, min(1, innate/delightedScore))
+}
+
+// Attention styles, from how much a pet enjoys attention by nature
+const (
+	AttentionLoves     = "loves attention"
+	AttentionTolerates = "tolerates attention, in moderation"
+	AttentionAvoids    = "prefers its own space"
+)
+
+// AttentionStyle describes how much the pet enjoys attention by nature
+func (p *DigitalPet) AttentionStyle() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// The same levels as a happy and a reluctant reaction to petting
+	switch liking := p.attentionLikingLocked(); {
+	case liking >= happyScore:
+		return AttentionLoves
+	case liking >= okayScore:
+		return AttentionTolerates
+	}
+	return AttentionAvoids
+}
+
+// attentionCare is care that is attention to the pet itself, which an
+// unwilling pet finds stressful
+var attentionCare = map[types.InteractionType]bool{
+	types.InteractionPetting:  true,
+	types.InteractionGrooming: true,
+	types.InteractionPlaying:  true,
+	types.InteractionTraining: true,
+	types.InteractionWalking:  true,
+}
+
+// unwantedAttentionLessons explain the signs that a pet has had enough
+var unwantedAttentionLessons = map[Species]string{
+	SpeciesCat: "Cats show they've had enough with a twitching tail, flattened ears or rippling skin. " +
+		"Stop before they have to swat; let your cat come to you.",
+	SpeciesDog: "Dogs show they want a break by turning away, licking their lips, yawning or showing the " +
+		"whites of their eyes. Give them space and let them come to you.",
+}
+
+// speciesReactionTexts replace reactionTexts where a species reacts
+// differently
+var speciesReactionTexts = map[Species]map[types.InteractionType]map[ReactionLevel]string{
+	SpeciesDog: {
+		types.InteractionPetting: {
+			ReactionDelighted: "%s leans into your hand, tail wagging!",
+			ReactionReluctant: "%s turns away and licks its lips. It wants some space.",
+		},
+	},
+}
+
+// reactionText describes a species' reaction, or returns "" for
+// interactions without reaction texts
+func reactionText(species Species, interactionType types.InteractionType, level ReactionLevel, name string) string {
+	if text, ok := speciesReactionTexts[species][interactionType][level]; ok {
+		return fmt.Sprintf(text, name)
+	}
 	texts, ok := reactionTexts[interactionType]
 	if !ok {
 		return ""

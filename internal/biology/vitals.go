@@ -98,27 +98,23 @@ func (v *VitalStats) GetCriticalStats(threshold float64) []string {
 
 // PhysiologicalProcesses represents internal biological processes
 type PhysiologicalProcesses struct {
-	MetabolicRate        float64 `json:"metabolic_rate"`        // Rate of energy consumption
-	DigestiveEfficiency  float64 `json:"digestive_efficiency"`  // How well food is processed
-	ImmuneStrength       float64 `json:"immune_strength"`       // Disease resistance
-	CognitiveCapacity    float64 `json:"cognitive_capacity"`    // Learning and memory ability
-	EmotionalResilience  float64 `json:"emotional_resilience"`  // Stress resistance
-	CardiovascularHealth float64 `json:"cardiovascular_health"` // Heart/circulation health
-	RespiratoryHealth    float64 `json:"respiratory_health"`    // Lung health
-	Age                  float64 `json:"age"`                   // Age in days
+	MetabolicRate       float64 `json:"metabolic_rate"`       // Rate of energy consumption
+	DigestiveEfficiency float64 `json:"digestive_efficiency"` // How well food is processed
+	ImmuneStrength      float64 `json:"immune_strength"`      // Disease resistance
+	CognitiveCapacity   float64 `json:"cognitive_capacity"`   // Learning and memory ability
+	EmotionalResilience float64 `json:"emotional_resilience"` // Stress resistance
+	Age                 float64 `json:"age"`                  // Age in days
 }
 
 // NewPhysiologicalProcesses creates a new PhysiologicalProcesses with healthy defaults
 func NewPhysiologicalProcesses() *PhysiologicalProcesses {
 	return &PhysiologicalProcesses{
-		MetabolicRate:        1.0,
-		DigestiveEfficiency:  0.9,
-		ImmuneStrength:       0.9,
-		CognitiveCapacity:    0.8,
-		EmotionalResilience:  0.7,
-		CardiovascularHealth: 1.0,
-		RespiratoryHealth:    1.0,
-		Age:                  0.0,
+		MetabolicRate:       1.0,
+		DigestiveEfficiency: 0.9,
+		ImmuneStrength:      0.9,
+		CognitiveCapacity:   0.8,
+		EmotionalResilience: 0.7,
+		Age:                 0.0,
 	}
 }
 
@@ -126,6 +122,7 @@ func NewPhysiologicalProcesses() *PhysiologicalProcesses {
 type BiologicalSystems struct {
 	Vitals       *VitalStats
 	Processes    *PhysiologicalProcesses
+	Physiology   *Physiology `json:"physiology"` // Organ systems; nil in saves made before they existed
 	BirthTime    time.Time
 	LastUpdate   time.Time
 	IsAlive      bool
@@ -134,6 +131,11 @@ type BiologicalSystems struct {
 	// DecayMultipliers scale how fast needs build up (set by the pet's
 	// belongings each update; not saved)
 	DecayMultipliers DecayMultipliers `json:"-"`
+
+	// AirPollution is how foul the air the pet breathes is, 0.0 (fresh) to
+	// 1.0 (foul); set from its surroundings each update (not saved, so a
+	// loaded pet starts with fresh air)
+	AirPollution float64 `json:"-"`
 }
 
 // DecayMultipliers scale natural decay rates. A value of 0 means 1.0
@@ -159,6 +161,7 @@ func NewBiologicalSystems() *BiologicalSystems {
 	return &BiologicalSystems{
 		Vitals:     NewVitalStats(),
 		Processes:  NewPhysiologicalProcesses(),
+		Physiology: NewPhysiology(),
 		BirthTime:  now,
 		LastUpdate: now,
 		IsAlive:    true,
@@ -179,6 +182,10 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 	// Process metabolism - convert nutrition to energy
 	b.processMetabolism(deltaTime)
 
+	// Digestion, fitness, breathing and stress regulation
+	b.EnsurePhysiology()
+	b.updatePhysiology(deltaTime, 1-b.AirPollution)
+
 	// Natural decay of vital stats
 	b.decayVitalStats(deltaTime)
 
@@ -187,6 +194,14 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 
 	// Ensure all values stay in valid range
 	b.Vitals.Clamp()
+}
+
+// EnsurePhysiology gives a pet saved before organ systems existed a
+// healthy body
+func (b *BiologicalSystems) EnsurePhysiology() {
+	if b.Physiology == nil {
+		b.Physiology = NewPhysiology()
+	}
 }
 
 // ProcessRest lets a sleeping pet recover over deltaTime game days:
@@ -225,7 +240,7 @@ func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	// Natural decay rates (per game day)
 	b.Vitals.Hydration -= deltaTime * 0.05 * rate(b.DecayMultipliers.Hydration)
 	b.Vitals.Nutrition -= deltaTime * 0.03 * rate(b.DecayMultipliers.Nutrition)
-	b.Vitals.Energy -= deltaTime * 0.02 * rate(b.DecayMultipliers.Energy)
+	b.Vitals.Energy -= deltaTime * 0.02 * rate(b.DecayMultipliers.Energy) * b.EnergyDrain()
 
 	// Fatigue builds up over time awake
 	b.Vitals.Fatigue += deltaTime * 0.01 * rate(b.DecayMultipliers.Fatigue)
@@ -242,8 +257,9 @@ func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	if b.Vitals.GetOverallWellbeing() > 0.7 {
 		b.Vitals.Stress -= deltaTime * 0.02
 	} else {
-		// Stress increases if wellbeing is poor
-		b.Vitals.Stress += deltaTime * 0.01
+		// Stress increases if wellbeing is poor, faster with a worn
+		// nervous system
+		b.Vitals.Stress += deltaTime * 0.01 * b.StressSensitivity()
 	}
 
 	// Health is affected by other vital stats

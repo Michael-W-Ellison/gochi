@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -548,5 +549,38 @@ func TestQTableGrowth(t *testing.T) {
 	expectedPairs := len(states) * len(actions)
 	if finalSize != expectedPairs {
 		t.Errorf("Expected Q-table size %d, got %d", expectedPairs, finalSize)
+	}
+}
+
+func TestLearningSystemSurvivesJSON(t *testing.T) {
+	ls := NewLearningSystem()
+	ls.LearnFromInteraction(types.BehaviorHappy, types.BehaviorInvestigating, 1.0, types.BehaviorHappy)
+	ls.LearnFromInteraction(types.BehaviorIdle, types.BehaviorPlaying, -0.5, types.BehaviorIdle)
+
+	data, err := json.Marshal(ls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored LearningSystem
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range []StateActionPair{{types.BehaviorHappy, types.BehaviorInvestigating}, {types.BehaviorIdle, types.BehaviorPlaying}} {
+		if got, want := restored.GetQValue(pair.State, pair.Action), ls.GetQValue(pair.State, pair.Action); got != want || got == 0 {
+			t.Errorf("Q%v = %f after loading, want %f", pair, got, want)
+		}
+	}
+	if restored.TotalExperiences != 2 {
+		t.Errorf("Statistics should be saved, got %d experiences", restored.TotalExperiences)
+	}
+	// The restored system keeps learning
+	restored.LearnFromInteraction(types.BehaviorHappy, types.BehaviorInvestigating, 1.0, types.BehaviorHappy)
+}
+
+func TestMaxQValueIncludesLaterBehaviors(t *testing.T) {
+	ls := NewLearningSystem()
+	ls.QTable[StateActionPair{types.BehaviorHappy, types.BehaviorInvestigating}] = 0.8
+	if got := ls.getMaxQValue(types.BehaviorHappy); got != 0.8 {
+		t.Errorf("getMaxQValue should consider every learned action, got %f", got)
 	}
 }

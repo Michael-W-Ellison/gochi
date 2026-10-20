@@ -235,14 +235,18 @@ func TestLovingExploringMakesPetAdventurous(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 	for i := 0; i < 12; i++ {
 		setCalmHealthyState(pet)
+		pet.RecentCare = nil // Trips spread out over time
 		pet.SendExploring()
 		pet.Update(exploreDuration + 0.1)
 	}
 	setCalmHealthyState(pet)
 	pet.updateBehavior()
 
-	if pet.CurrentBehavior != types.BehaviorExploring {
-		t.Errorf("A pet that loves exploring should choose to explore, got %s", pet.CurrentBehavior)
+	if pet.CurrentBehavior != types.BehaviorInvestigating {
+		t.Errorf("A pet that loves exploring should be curious at home, got %s", pet.CurrentBehavior)
+	}
+	if pet.IsExploring() || pet.Activity() != "is sniffing around the house" {
+		t.Errorf("A curious pet at home is not on a trip: exploring %v, %q", pet.IsExploring(), pet.Activity())
 	}
 }
 

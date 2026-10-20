@@ -41,7 +41,9 @@
     left: 0;
     right: 0;
     bottom: 0;
-    pointer-events: none;
+    /* The overlay takes taps anywhere on screen: placing and moving the
+       pet are handled by its listeners */
+    pointer-events: auto;
 }
 
 .ar-overlay > * {

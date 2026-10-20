@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ar"
+	"github.com/Michael-W-Ellison/gochi/internal/core"
 )
 
 func TestARThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,12 +85,43 @@ func TestARThroughServer(t *testing.T) {
 	}
 
 	// A pet that is no longer active leaves the scene
-	if err := server.createPet("Pepper", false, false); err != nil {
+	if err := server.createPet("Pepper", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	rec = httptest.NewRecorder()
 	server.handleARState(rec, httptest.NewRequest(http.MethodGet, "/api/ar", nil))
 	if !strings.Contains(rec.Body.String(), `"placed_pets":{}`) {
 		t.Errorf("Switching pets should remove the old pet from the scene: %s", rec.Body.String())
+	}
+}
+
+func TestStoppingARSessionRemovesPet(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	post(t, server.handleARSession, `{"action":"start"}`)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		server.arMu.Lock()
+		state := server.arServiceLocked().GetSessionState()
+		server.arMu.Unlock()
+		if state == ar.ARSessionStateTracking {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("The AR session never started tracking")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if rec := post(t, server.handleARPlace, `{"position":{"x":0,"y":0,"z":-1}}`); rec.Code != http.StatusOK {
+		t.Fatalf("Placing the pet: %d %s", rec.Code, rec.Body.String())
+	}
+
+	post(t, server.handleARSession, `{"action":"stop"}`)
+	rec := httptest.NewRecorder()
+	server.handleARState(rec, httptest.NewRequest(http.MethodGet, "/api/ar", nil))
+	if !strings.Contains(rec.Body.String(), `"placed_pets":{}`) || !strings.Contains(rec.Body.String(), `"session_state":"inactive"`) {
+		t.Errorf("Stopping the session should remove the pet: %s", rec.Body.String())
 	}
 }

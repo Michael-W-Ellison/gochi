@@ -14,8 +14,9 @@ var activityDescriptions = map[types.BehaviorState]string{
 	types.BehaviorIdle:              "is relaxing",
 	types.BehaviorSleeping:          "is sleeping",
 	types.BehaviorEating:            "is looking for food",
-	types.BehaviorPlaying:           "is playing",
-	types.BehaviorExploring:         "is exploring",
+	types.BehaviorPlaying:           "is playing by itself",
+	types.BehaviorExploring:         "is out exploring",
+	types.BehaviorInvestigating:     "is sniffing around the house",
 	types.BehaviorSocialInteraction: "wants your attention",
 	types.BehaviorGrooming:          "is grooming itself",
 	types.BehaviorExercising:        "is exercising",
@@ -35,6 +36,26 @@ func ActivityDescription(behavior types.BehaviorState) string {
 	return "is relaxing"
 }
 
+// Activity describes what the pet is doing right now, to follow its name
+// ("Biscuit is out exploring"). Trips, games and hibernation take
+// precedence over the pet's behavior.
+func (p *DigitalPet) Activity() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	switch {
+	case !p.Biology.IsAlive:
+		return "has passed away"
+	case p.Hibernating:
+		return ActivityDescription(types.BehaviorHibernating)
+	case p.isExploringLocked():
+		return ActivityDescription(types.BehaviorExploring)
+	case p.game != nil:
+		return "is hiding somewhere"
+	}
+	return ActivityDescription(p.CurrentBehavior)
+}
+
 // careNames name each kind of care as something a pet can like or dislike
 var careNames = []struct {
 	interaction types.InteractionType
@@ -44,6 +65,9 @@ var careNames = []struct {
 	{types.InteractionDrinking, "fresh water"},
 	{types.InteractionPetting, "being petted"},
 	{types.InteractionPlaying, "playing"},
+	{types.InteractionWalking, "walks"},
+	{types.InteractionEnvironmentChange, "new things at home"},
+	{types.InteractionSocialIntroduction, "meeting other pets"},
 	{types.InteractionGrooming, "being groomed"},
 	{types.InteractionTraining, "training"},
 	{types.InteractionEnvironmentalEnrichment, "exploring"},
@@ -91,6 +115,27 @@ func (p *DigitalPet) LikesAndDislikes() (likes, dislikes []string) {
 	return strongestFirst(liked), strongestFirst(disliked)
 }
 
+// toleratedExperience is how much experience of a kind of care the pet
+// needs before it is said to tolerate it (neither liking nor disliking it)
+const toleratedExperience = 5
+
+// Tolerates returns the kinds of care the pet has had often enough to
+// know, but neither likes nor dislikes: it puts up with them
+func (p *DigitalPet) Tolerates() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	tolerated := []string{}
+	for _, care := range careNames {
+		pref, ok := p.Memory.Preferences[care.interaction]
+		affinity := p.Memory.GetLearnedAffinity(care.interaction)
+		if ok && pref.Experience >= toleratedExperience && affinity < likeThreshold && affinity > dislikeThreshold {
+			tolerated = append(tolerated, care.name)
+		}
+	}
+	return tolerated
+}
+
 // PersonalityDescription describes the pet's personality using its name
 func (p *DigitalPet) PersonalityDescription() string {
 	return strings.Replace(p.Personality.GetPersonalityDescription(), "This pet", p.Name, 1)
@@ -98,7 +143,7 @@ func (p *DigitalPet) PersonalityDescription() string {
 
 // PetRequest is something the pet is asking its owner for
 type PetRequest struct {
-	Action  string `json:"action"` // Page action that fulfils it: feed, drink, groom, pet, play, medic, train, explore or revive
+	Action  string `json:"action"` // Page action that fulfils it: feed, drink, groom, pet, play, medic, train, explore, clean, walk or revive
 	Icon    string `json:"icon"`
 	Message string `json:"message"`
 }
@@ -131,6 +176,13 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	if p.Injured {
 		return &PetRequest{"medic", "🩹", p.Name + " is hurt and needs to be healed."}
 	}
+	if p.Illness != nil {
+		return &PetRequest{"medic", "🤒", p.Name + " is ill and needs medical care."}
+	}
+	p.Biology.EnsurePhysiology()
+	if ph := p.Biology.Physiology; p.speciesLocked() == SpeciesDog && max(ph.Bowel, ph.Bladder) >= 0.5 {
+		return &PetRequest{"walk", "🦮", p.Name + " is waiting by the door and needs to go outside!"}
+	}
 
 	v := p.Biology.Vitals
 	switch {
@@ -138,6 +190,13 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 		return &PetRequest{"drink", "💧", p.Name + " is thirsty!"}
 	case v.Nutrition < needRequestLevel:
 		return &PetRequest{"feed", "🍖", p.Name + " is hungry!"}
+	}
+
+	if p.LivingAreaWaste >= 0.5 {
+		if p.speciesLocked() == SpeciesDog {
+			return &PetRequest{"clean", "🧹", "There's a mess in the house that needs cleaning up."}
+		}
+		return &PetRequest{"clean", "🧹", p.Name + "'s litter box needs cleaning."}
 	}
 
 	// A sleeping pet only wakes for food and water

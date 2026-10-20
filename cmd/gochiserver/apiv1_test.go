@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Michael-W-Ellison/gochi/internal/core"
 )
 
 // apiRequest sends a request to the REST API with the test token
@@ -23,7 +25,7 @@ func apiRequest(t *testing.T, handler http.Handler, method, path, body, token st
 
 func TestRESTAPI(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	handler := server.apiHandler("secret")

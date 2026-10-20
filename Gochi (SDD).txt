@@ -1,6 +1,6 @@
 Software Design Document (SDD)
 Advanced Tamagotchi Digital Pet System
-Version: 1.1
+Version: 1.5
 Date: October 2026
 Author: System Architecture Team
 
@@ -125,7 +125,19 @@ cppclass BiologicalSystems {
         float emotionalResilience;
     };
     
+    struct Physiology {                 // Organ systems, 0.0 failing - 1.0 healthy
+        float stomach;                  // Food not yet digested (above 1.0 overfull)
+        float bowel, bladder;           // Waste waiting to be passed
+        float digestiveHealth;          // Scales digestion speed and absorption
+        float cardiovascularHealth;     // Fitness; raised by exercise, fades without it
+        float respiratoryHealth;        // Harmed by foul air, recovers in fresh air
+        float nervousHealth;            // Worn by long-term stress, restored by calm
+    };
+    
     void processMetabolism(float deltaTime);
+    bool eat(float amount);             // True if overfull: the pet throws up
+    void drink(float amount);           // Fills the bladder
+    void exercise(float amount);        // One play session = 1.0
     void processDigestion(FoodItem food);
     void processExercise(ExerciseType type, float duration);
     void processRest(float deltaTime, float sleepQuality);
@@ -141,8 +153,18 @@ by 1.25 with a bed. A pet falls asleep when very tired and wakes only once fatig
 Decay multipliers: the rates at which hunger, thirst, fatigue and energy drain change are
 multiplied by the pet's items (section 3.7) and its environment (section 5.1).
 
+Physiology: the stomach digests 0.6 per game day (scaled by digestive health), and half of what
+is digested becomes waste in the bowel; drinking fills the bladder. Eating past the stomach's
+capacity (for example many treats at once) makes the pet throw up, losing nutrition and harming
+digestion, and a meal's nutrition is scaled by 0.5 + 0.5 x digestive health. Fitness falls 0.02
+per game day without exercise (to 0.3) and rises with play, exploring and walks. Foul air (from a
+dirty living area, section 3.11) lowers respiratory health; fresh air restores it. Stress above
+0.6 wears the nervous system, and a worn one makes stress build faster. An unfit heart or weak
+lungs make energy drain faster, and any organ system below 0.5 costs health.
+
 Death: a pet dies when health or hydration reaches 0.0, or nutrition and energy both do. The
-cause of death is recorded and shown to the player. See section 3.10 for hibernation.
+cause of death is recorded and shown to the player (for an untreated illness, its name). See
+section 3.10 for hibernation.
 3.1.3 PersonalityMatrix Class
 cppclass PersonalityMatrix {
     struct Traits {
@@ -222,7 +244,8 @@ cppclass BehaviorStateMachine {
     enum BehaviorState {
         IDLE, SLEEPING, EATING, PLAYING, EXPLORING,
         SOCIAL_INTERACTION, GROOMING, EXERCISING,
-        SICK, DISTRESSED, HAPPY, EXCITED, HIBERNATING
+        SICK, DISTRESSED, HAPPY, EXCITED, HIBERNATING,
+        INVESTIGATING       // Curious at home; EXPLORING is a trip
     };
     
     struct StateTransition {
@@ -238,8 +261,19 @@ cppclass BehaviorStateMachine {
     void forceState(BehaviorState newState);
 };
 
-The state shown to the player as an activity line (for example "Biscuit is playing") is chosen
-from the pet's personality and from what it has learned it enjoys (section 3.3.2).
+Implementation: each pet has a state machine (built when needed, not saved) whose transitions all
+start from any state and have probability 1.0, so behavior is deterministic and consistent. In
+priority order: EXPLORING (on a trip), SICK (health below 0.3 or a serious illness), DISTRESSED
+(wellbeing below 0.3), SLEEPING (tired, or asleep and not yet rested), EXCITED and HAPPY (good mood
+and energy), EATING (hungry), then a discretionary behavior (PLAYING, SOCIAL_INTERACTION or
+INVESTIGATING) when its score passes 0.6, else IDLE. A discretionary behavior's score combines
+personality, the learned liking for the matching care (section 3.3.2) and the learned reward for
+the behavior itself (reinforcement learning). Hibernation is applied before the state machine.
+The machine records its transitions.
+
+The state shown to the player as an activity line (for example "Biscuit is playing by itself") is
+chosen this way. A hibernating pet, a trip ("is out exploring") and a game of hide and seek ("is
+hiding somewhere") take precedence over the behavior state.
 3.3.2 Learning System
 cppclass LearningSystem {
     struct ExperienceRecord {
@@ -261,11 +295,40 @@ struct InteractionPreference {          // One per interaction type
     int experience;                     // Interactions learned from
 };
 
-Each interaction updates the preference for its type. Early interactions are averaged equally;
+Each interaction updates the preference for its type from how the pet experienced it: its innate
+reaction score / 0.3, limited to -1.0 to 1.0. The learned preference is left out so that
+preferences follow the pet's nature and when care is given rather than reinforcing themselves; a
+pet that dislikes attention learns to dislike petting however often it is petted. Each interaction
+counts by its repeat weight (section 3.3.2, repeated care), so repeats in quick succession add less
+experience and move the preference less. Early interactions are averaged equally;
 once established, each new interaction moves the preference by at least 2%, so a loved pet's
 behavior stays consistent unless the way it is treated changes over time. A preference has half
 of its full influence on behavior after 10 interactions. Preferences do not decay; they are shown
 to the player as likes (affinity >= 0.25) and dislikes (affinity <= -0.15).
+
+Reinforcement learning: each pet has a Q-learning system (saved with the pet). When the owner
+gives care while the pet is in a discretionary behavior, the pet learns Q(context, behavior) with
+the care's emotional valence as the reward (-1.0 to 1.0); the context is the pet's mood (excited,
+happy, neutral or upset). Rewarded behaviors are chosen more often, discouraged ones less, through
+the learned reward term in the discretionary score (clamped to -1.0 to 1.0, weight 0.3). The
+learned values are used directly rather than through epsilon-greedy exploration, so behavior stays
+consistent.
+
+Personality development (evolveTraits): experiences move traits by intensity x 0.01. Enjoyed care
+develops matching traits (play: playfulness, energy; petting: affection, loyalty; training:
+conscientiousness, intelligence; exploring: curiosity, openness; walks: energy), and any enjoyed
+care makes the pet slightly calmer and more loyal. Scolding raises neuroticism and lowers
+agreeableness; injuries, illness, accidents and throwing up raise neuroticism; loneliness and
+neglect raise independence and neuroticism and lower loyalty over time. The traits at the first
+change are kept as a baseline, and the player is shown traits that have moved 0.05 or more from
+it. Babies inherit genes, not their parents' acquired changes.
+
+Repeated care: the same kind of care given in quick succession counts less towards personality
+change and reinforcement learning. Each kind of care keeps a count of recent repeats that halves
+every 3 real minutes; care is weighted 1 / (1 + count), so the nth repeat in a row counts 1/n. The
+weight scales the trait changes and the learning reward but not the care's effect on vital stats.
+Below a weight of 0.5 the result tells the player that more of it right away won't change how the
+pet grows.
 
 Memories: the long-term store holds up to 5,000 memories. Long-term memories fade at a rate
 scaled by importance; at the default time scale a full-strength memory lasts about 17 hours
@@ -280,11 +343,14 @@ cppenum class InteractionType {
     TRAINING,
     GROOMING,
     MEDICAL_CARE,
-    ENVIRONMENTAL_ENRICHMENT,
+    ENVIRONMENTAL_ENRICHMENT,   // Exploring trips
     SOCIAL_INTRODUCTION,
     DISCIPLINE,
     REWARDS,
-    DRINKING
+    DRINKING,
+    CLEANING,         // The living area (section 3.11)
+    WALKING,          // Dogs only
+    ENVIRONMENT_CHANGE // Enrichment at home (section 3.4.2)
 };
 
 class InteractionProcessor {
@@ -305,6 +371,45 @@ The description of each interaction is shown as the tip of its care button.
 
 The player's care actions are Feed, Drink, Pet, Play, Groom, Heal (medical care) and Treat
 (rewards); training and exploring are activities (section 3.8).
+3.4.2 Care Variants
+cppstruct CareChoice {      // The variant of the care being given
+    Supply food;          // FEEDING, REWARDS
+    Supply toy;           // PLAYING ("" to play together)
+    PetRegion region;     // PETTING
+    TrainingMethod method;// TRAINING
+    EnvironmentChange change; // ENVIRONMENT_CHANGE
+    MeetingOutcome meeting;   // SOCIAL_INTRODUCTION
+};
+
+Each variant adds to the innate reaction score (section 3.9) and applies its own effects and
+lesson (the variant's lesson takes precedence over the general one):
+Food: taste adds to the reaction; nutrition scales the meal (and stomach fill), hydration adds
+water, digestion changes digestive health (negative: an upset stomach), and toxic food causes
+poisoning (an illness, section 3.11.2, starting at severity 0.4 and affecting heart and nerves).
+Basic food per species is free and unlimited; other foods come from the pantry (section 3.7.3).
+Toys: species fit adds to the reaction; exercise and mental stimulation replace play's defaults;
+some calm; most wear out after a number of uses. Catnip affects about two cats in three (fixed
+per pet, from its identity, standing in for genetics).
+Petting regions: per species, a base liking plus, for sensitive regions, (affectionate - 0.5) x 0.3
+- (neuroticism - 0.3) x 0.4 times the region's sensitivity.
+Training methods: progress x 1.4 (clicker, needs the Training Clicker and a treat), x 1.3 (treats,
+uses one), x 1.0 (praise, liked more by pets that love attention) or x 0.4 (scolding: reaction
+-0.6, stress +0.1, neuroticism up).
+Environment changes (cat: box, window perch, food foraging, scratching post, toy swap; dog: sniffing
+game, new smells, den, frozen food toy, toy swap): mental stimulation, exploration, exercise and
+calming (scaled by 0.5 + neuroticism), with a liking from personality. Novelty = days since the
+same change / 3, up to 1, scales the effects and liking.
+3.4.3 Social Introductions
+SOCIAL_INTRODUCTION introduces the active pet to another saved pet. Meeting quality = the mean of
+both pets' sociability ((extraversion + agreeableness + (1 - territoriality) + (1 - neuroticism))
+/ 4) + species (dog-dog +0.1, cat-cat -0.1, cat-dog -0.15) + history (an existing relationship
+adds (bond - 0.3) x 0.5 - rivalry x 0.3; a first meeting -0.05), limited to 0.0 - 1.0. At 0.6 or
+more they play together, at 0.45 or more they keep a cautious distance, below that they hiss or
+growl. Both pets' relationships are updated with (quality - 0.45) x 2 (times the repeat weight);
+a first meeting sets the starting bond and rivalry. Pets whose bond minus rivalry is at least 0.2
+are friends, otherwise rivals, described from that score. The active pet receives the meeting as
+care; the other pet's mood, stress and social need follow how it went. Both are saved. Lessons
+explain how to introduce cats, dogs, or a cat and a dog.
 3.5 Evolutionary System
 3.5.1 Genetics and Reproduction
 cppclass GeneticSystem {
@@ -386,7 +491,16 @@ Soft Brush                80      Grooming is 50% more effective
 Decorations (5)           30-120  Cosmetic only
 
 Items apply automatically once bought. Within a category only the strongest owned item applies.
-Toys make play more fun without making it more tiring.
+Toys make play more fun without making it more tiring. The Training Clicker (40 points) enables
+clicker training.
+3.7.3 Supplies
+Supplies are consumables built on the interaction package's item system: Item templates with
+rarities, an ItemCatalog per pet, an Inventory as the pet's pantry (quantities; toys with uses),
+and a Shop that applies discounts and takes payment from the pet's Friendship Points. Each
+species has its own foods, treats and toys (a few, such as milk, table scraps and the puzzle
+feeder, are for both). Rarities unlock by lifetime points earned: uncommon 50, rare 150, epic 300,
+legendary 600. Two unlocked supplies are 25% off each calendar day, chosen from the date. A
+purchase buys a pack (for example 3 meals or 10 treats).
 
 3.8 Activities
 3.8.1 Tricks
@@ -423,7 +537,8 @@ pet's collection, including a rare crystal found more often by curious pets. An 
 health 0.25, happiness 0.15 and energy 0.15, adds stress 0.2 and fear, and is remembered, making
 the pet warier of exploring. An injured pet asks to be healed and cannot explore until it is.
 A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
-cared for while away, and a pet that enjoys exploring may set out on its own.
+cared for while away. A pet that enjoys exploring investigates at home on its own (the
+INVESTIGATING state); only the player starts a trip.
 
 3.9 Requests, Reactions and Preferences
 cppstruct PetRequest {
@@ -439,10 +554,21 @@ been alone for 3 game days or its affection or social need is low, then play, tr
 exploring for low exercise, mental stimulation or exploration needs. The matching button is
 highlighted.
 
-Reactions: before care is applied, a reaction score is computed from the learned preference
-(section 3.3.2), personality and current state (for example, hunger for feeding, loneliness and
-affection for petting, energy and playfulness for play). The score selects a reaction level and
-text, and scales the care's benefits by 0.6 to 1.4.
+Reactions: before care is applied, a reaction score is computed as 0.5 x the learned preference
+(section 3.3.2) plus an innate score from personality, species and current state (for example,
+hunger for feeding, energy and playfulness for play). The score selects a reaction level and text,
+and scales the care's benefits by 0.6 to 1.4.
+
+Attention: how much a pet enjoys being handled is, by nature, (affectionate - 0.5) x 0.6 -
+(independence - 0.5) x 0.4 + (extraversion - 0.5) x 0.2 - (neuroticism - 0.5) x 0.2 - 0.05, plus
+0.1 for dogs. At or above 0.1 the pet loves attention, at or above -0.15 it tolerates it, and
+below that it prefers its own space (with random personalities, roughly 27% / 39% / 34% of cats and
+41% / 38% / 20% of dogs). Petting's innate score adds (loneliness - 0.2) x 0.8 and subtracts 0.08 for
+each recent petting (overstimulation, fading with the 3-minute half-life of repeated care);
+grooming uses half the attention score and the same overstimulation. Petting, grooming, play,
+training and walks given to a reluctant pet are unwanted attention: stress rises 0.1, happiness
+falls 0.12, the emotional response is annoyance and fear instead of pleasure, and the lesson shown
+explains the signs that a cat or dog has had enough.
 
 3.10 Session and Lifecycle Management
 3.10.1 Pausing
@@ -466,6 +592,47 @@ until the player revives it. Turning gentle mode off does not wake a hibernating
 3.10.3 Deleting Pets
 Deleting a pet asks twice: first to confirm, then to type that pet's name exactly. Deletion
 removes the pet's save and all of its backups.
+
+3.11 Species, Living Area, Illness and Care Lessons
+The game teaches real pet care. Each pet is a cat or a dog, chosen at creation (pets saved before
+species existed are cats), and care, lessons and warning signs follow its species. Cats and dogs
+cannot breed together; a baby takes its parents' species.
+3.11.1 Living Area
+cppclass LivingArea {
+    float waste;          // 0.0 clean - 1.0 filthy; a cat's litter box, a dog's home
+    
+    void relieve();       // Cat: uses the litter box when the bowel or bladder reaches 0.3
+                          // (stool +0.15, urine +0.08); at 0.8 it avoids the box (stress)
+                          // Dog: relieved outside on walks; at 0.8 an accident in the house
+    void clean();         // CLEANING interaction: waste = 0 (allowed while the pet explores)
+};
+
+Air pollution from the living area is max(waste - 0.3, 0) / 0.7 (section 3.1.2). WALKING (dogs only)
+empties the bowel and bladder outside and counts as exercise.
+3.11.2 Illness
+cppstruct Illness {
+    enum Kind { URINARY, PARASITES, RESPIRATORY };
+    float severity;       // 0.1 at onset, +0.04 per game day, up to 1.0
+};
+
+A living area dirtier than 0.6 can cause illness (a cat: urinary tract infection; a dog:
+intestinal parasites) at 0.3 x (waste - 0.6) / 0.4 per game day, and respiratory health below 0.4
+can cause a respiratory infection, both scaled down by immune strength. An illness costs
+0.04 x severity health per game day and harms its system (urinary: frequent urination and stress;
+parasites: digestion; respiratory: lungs); at severity 0.3 the pet behaves sick and asks for care.
+It worsens until treated with medical care, which cures it; it can come back if the cause remains.
+Untreated, it can kill the pet, or send it into hibernation in gentle mode.
+3.11.3 Teaching
+Lessons: each kind of care returns a short, species-specific explanation of why it matters
+(InteractionResult.lesson); treating an illness explains how to prevent it.
+Warning signs: the pet shows symptoms before problems become serious (a dirty living area, a dog
+waiting by the door, sneezing, tiring quickly, signs of stress, an upset stomach, each illness's
+signs, and recent events such as accidents), each with what it means and a care guide topic.
+Care guide: short lessons per species (feeding, water, litter box or bathroom breaks, exercise,
+grooming, vet care, breathing, stress); topics related to current warning signs are marked.
+Daily checklist: a real owner's routine for the current calendar day (cat: two meals, water,
+scoop the litter box, play, brush; dog: two meals, water, three walks, play), counted from the care
+given. It follows the real day rather than game time, so it shows a real pet's routine.
 
 4. Data Management
 4.1 Persistence Layer
@@ -535,7 +702,8 @@ camera pose and light estimates. The active pet is placed on a surface and its a
 its behavior. Gestures on the pet are care: tap = petting, double tap = play, long press =
 feeding, swipe = throwing a ball (play), subject to the same validation as the care buttons.
 Exercise tracking records the player's walk; every 500 m counts towards the pet's exercise need
-as one play session (at most two per walk). A client using these endpoints is not yet built.
+as one play session (at most two per walk). The web page's AR view is such a client: with WebXR
+it finds surfaces by hit testing from the center of the view; without it, it shows a drawn room.
 
 5.3 Machine Learning Adaptation
 

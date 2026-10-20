@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -65,6 +66,17 @@ type PetStatus struct {
 	Behavior string           `json:"behavior"`
 	Activity string           `json:"activity"` // What the pet is doing, e.g. "is playing"
 	Request  *core.PetRequest `json:"request"`  // What the pet is asking for, or null
+	Species  core.Species     `json:"species"`
+
+	// Health care: organ systems, the living area, the pet's illness ("" if
+	// well), its warning signs, the care guide topics they relate to, and
+	// today's care checklist
+	Body        []core.BodySystem    `json:"body"`
+	LivingArea  core.LivingArea      `json:"living_area"`
+	Illness     string               `json:"illness"`
+	Symptoms    []core.Symptom       `json:"symptoms"`
+	GuideTopics []string             `json:"guide_topics"`
+	Checklist   []core.ChecklistItem `json:"checklist"`
 
 	Tricks           []core.TrickProgress   `json:"tricks"`
 	Exploring        bool                   `json:"exploring"`
@@ -84,6 +96,10 @@ type PetStatus struct {
 	Water            float64                `json:"water"`
 	Wellbeing        float64                `json:"wellbeing"`
 	Personality      string                 `json:"personality"`
+	Changes          []string               `json:"personality_changes"` // How its personality has changed
+	Attention        string                 `json:"attention"`           // How much it enjoys attention by nature
+	Tolerates        []string               `json:"tolerates"`           // Care it neither likes nor dislikes
+	Relations        []core.PetRelation     `json:"relations"`           // Pets it knows and how they get along
 	Likes            []string               `json:"likes"`
 	Dislikes         []string               `json:"dislikes"`
 	Slot             string                 `json:"slot"`
@@ -99,18 +115,15 @@ type PetStatus struct {
 }
 
 func main() {
-	dataDir := flag.String("data-dir", "", "directory for saves and backups (default ~/.gochi)")
-	autosaveInterval := flag.Duration("autosave", time.Minute, "how often to save the pet automatically (0 disables)")
-	awayTimeout := flag.Duration("away-pause", 2*time.Minute, "pause time when the player has been away this long (0 disables)")
-	addr := flag.String("addr", ":8080", "address to listen on")
-	apiToken := flag.String("api-token", "", "enable the REST API at /api/v1 for requests with this bearer token")
-	scaleName := flag.String("time-scale", "game", "game speed: game (1 game day per real minute), 24x, 4x or realtime")
+	defaults := defaultConfig()
+	configPath := flag.String("config", "", "settings file (default configs/config.yaml in the project directory, if present)")
+	dataDir := flag.String("data-dir", defaults.Server.DataDir, "directory for saves and backups (default ~/.gochi)")
+	autosaveInterval := flag.Duration("autosave", defaults.Simulation.Autosave, "how often to save the pet automatically (0 disables)")
+	awayTimeout := flag.Duration("away-pause", defaults.Simulation.AwayPause, "pause time when the player has been away this long (0 disables)")
+	addr := flag.String("addr", defaults.Server.Addr, "address to listen on")
+	apiToken := flag.String("api-token", defaults.Server.APIToken, "enable the REST API at /api/v1 for requests with this bearer token")
+	scaleName := flag.String("time-scale", defaults.Simulation.TimeScale, "game speed: game (1 game day per real minute), 24x, 4x or realtime")
 	flag.Parse()
-
-	timeScale, ok := timeScales[*scaleName]
-	if !ok {
-		log.Fatalf("Unknown -time-scale %q (use game, 24x, 4x or realtime)", *scaleName)
-	}
 
 	// Find web directory
 	webDir := findWebDir()
@@ -119,7 +132,41 @@ func main() {
 	}
 	log.Printf("Serving web content from: %s", webDir)
 
-	store, err := newPetStore(*dataDir)
+	// Settings: defaults, then the config file, then command-line options
+	config := defaults
+	if *configPath == "" {
+		*configPath = defaultConfigPath(webDir)
+	}
+	if *configPath != "" {
+		var err error
+		if config, err = loadConfig(*configPath); err != nil {
+			log.Fatalf("Could not read settings: %v", err)
+		}
+		log.Printf("Settings from %s", *configPath)
+	}
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "data-dir":
+			config.Server.DataDir = *dataDir
+		case "autosave":
+			config.Simulation.Autosave = *autosaveInterval
+		case "away-pause":
+			config.Simulation.AwayPause = *awayTimeout
+		case "addr":
+			config.Server.Addr = *addr
+		case "api-token":
+			config.Server.APIToken = *apiToken
+		case "time-scale":
+			config.Simulation.TimeScale = *scaleName
+		}
+	})
+	if err := config.validate(); err != nil {
+		log.Fatalf("Invalid settings: %v", err)
+	}
+	timeScale := timeScales[config.Simulation.TimeScale]
+	log.Printf("Game speed: %s", config.Simulation.TimeScale)
+
+	store, err := newPetStore(config.Server.DataDir)
 	if err != nil {
 		log.Fatalf("Could not set up save directory: %v", err)
 	}
@@ -130,7 +177,7 @@ func main() {
 		clock:        simulation.NewTimeManager(timeScale),
 		store:        store,
 		lastActivity: time.Now(),
-		awayTimeout:  *awayTimeout,
+		awayTimeout:  config.Simulation.AwayPause,
 	}
 
 	// Restore the most recently saved pet. Time does not pass while the
@@ -149,8 +196,8 @@ func main() {
 		log.Printf("Warning: could not restore a saved pet: %v", err)
 		log.Printf("Starting without a pet; the save files have been left in place in %s", store.SaveDir())
 	}
-	if *awayTimeout > 0 {
-		log.Printf("Time pauses after %s without the player", *awayTimeout)
+	if config.Simulation.AwayPause > 0 {
+		log.Printf("Time pauses after %s without the player", config.Simulation.AwayPause)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -158,17 +205,17 @@ func main() {
 
 	// Start background update and autosave loops
 	go server.updateLoop()
-	if *autosaveInterval > 0 {
-		go server.autosaveLoop(ctx, *autosaveInterval)
-		log.Printf("Autosaving every %s", *autosaveInterval)
+	if config.Simulation.Autosave > 0 {
+		go server.autosaveLoop(ctx, config.Simulation.Autosave)
+		log.Printf("Autosaving every %s", config.Simulation.Autosave)
 	}
 
 	// Setup routes
 	mux := http.NewServeMux()
 
 	// The REST API from the api package, for other clients
-	if *apiToken != "" {
-		apiRoutes := server.apiHandler(*apiToken)
+	if config.Server.APIToken != "" {
+		apiRoutes := server.apiHandler(config.Server.APIToken)
 		for _, pattern := range []string{"/api/v1", "/api/v1/", "/health", "/ready"} {
 			mux.Handle(pattern, apiRoutes)
 		}
@@ -198,6 +245,13 @@ func main() {
 	mux.HandleFunc("/api/breed/partners", server.handleBreedPartners)
 	mux.HandleFunc("/api/explore/recall", server.handleRecall)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
+	mux.HandleFunc("/api/guide", server.handleGuide)
+	mux.HandleFunc("/api/care/options", server.handleCareOptions)
+	mux.HandleFunc("/api/supplies", server.handleSupplies)
+	mux.HandleFunc("/api/supplies/buy", server.handleBuySupply)
+	mux.HandleFunc("/api/enrich", server.handleEnrich)
+	mux.HandleFunc("/api/introduce", server.handleIntroduce)
+	mux.HandleFunc("/api/introduce/partners", server.handleIntroducePartners)
 	mux.HandleFunc("/api/ar", server.handleARState)
 	mux.HandleFunc("/api/ar/session", server.handleARSession)
 	mux.HandleFunc("/api/ar/plane", server.handleARPlane)
@@ -219,13 +273,13 @@ func main() {
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	httpServer := &http.Server{Addr: *addr, Handler: mux}
+	httpServer := &http.Server{Addr: config.Server.Addr, Handler: mux}
 	serverErr := make(chan error, 1)
 	go func() {
 		serverErr <- httpServer.ListenAndServe()
 	}()
-	log.Printf("Starting Gochi server at http://localhost%s", *addr)
-	log.Printf("Open your browser to http://localhost%s to play! Press Ctrl+C to save and exit.", *addr)
+	log.Printf("Starting Gochi server at http://localhost%s", config.Server.Addr)
+	log.Printf("Open your browser to http://localhost%s to play! Press Ctrl+C to save and exit.", config.Server.Addr)
 
 	select {
 	case err := <-serverErr:
@@ -320,7 +374,10 @@ var careActions = map[string]types.InteractionType{
 	"pet":   types.InteractionPetting,
 	"play":  types.InteractionPlaying,
 	"groom": types.InteractionGrooming,
+	"treat": types.InteractionRewards,
 	"medic": types.InteractionMedicalCare,
+	"clean": types.InteractionCleaning,
+	"walk":  types.InteractionWalking,
 }
 
 // careTips describes what each care button does
@@ -380,6 +437,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gochi - Virtual Pet</title>
+    <link rel="stylesheet" href="/static/css/ar.css">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -465,6 +523,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .action-btn.groom { background: #74b9ff; color: white; }
         .action-btn.drink { background: #4dabf7; color: white; }
         .action-btn.medic { background: #ffa8a8; color: #862e2e; }
+        .action-btn.clean { background: #b2f2bb; color: #2b8a3e; }
+        .action-btn.walk { background: #ffd8a8; color: #a14c00; }
         .actions .action-btn:last-child:nth-child(odd) { grid-column: span 2; }
         .speech { position: relative; margin: 0 auto 6px; max-width: 280px; padding: 8px 14px; border-radius: 16px; background: #fff3bf; color: #5c4400; font-size: 0.95em; text-align: center; }
         .speech::after { content: ''; position: absolute; left: 50%; bottom: -8px; margin-left: -8px; border: 8px solid transparent; border-top-color: #fff3bf; border-bottom: 0; }
@@ -493,6 +553,31 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .adventure-banner button { display: block; margin: 8px auto 0; }
         .setting { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0; font-size: 0.85em; color: #555; text-align: left; cursor: pointer; }
         .setting input { margin-top: 2px; }
+        .species-choice { display: flex; gap: 10px; justify-content: center; margin: 4px 0 10px; }
+        .species-choice label { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border: 2px solid #ddd; border-radius: 12px; cursor: pointer; }
+        .species-choice input:checked + span { font-weight: 700; color: #5f3dc4; }
+        .health-panel { margin-top: 14px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; border: 2px solid #e9ecef; }
+        .section-title { font-weight: 700; color: #333; margin-bottom: 6px; font-size: 0.95em; }
+        .body-systems { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .living-area { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.85em; color: #555; }
+        .living-area .stat-bar { flex: 1; height: 10px; }
+        .stat-fill.area { background: linear-gradient(90deg, #74c0fc, #4dabf7); }
+        .stat-fill.area.low { background: #fab005; }
+        .stat-fill.area.critical { background: #fa5252; }
+        .illness { margin-top: 8px; font-weight: 700; color: #c92a2a; }
+        .symptom { margin-top: 8px; font-size: 0.88em; color: #5c3c00; background: #fff4e6; border-radius: 10px; padding: 6px 10px; }
+        .symptom-hint { color: #666; margin-top: 2px; }
+        .symptom.good { color: #2b8a3e; background: #ebfbee; }
+        .link-btn { border: none; background: none; color: #5f3dc4; text-decoration: underline; cursor: pointer; padding: 0; font-size: 1em; }
+        .checklist { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #ebfbee; border: 2px solid #d3f9d8; font-size: 0.9em; }
+        .checklist-item { margin-top: 3px; color: #2b8a3e; }
+        .checklist-item.todo { color: #555; }
+        .guide-topic { margin-top: 6px; border-radius: 10px; background: #fff; border: 1px solid #e9ecef; padding: 6px 10px; }
+        .guide-topic summary { cursor: pointer; font-weight: 600; color: #333; }
+        .guide-topic.relevant { border-color: #fab005; background: #fff9db; }
+        .guide-topic p { margin: 6px 0 2px; color: #444; font-size: 0.92em; line-height: 1.4; }
+        .points-toast .lesson { color: #1864ab; }
+        .points-toast .repeated { color: #868e96; font-size: 0.95em; }
         .needs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
         .need { text-align: center; font-size: 0.7em; color: #666; }
         .need-bar { height: 6px; margin-top: 3px; background: #e9ecef; border-radius: 3px; overflow: hidden; }
@@ -521,8 +606,22 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .shop-info { flex: 1; min-width: 0; }
         .shop-name { font-weight: bold; color: #333; }
         .shop-desc { font-size: 0.8em; color: #777; }
+        .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 0.72em; font-weight: 600; vertical-align: middle; }
+        .badge.common { background: #e9ecef; color: #495057; }
+        .badge.uncommon { background: #d3f9d8; color: #2b8a3e; }
+        .badge.rare { background: #d0ebff; color: #1864ab; }
+        .badge.epic, .badge.legendary { background: #f3d9fa; color: #862e9c; }
+        .badge.sale { background: #ffe3e3; color: #c92a2a; }
+        .shop-item.locked { opacity: 0.6; }
+        .shop-warning { font-size: 0.8em; color: #c92a2a; }
+        .choice-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .choice-name { flex: 1; color: #333; }
+        .choice-sub { font-size: 0.8em; color: #777; }
+        .method-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.9em; color: #555; }
+        .method-row select { flex: 1; padding: 4px 6px; border-radius: 8px; border: 2px solid #ddd; }
+        .points-toast .note { color: #868e96; }
         .shop-msg { text-align: center; min-height: 1.3em; color: #c94a4a; font-size: 0.9em; margin-top: 8px; }
-        .save-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; }
+        .save-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; margin-top: 16px; }
         .save-btn { padding: 8px 20px; border: 2px solid #667eea; border-radius: 20px; background: white; color: #667eea; font-weight: bold; cursor: pointer; }
         .save-btn:disabled { opacity: 0.6; cursor: default; }
         .save-status { font-size: 0.85em; color: #666; }
@@ -569,6 +668,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             transition: border-color 0.2s;
         }
         .form-group input:focus { outline: none; border-color: #764ba2; }
+        /* Radio buttons and checkboxes keep their size and sit beside their text */
+        .form-group .species-choice label, .form-group .setting { display: flex; margin-bottom: 0; }
+        .form-group .species-choice input, .form-group .setting input { width: auto; padding: 0; margin: 0; border: none; }
+        .form-group .setting input { margin-top: 2px; }
         .create-btn {
             width: 100%;
             padding: 15px;
@@ -586,6 +689,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .create-btn:active { transform: translateY(0); }
         .create-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
         .error-msg { color: #ee5a5a; margin-top: 10px; font-size: 14px; }
+
+        /* AR view (ar.css); these are the design values it expects */
+        .ar-container {
+            --primary: #6c5ce7; --primary-light: #a29bfe; --success: #00b894; --warning: #fdcb6e; --danger: #d63031;
+            --gray-400: #ced4da; --gray-500: #adb5bd; --gray-900: #212529;
+            --font-size-xs: 0.75rem; --font-size-sm: 0.875rem; --font-size-md: 1rem; --font-size-xl: 1.5rem;
+            --spacing-xs: 0.25rem; --spacing-sm: 0.5rem; --spacing-md: 1rem; --spacing-lg: 1.5rem; --spacing-xl: 2rem;
+            --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 20px; --radius-full: 9999px;
+            --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+        }
+        /* While AR is open, messages show above the AR view */
+        body.ar-open .points-toast { position: fixed; left: 16px; right: 16px; top: 72px; z-index: 10001; margin: 0;
+            padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.92); }
+        body.ar-open .points-toast:empty { display: none; }
     </style>
 </head>
 <body>
@@ -602,6 +719,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="form-group">
                 <label for="petNameInput">What will you name your pet?</label>
                 <input type="text" id="petNameInput" placeholder="Enter a name..." maxlength="20" autofocus>
+                <div class="species-choice" role="radiogroup" aria-label="Kind of pet">
+                    <label><input type="radio" name="species" value="cat" checked><span>🐱 Cat</span></label>
+                    <label><input type="radio" name="species" value="dog"><span>🐶 Dog</span></label>
+                </div>
                 <label class="setting">
                     <input type="checkbox" id="hibernationInput">
                     <span>Gentle mode: hibernate instead of dying if neglected</span>
@@ -630,6 +751,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn" onclick="startHideSeek()">🙈 Hide &amp; Seek</button>
                 <button class="activity-btn explore" onclick="explore()">🧭 Explore</button>
                 <button class="activity-btn" onclick="openBreeding()">💞 Breed</button>
+                <button class="activity-btn enrich" onclick="openChoices('enrich')">🏠 Enrich</button>
+                <button class="activity-btn" onclick="openMeet()">🤝 Meet</button>
+                <button class="activity-btn ar" onclick="openAR()" style="grid-column: span 2;">📷 See in your room (AR)</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -671,19 +795,34 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="needs" id="needs"></div>
 
             <div class="actions">
-                <button class="action-btn feed" onclick="interact('feed')">Feed</button>
+                <button class="action-btn feed" onclick="openChoices('feed')">Feed ▾</button>
                 <button class="action-btn drink" onclick="interact('drink')">Drink</button>
-                <button class="action-btn pet" onclick="interact('pet')">Pet</button>
-                <button class="action-btn play" onclick="interact('play')">Play</button>
+                <button class="action-btn pet" onclick="openChoices('pet')">Pet ▾</button>
+                <button class="action-btn play" onclick="openChoices('play')">Play ▾</button>
                 <button class="action-btn groom" onclick="interact('groom')">Groom</button>
                 <button class="action-btn medic" onclick="interact('medic')">🩹 Heal</button>
+                <button class="action-btn clean" id="cleanBtn" onclick="interact('clean')">🧹 Scoop litter</button>
+                <button class="action-btn walk hidden" id="walkBtn" onclick="interact('walk')">🦮 Walk</button>
             </div>
+
+            <div class="health-panel">
+                <div class="section-title">Body</div>
+                <div class="body-systems" id="bodySystems"></div>
+                <div class="living-area">
+                    <span id="livingAreaLabel">Litter box</span>
+                    <div class="stat-bar"><div class="stat-fill area" id="livingAreaBar" style="width: 100%"></div></div>
+                </div>
+                <div class="illness hidden" id="illnessLine"></div>
+                <div id="symptoms"></div>
+            </div>
+            <div class="checklist" id="checklist"></div>
 
             <div class="save-row">
                 <button class="save-btn" id="saveBtn" onclick="savePet()">Save</button>
                 <button class="save-btn" id="pauseBtn" onclick="togglePause()">Pause</button>
                 <button class="save-btn" onclick="openChooser()">Switch Pet</button>
                 <button class="save-btn" onclick="openShop()">Shop</button>
+                <button class="save-btn" onclick="openGuide()">📖 Care guide</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
@@ -695,8 +834,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             <div class="about" id="about">
                 <div id="aboutPersonality"></div>
+                <div id="aboutAttention"></div>
                 <div id="aboutLikes"></div>
+                <div id="aboutTolerates"></div>
                 <div id="aboutDislikes"></div>
+                <div id="aboutChanges"></div>
+                <div id="aboutRelations"></div>
                 <div id="aboutTreasures"></div>
                 <div id="aboutGeneration"></div>
             </div>
@@ -739,19 +882,25 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         </div>
     </div>
 
+    <script src="/static/js/ar.js"></script>
+    <script src="/static/js/ar-link.js"></script>
     <script>
         const sprites = {
-            idle: '🐱',
-            happy: '😺',
-            eating: '😋',
-            playing: '😸',
-            sleeping: '😴',
-            sick: '🤒',
-            exploring: '🐈',
-            social: '😻',
-            hibernating: '💤',
-            dead: '😿'
+            cat: {
+                idle: '🐱', happy: '😺', eating: '😋', playing: '😸', sleeping: '😴', sick: '🤒',
+                exploring: '🐈', social: '😻', hibernating: '💤', dead: '😿'
+            },
+            dog: {
+                idle: '🐶', happy: '🐕', eating: '😋', playing: '🐕', sleeping: '😴', sick: '🤒',
+                exploring: '🦮', social: '🐶', hibernating: '💤', dead: '🐶'
+            }
         };
+
+        // The sprites for the active pet's species
+        function spriteSet(status) {
+            const species = (status || lastStatus || {}).species;
+            return sprites[species] || sprites.cat;
+        }
 
         let hasPet = false;
         let updateInterval = null;
@@ -815,7 +964,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         info.className = 'saved-pet-info';
                         const name = document.createElement('div');
                         name.className = 'saved-pet-name';
-                        name.textContent = pet.name;
+                        name.textContent = (pet.species === 'dog' ? '🐶 ' : '🐱 ') + pet.name;
                         const meta = document.createElement('div');
                         meta.className = 'saved-pet-meta';
                         const state = !pet.is_alive ? 'Passed away' :
@@ -993,7 +1142,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         let shopping = false;
         const shopCategories = [
             ['food_bowl', 'Food containers'], ['water_bowl', 'Water containers'],
-            ['toy', 'Toys'], ['bed', 'Beds'], ['brush', 'Grooming'], ['decoration', 'Decorations']
+            ['toy', 'Toys (kept forever)'], ['bed', 'Beds'], ['brush', 'Grooming'], ['training', 'Training'], ['decoration', 'Decorations']
         ];
 
         function openShop() {
@@ -1012,10 +1161,85 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function loadShop() {
-            fetch('/api/shop')
-                .then(r => r.json())
-                .then(data => { if (data.success) renderShop(data.data); })
+            Promise.all([fetch('/api/shop').then(r => r.json()), fetch('/api/supplies').then(r => r.json())])
+                .then(([shop, supplies]) => {
+                    if (shop.success) renderShop(shop.data);
+                    if (supplies.success) renderSupplies(supplies.data);
+                })
                 .catch(err => console.error('Shop error:', err));
+        }
+
+        // Supplies: food, treats and toys that are used up; rarer ones unlock
+        // as the pet earns points, and some are on sale each day
+        const supplyKinds = [['food', 'Food (used up)'], ['treat', 'Treats (used up)'], ['toy', 'Toys (wear out)']];
+        function renderSupplies(data) {
+            const list = document.getElementById('shopList');
+            supplyKinds.forEach(([kind, title]) => {
+                const supplies = data.supplies.filter(s => s.kind === kind);
+                if (supplies.length === 0) return;
+                const heading = document.createElement('div');
+                heading.className = 'shop-category';
+                heading.textContent = title;
+                list.append(heading);
+
+                supplies.forEach(supply => {
+                    const row = document.createElement('div');
+                    row.className = 'shop-item' + (supply.locked ? ' locked' : '');
+                    const icon = document.createElement('div');
+                    icon.className = 'shop-icon';
+                    icon.textContent = supply.icon;
+                    const info = document.createElement('div');
+                    info.className = 'shop-info';
+                    const name = document.createElement('div');
+                    name.className = 'shop-name';
+                    name.textContent = supply.name;
+                    const rarity = document.createElement('span');
+                    rarity.className = 'badge ' + supply.rarity.toLowerCase();
+                    rarity.textContent = supply.rarity;
+                    name.append(rarity);
+                    if (supply.discounted) {
+                        const sale = document.createElement('span');
+                        sale.className = 'badge sale';
+                        sale.textContent = 'Sale';
+                        name.append(sale);
+                    }
+                    const desc = document.createElement('div');
+                    desc.className = 'shop-desc';
+                    desc.textContent = supply.description + (supply.owned ? ' You have ' + supply.owned + '.' : '');
+                    info.append(name, desc);
+                    if (supply.warning) {
+                        const warning = document.createElement('div');
+                        warning.className = 'shop-warning';
+                        warning.textContent = '⚠️ ' + supply.warning.replace(/ [^.]*\?$/, '');
+                        info.append(warning);
+                    }
+
+                    const btn = document.createElement('button');
+                    btn.className = 'save-btn';
+                    if (supply.locked) {
+                        btn.textContent = '🔒 ' + supply.unlock_at;
+                        btn.title = 'Unlocks once your pet has earned ' + supply.unlock_at + ' Friendship Points in all';
+                        btn.disabled = true;
+                    } else {
+                        btn.textContent = '❤️ ' + supply.price + (supply.discounted ? ' (was ' + supply.full_price + ')' : '');
+                        btn.disabled = data.points < supply.price;
+                        btn.onclick = () => buySupply(supply.id);
+                    }
+                    row.append(icon, info, btn);
+                    list.append(row);
+                });
+            });
+        }
+
+        function buySupply(id) {
+            const msg = document.getElementById('shopMsg');
+            msg.textContent = '';
+            postJSON('/api/supplies/buy', {id: id})
+                .then(data => {
+                    if (data.success) loadShop();
+                    else msg.textContent = data.error || 'Could not buy this';
+                })
+                .catch(console.error);
         }
 
         function renderShop(shop) {
@@ -1100,7 +1324,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 toast.append(line);
             });
             if (toastTimer) clearTimeout(toastTimer);
-            toastTimer = setTimeout(() => { toast.replaceChildren(); }, 5000);
+            // Lessons take longer to read
+            const lesson = lines.some(([, className]) => className === 'lesson');
+            toastTimer = setTimeout(() => { toast.replaceChildren(); }, lesson ? 10000 : 5000);
         }
 
         function formatChanges(changes) {
@@ -1139,7 +1365,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             fetch('/api/create', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name: name, hibernation: document.getElementById('hibernationInput').checked})
+                body: JSON.stringify({name: name, hibernation: document.getElementById('hibernationInput').checked,
+                    species: document.querySelector('input[name="species"]:checked').value})
             })
             .then(r => r.json())
             .then(data => {
@@ -1206,7 +1433,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 el.append(strong, items.length ? items.join(', ') : none);
             };
             setList('aboutLikes', 'Likes', status.likes || [], 'nothing yet');
+            setList('aboutTolerates', 'Puts up with', status.tolerates || [], 'nothing yet');
             setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
+            setList('aboutAttention', 'Attention', status.attention ? [status.name + ' ' + status.attention] : [], 'unknown');
+            setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
+            setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description + ')'),
+                'no other pets yet');
             document.getElementById('activity').textContent =
                 status.is_alive ? status.name + ' ' + status.activity :
                 status.name + ' has passed away' + (status.cause_of_death ? ' (' + status.cause_of_death.toLowerCase() + ')' : '') + '.';
@@ -1266,20 +1498,21 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('statusText').textContent =
                 'Age: ' + status.age.toFixed(1) + ' days | Wellbeing: ' + (status.wellbeing * 100).toFixed(0) + '%';
 
-            let sprite = sprites.idle;
+            const set = spriteSet(status);
+            let sprite = set.idle;
             if (!status.is_alive) {
-                sprite = sprites.dead;
+                sprite = set.dead;
                 document.getElementById('petView').classList.add('dead');
             } else {
                 document.getElementById('petView').classList.remove('dead');
-                if (status.hibernating) sprite = sprites.hibernating;
-                else if (status.behavior === 'Sleeping') sprite = sprites.sleeping;
-                else if (status.behavior === 'Sick') sprite = sprites.sick;
-                else if (status.behavior === 'Playing') sprite = sprites.playing;
-                else if (status.behavior === 'Exploring') sprite = sprites.exploring;
-                else if (status.behavior === 'Social Interaction') sprite = sprites.social;
-                else if (status.behavior === 'Eating') sprite = sprites.eating;
-                else if (status.happiness > 0.7) sprite = sprites.happy;
+                if (status.hibernating) sprite = set.hibernating;
+                else if (status.behavior === 'Sleeping') sprite = set.sleeping;
+                else if (status.behavior === 'Sick') sprite = set.sick;
+                else if (status.behavior === 'Playing') sprite = set.playing;
+                else if (status.behavior === 'Exploring') sprite = set.exploring;
+                else if (status.behavior === 'Social Interaction') sprite = set.social;
+                else if (status.behavior === 'Eating') sprite = set.eating;
+                else if (status.happiness > 0.7) sprite = set.happy;
             }
             document.getElementById('petSprite').textContent = sprite;
             updatePauseUI(status);
@@ -1288,8 +1521,115 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('hibernateText').textContent = hibernating ?
                 '💤 ' + status.name + ' got too weak and is hibernating to stay safe. Its stats are paused. Revive it to keep playing.' : '';
             document.getElementById('hibernateBanner').classList.toggle('hidden', !hibernating);
-            document.querySelectorAll('.actions .action-btn').forEach(b => { b.disabled = hibernating || status.exploring; });
+            document.querySelectorAll('.actions .action-btn').forEach(b => {
+                b.disabled = hibernating || (status.exploring && !b.classList.contains('clean'));
+            });
+            updateHealth(status);
             updateActivities(status);
+        }
+
+        // Health care: the pet's organ systems, its living area, illness,
+        // warning signs and today's checklist
+        const bodyLabels = {Digestion: 'Digestion', Heart: 'Heart', Lungs: 'Lungs', Nerves: 'Nerves'};
+        function updateHealth(status) {
+            const dog = status.species === 'dog';
+            document.getElementById('cleanBtn').textContent = dog ? '🧹 Clean up' : '🧹 Scoop litter';
+            document.getElementById('walkBtn').classList.toggle('hidden', !dog);
+
+            const body = document.getElementById('bodySystems');
+            body.replaceChildren();
+            (status.body || []).forEach(system => {
+                const cell = document.createElement('div');
+                cell.className = 'need';
+                cell.title = system.name + ': ' + Math.round(system.level * 100) + '%';
+                cell.textContent = bodyLabels[system.name] || system.name;
+                const bar = document.createElement('div');
+                bar.className = 'need-bar';
+                const fill = document.createElement('div');
+                fill.className = 'need-fill' + (system.level < 0.3 ? ' critical' : system.level < 0.6 ? ' low' : '');
+                fill.style.width = Math.round(system.level * 100) + '%';
+                bar.append(fill);
+                cell.append(bar);
+                body.append(cell);
+            });
+
+            const area = status.living_area || {name: 'Litter box', cleanliness: 1};
+            document.getElementById('livingAreaLabel').textContent = area.name;
+            const areaBar = document.getElementById('livingAreaBar');
+            areaBar.style.width = Math.round(area.cleanliness * 100) + '%';
+            areaBar.className = 'stat-fill area' + (area.cleanliness < 0.4 ? ' critical' : area.cleanliness < 0.6 ? ' low' : '');
+            areaBar.parentElement.title = area.name + ': ' + Math.round(area.cleanliness * 100) + '% clean';
+
+            const illness = document.getElementById('illnessLine');
+            illness.textContent = status.illness ? '🤒 ' + status.name + ' is ill: ' + status.illness : '';
+            illness.classList.toggle('hidden', !status.illness);
+
+            const symptoms = document.getElementById('symptoms');
+            symptoms.replaceChildren();
+            (status.symptoms || []).forEach(symptom => {
+                const box = document.createElement('div');
+                box.className = 'symptom' + (symptom.good ? ' good' : '');
+                const sign = document.createElement('div');
+                sign.textContent = (symptom.good ? '💚 ' : '⚠️ ') + symptom.sign;
+                box.append(sign);
+                if (symptom.hint || symptom.topic) {
+                    const hint = document.createElement('div');
+                    hint.className = 'symptom-hint';
+                    hint.textContent = symptom.hint ? symptom.hint + ' ' : '';
+                    if (symptom.topic) {
+                        const more = document.createElement('button');
+                        more.className = 'link-btn';
+                        more.textContent = 'Learn more';
+                        more.onclick = () => openGuide(symptom.topic);
+                        hint.append(more);
+                    }
+                    box.append(hint);
+                }
+                symptoms.append(box);
+            });
+
+            const checklist = document.getElementById('checklist');
+            checklist.replaceChildren();
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = "Today's care for " + status.name;
+            checklist.append(title);
+            (status.checklist || []).forEach(item => {
+                const line = document.createElement('div');
+                const done = item.done >= item.target;
+                line.className = 'checklist-item' + (done ? '' : ' todo');
+                line.textContent = (done ? '✅ ' : '⬜ ') + item.label +
+                    (item.target > 1 ? ' (' + item.done + '/' + item.target + ')' : '');
+                checklist.append(line);
+            });
+        }
+
+        // The care guide for the pet's species; topics related to its
+        // warning signs are marked, and openTopic is opened
+        function openGuide(openTopic) {
+            panelMode = 'guide';
+            fetch('/api/guide')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) return;
+                    const relevant = (lastStatus && lastStatus.guide_topics) || [];
+                    const p = panel();
+                    p.replaceChildren(panelHeader('Caring for your ' + data.data.species));
+                    data.data.topics.forEach(topic => {
+                        const details = document.createElement('details');
+                        details.className = 'guide-topic' + (relevant.includes(topic.id) ? ' relevant' : '');
+                        details.open = topic.id === openTopic;
+                        const summary = document.createElement('summary');
+                        summary.textContent = (relevant.includes(topic.id) ? '⚠️ ' : '') + topic.title;
+                        const text = document.createElement('p');
+                        text.textContent = topic.text;
+                        details.append(summary, text);
+                        p.append(details);
+                    });
+                    p.classList.remove('hidden');
+                    p.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+                })
+                .catch(console.error);
         }
 
         function fetchStatus() {
@@ -1325,9 +1665,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             // Show reaction
             const sprite = document.getElementById('petSprite');
-            if (action === 'feed' || action === 'drink') sprite.textContent = sprites.eating;
-            else if (action === 'play') sprite.textContent = sprites.playing;
-            else if (action === 'pet') sprite.textContent = sprites.happy;
+            if (action === 'feed' || action === 'drink') sprite.textContent = spriteSet().eating;
+            else if (action === 'play') sprite.textContent = spriteSet().playing;
+            else if (action === 'pet') sprite.textContent = spriteSet().happy;
 
             fetch('/api/interact', {
                 method: 'POST',
@@ -1359,6 +1699,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const boost = result.boosted_by;
             if (boost) lines.push([boost.icon + ' ' + boost.name + ': ' + boost.description, 'boost']);
             if (result.bonus_points > 0) lines.push(['+' + result.bonus_points + ' game bonus!', '']);
+            if (result.lesson) lines.push(['💡 ' + result.lesson, 'lesson']);
+            if (result.repeated) lines.push([result.repeated, 'repeated']);
+            if (result.note) lines.push([result.note, 'note']);
             if ('points_earned' in result) {
                 lines.push(result.points_earned > 0 ?
                     ['+' + result.points_earned + ' Friendship Points!', ''] :
@@ -1428,15 +1771,159 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .catch(console.error);
         }
 
+        // Care variants: what to feed, how to play, where to pet, and what to
+        // change at home
+        let careOptions = null;
+        let trainingMethod = 'praise';
+        function loadCareOptions() {
+            return fetch('/api/care/options')
+                .then(r => r.json())
+                .then(data => { if (data.success) careOptions = data.data; return careOptions; });
+        }
+
+        function choiceRow(label, sub, buttonText, onClick) {
+            const row = document.createElement('div');
+            row.className = 'choice-row';
+            const name = document.createElement('div');
+            name.className = 'choice-name';
+            name.textContent = label;
+            if (sub) {
+                const detail = document.createElement('div');
+                detail.className = 'choice-sub';
+                detail.textContent = sub;
+                name.append(detail);
+            }
+            const btn = document.createElement('button');
+            btn.className = 'save-btn';
+            btn.textContent = buttonText;
+            btn.onclick = onClick;
+            row.append(name, btn);
+            return row;
+        }
+
+        const choiceTitles = {feed: 'What to feed', play: 'How to play', pet: 'Where to pet', enrich: 'Change something at home'};
+        function openChoices(kind) {
+            panelMode = 'choice';
+            loadCareOptions().then(options => { if (options) renderChoices(kind, options); }).catch(console.error);
+        }
+
+        function renderChoices(kind, options) {
+            const p = panel();
+            p.replaceChildren(panelHeader(choiceTitles[kind]));
+            const hint = text => {
+                const div = document.createElement('div');
+                div.className = 'panel-text';
+                div.textContent = text;
+                p.append(div);
+            };
+            if (kind === 'feed') {
+                options.foods.forEach(f => p.append(choiceRow(f.icon + ' ' + f.name,
+                    f.quantity < 0 ? 'Always available' : f.quantity + ' left' + (f.warning ? ' · ⚠️ not recommended' : ''),
+                    'Feed', () => giveChoice('feed', {food: f.id}, f.warning, kind))));
+                options.treats.forEach(t => p.append(choiceRow(t.icon + ' ' + t.name, t.quantity + ' left', 'Give',
+                    () => giveChoice('treat', {food: t.id}, '', kind))));
+                if (options.foods.length === 1) hint('Other foods and treats are in the shop.');
+            } else if (kind === 'play') {
+                p.append(choiceRow('🤲 Play together', '', 'Play', () => giveChoice('play', {}, '', kind)));
+                options.toys.forEach(t => p.append(choiceRow(t.icon + ' ' + t.name,
+                    t.uses_left ? t.uses_left + ' plays left' + (t.quantity > 1 ? ' · ' + t.quantity + ' owned' : '') : '',
+                    'Play', () => giveChoice('play', {toy: t.id}, '', kind))));
+                if (options.toys.length === 0) hint('Toys are in the shop.');
+            } else if (kind === 'pet') {
+                options.regions.forEach(r => p.append(choiceRow(r.name, '', 'Pet',
+                    () => giveChoice('pet', {region: r.id}, '', kind))));
+            } else if (kind === 'enrich') {
+                options.changes.forEach(c => p.append(choiceRow(c.icon + ' ' + c.name, '', 'Do it', () => {
+                    postJSON('/api/enrich', {change: c.id}).then(data => afterChoice(data, kind)).catch(console.error);
+                })));
+            }
+            p.classList.remove('hidden');
+        }
+
+        function giveChoice(action, extra, warning, kind) {
+            if (warning && !confirm(warning)) return;
+            postJSON('/api/interact', Object.assign({action: action}, extra))
+                .then(data => afterChoice(data, kind))
+                .catch(console.error);
+        }
+
+        function afterChoice(data, kind) {
+            if (data.success) {
+                showResult(data.data, data.data.text);
+                setTimeout(fetchStatus, 500);
+                if (panelMode === 'choice') openChoices(kind); // Quantities and uses change
+            } else {
+                showPointsToast(data.error || 'Something went wrong');
+            }
+        }
+
+        // Introductions to the player's other pets
+        function openMeet() {
+            panelMode = 'meet';
+            fetch('/api/introduce/partners')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        showPointsToast(data.error || 'Something went wrong');
+                        return;
+                    }
+                    const p = panel();
+                    p.replaceChildren(panelHeader('Meet another pet'));
+                    if (data.data.length === 0) {
+                        const none = document.createElement('div');
+                        none.className = 'panel-text';
+                        none.textContent = 'Create or load another pet first to introduce them.';
+                        p.append(none);
+                    }
+                    data.data.forEach(partner => p.append(choiceRow(
+                        (partner.species === 'dog' ? '🐶 ' : '🐱 ') + partner.name,
+                        partner.relationship || "Haven't met yet", 'Meet', () => {
+                            postJSON('/api/introduce', {partner_slot: partner.slot})
+                                .then(data => {
+                                    if (data.success) {
+                                        showResult(data.data, data.data.text);
+                                        setTimeout(fetchStatus, 500);
+                                        openMeet();
+                                    } else {
+                                        showPointsToast(data.error || 'Something went wrong');
+                                    }
+                                })
+                                .catch(console.error);
+                        })));
+                    p.classList.remove('hidden');
+                })
+                .catch(console.error);
+        }
+
         function openTricks() {
             panelMode = 'tricks';
-            renderTricks();
+            loadCareOptions().then(renderTricks).catch(renderTricks);
         }
 
         function renderTricks() {
             if (!lastStatus) return;
             const p = panel();
             p.replaceChildren(panelHeader('Tricks'));
+            const methods = (careOptions && careOptions.methods) || [];
+            if (methods.length > 0) {
+                const row = document.createElement('label');
+                row.className = 'method-row';
+                row.textContent = 'Training method';
+                const select = document.createElement('select');
+                select.id = 'methodSelect';
+                methods.forEach(m => {
+                    const option = document.createElement('option');
+                    option.value = m.id;
+                    option.textContent = m.name + (m.unavailable ? ' (' + m.unavailable.toLowerCase() + ')' : '');
+                    option.disabled = !!m.unavailable;
+                    select.append(option);
+                });
+                if (methods.some(m => m.id === trainingMethod && !m.unavailable)) select.value = trainingMethod;
+                else select.value = trainingMethod = 'praise';
+                select.onchange = () => { trainingMethod = select.value; };
+                row.append(select);
+                p.append(row);
+            }
             lastStatus.tricks.forEach(trick => {
                 const row = document.createElement('div');
                 row.className = 'trick-row';
@@ -1460,11 +1947,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function doTrick(id, perform) {
-            postJSON(perform ? '/api/perform' : '/api/train', {trick: id})
+            postJSON(perform ? '/api/perform' : '/api/train', {trick: id, method: trainingMethod})
                 .then(data => {
                     if (data.success) {
                         showResult(data.data, data.data.text);
                         fetchStatus();
+                        if (!perform) loadCareOptions().then(() => { if (panelMode === 'tricks') renderTricks(); });
                     } else {
                         showPointsToast(data.error || 'Something went wrong');
                     }
@@ -1563,6 +2051,29 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .catch(console.error);
         }
 
+        // AR: places the pet in the room through the camera (or a drawn
+        // room on devices without AR); see web/static/js/ar-link.js
+        let arReady = false;
+        async function openAR() {
+            if (typeof GochiAR === 'undefined' || typeof GochiARLink === 'undefined') {
+                showPointsToast('AR could not be loaded.');
+                return;
+            }
+            if (!arReady) {
+                await GochiAR.init();
+                arReady = true;
+            }
+            document.body.classList.add('ar-open');
+            const started = await GochiARLink.start({
+                onMessage: text => showPointsToast(text),
+                onCare: result => { showResult(result); setTimeout(fetchStatus, 500); },
+                petSprite: () => document.getElementById('petSprite').textContent,
+                statusText: () => lastStatus ? lastStatus.name + ' ' + lastStatus.activity : '',
+                onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); }
+            });
+            if (!started) document.body.classList.remove('ar-open');
+        }
+
         function openBreeding() {
             panelMode = 'breeding';
             fetch('/api/breed/partners')
@@ -1658,7 +2169,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             banner.classList.toggle('hidden', !away);
 
             document.querySelectorAll('.activity-btn').forEach(b => { b.disabled = busy; });
-            if (busy && panelMode) closePanel();
+            if (busy && panelMode && panelMode !== 'guide') closePanel();
             if (panelMode === 'tricks') renderTricks();
 
             const adventure = status.last_adventure;
@@ -1820,7 +2331,7 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 }
 
 // createPet saves the active pet and replaces it with a new one
-func (s *Server) createPet(name string, randomize, hibernation bool) error {
+func (s *Server) createPet(name string, species core.Species, randomize, hibernation bool) error {
 	if name == "" {
 		name = "Gochi"
 	}
@@ -1831,6 +2342,7 @@ func (s *Server) createPet(name string, randomize, hibernation bool) error {
 			pet = core.NewDigitalPetRandom(name, localOwner)
 		}
 		pet.HibernationEnabled = hibernation
+		pet.Species = species
 		slot := sanitizeSlot(string(pet.ID))
 		if s.store != nil {
 			slot = s.store.NewSlot(pet)
@@ -2208,7 +2720,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Age:         status.Age,
 		IsAlive:     status.IsAlive,
 		Behavior:    s.pet.CurrentBehavior.String(),
-		Activity:    core.ActivityDescription(s.pet.CurrentBehavior),
+		Activity:    s.pet.Activity(),
 		Request:     s.pet.CurrentRequest(),
 		Mood:        s.pet.Emotions.GetMoodDescription(),
 		Health:      s.pet.Biology.Vitals.Health,
@@ -2239,9 +2751,25 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.ExploringSeconds = gameDaysToSeconds(s.pet.ExploringRemaining())
 	petStatus.HideAndSeek = s.pet.PlayingHideAndSeek()
 	petStatus.Souvenirs = s.pet.SouvenirCollection()
+	petStatus.Species = s.pet.GetSpecies()
+	petStatus.Body = s.pet.BodySystems()
+	petStatus.LivingArea = s.pet.GetLivingArea()
+	petStatus.Illness = s.pet.IllnessName()
+	petStatus.Symptoms = s.pet.Symptoms()
+	petStatus.GuideTopics = []string{}
+	for _, symptom := range petStatus.Symptoms {
+		if symptom.Topic != "" && !slices.Contains(petStatus.GuideTopics, symptom.Topic) {
+			petStatus.GuideTopics = append(petStatus.GuideTopics, symptom.Topic)
+		}
+	}
+	petStatus.Checklist = s.pet.DailyChecklist()
 	if a := s.pet.LastAdventure; a != nil && status.Age-a.ReturnedAge < recentAdventureDays {
 		petStatus.LastAdventure = a
 	}
+	petStatus.Changes = s.pet.PersonalityChanges()
+	petStatus.Attention = s.pet.AttentionStyle()
+	petStatus.Relations = s.pet.Relations()
+	petStatus.Tolerates = s.pet.Tolerates()
 	petStatus.Likes, petStatus.Dislikes = s.pet.LikesAndDislikes()
 	if petStatus.Likes == nil {
 		petStatus.Likes = []string{}
@@ -2263,6 +2791,9 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Action string `json:"action"`
+		Food   string `json:"food"`   // Feed and treat: a food or treat from the pantry
+		Toy    string `json:"toy"`    // Play: a toy from the pantry
+		Region string `json:"region"` // Pet: where to pet
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
@@ -2280,33 +2811,22 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: s.pet.Name + " is hibernating. Revive it first."})
 		return
 	}
-	if s.pet.IsExploring() {
+	if s.pet.IsExploring() && req.Action != "clean" { // The home can be cleaned while the pet is out
 		writeActivityError(w, s.pet.Name, core.ErrExploring)
 		return
 	}
 
-	var interactionType types.InteractionType
-	switch req.Action {
-	case "feed":
-		interactionType = types.InteractionFeeding
-	case "drink":
-		interactionType = types.InteractionDrinking
-	case "pet":
-		interactionType = types.InteractionPetting
-	case "play":
-		interactionType = types.InteractionPlaying
-	case "groom":
-		interactionType = types.InteractionGrooming
-	case "treat":
-		interactionType = types.InteractionRewards
-	case "medic":
-		interactionType = types.InteractionMedicalCare
-	default:
+	interactionType, ok := careActions[req.Action]
+	if !ok {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown action"})
 		return
 	}
 
 	s.markActiveLocked(time.Now())
+	if result, chosen, err := s.interactWithChoice(req.Action, req.Food, req.Toy, req.Region); chosen {
+		s.writeCareResult(w, result, err)
+		return
+	}
 	result := s.pet.Interact(interactionType, 1.0)
 	if !result.Applied {
 		message := result.Refusal
@@ -2355,14 +2875,20 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Name      string `json:"name"`
 		Randomize bool   `json:"randomize"`
 		// Hibernate instead of dying from neglect (off by default)
-		Hibernation bool `json:"hibernation"`
+		Hibernation bool   `json:"hibernation"`
+		Species     string `json:"species"` // cat (default) or dog
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
 		return
 	}
+	species, ok := core.ParseSpecies(req.Species)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose a cat or a dog"})
+		return
+	}
 
-	if err := s.createPet(req.Name, req.Randomize, req.Hibernation); err != nil {
+	if err := s.createPet(req.Name, species, req.Randomize, req.Hibernation); err != nil {
 		log.Printf("Create failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the current pet, so no new pet was created"})
 		return

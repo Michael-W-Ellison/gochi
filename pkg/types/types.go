@@ -43,6 +43,7 @@ const (
 	BehaviorHappy
 	BehaviorExcited
 	BehaviorHibernating
+	BehaviorInvestigating // Sniffing around at home (a trip is BehaviorExploring)
 )
 
 // String returns the string representation of BehaviorState
@@ -51,6 +52,7 @@ func (bs BehaviorState) String() string {
 		"Idle", "Sleeping", "Eating", "Playing", "Exploring",
 		"Social Interaction", "Grooming", "Exercising",
 		"Sick", "Distressed", "Happy", "Excited", "Hibernating",
+		"Investigating",
 	}[bs]
 }
 
@@ -69,6 +71,9 @@ const (
 	InteractionDiscipline
 	InteractionRewards
 	InteractionDrinking
+	InteractionCleaning          // Cleaning the pet's living area (litter box, house)
+	InteractionWalking           // Taking a dog out for a walk
+	InteractionEnvironmentChange // Changing the pet's surroundings at home (enrichment)
 )
 
 // String returns the string representation of InteractionType
@@ -76,7 +81,7 @@ func (it InteractionType) String() string {
 	return [...]string{
 		"Feeding", "Petting", "Playing", "Training", "Grooming",
 		"Medical Care", "Environmental Enrichment", "Social Introduction",
-		"Discipline", "Rewards", "Drinking",
+		"Discipline", "Rewards", "Drinking", "Cleaning", "Walking", "Environment Change",
 	}[it]
 }
 

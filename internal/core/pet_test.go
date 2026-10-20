@@ -189,6 +189,7 @@ func TestEnjoyedPlayMakesPetPlayful(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 		setCalmHealthyState(pet)
 	}
@@ -203,6 +204,8 @@ func TestEnjoyedPettingMakesPetSocial(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil          // Care spread out over time
+		pet.Emotions.Loneliness = 0.6 // Petting is welcome when the pet wants company
 		pet.ProcessUserInteraction(types.InteractionPetting, 1.0)
 		setCalmHealthyState(pet)
 	}
@@ -217,10 +220,12 @@ func TestDisciplineMakesPetWithdrawn(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPetting, 1.0)
 		setCalmHealthyState(pet)
 	}
 	for i := 0; i < 30; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionDiscipline, 1.0)
 		setCalmHealthyState(pet)
 	}
@@ -235,6 +240,7 @@ func TestLearnedBehaviorPersistsWithoutInteraction(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 
 	for i := 0; i < 10; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 		setCalmHealthyState(pet)
 	}
@@ -263,6 +269,7 @@ func TestLearnedBehaviorPersistsWithoutInteraction(t *testing.T) {
 func TestLearnedPreferencesSurviveSaveLoad(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 	for i := 0; i < 5; i++ {
+		pet.RecentCare = nil // Care spread out over time
 		pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 	}
 	want := pet.Memory.GetLearnedAffinity(types.InteractionPlaying)

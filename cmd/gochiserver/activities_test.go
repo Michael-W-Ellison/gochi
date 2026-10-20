@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/internal/genetics"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -28,7 +30,7 @@ func statusOf(t *testing.T, server *Server) map[string]interface{} {
 
 func TestTrainAndPerformThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,7 +74,7 @@ func TestTrainAndPerformThroughServer(t *testing.T) {
 
 func TestHideAndSeekThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,7 +111,7 @@ func TestHideAndSeekThroughServer(t *testing.T) {
 func TestExploreThroughServer(t *testing.T) {
 	server := newTestServer(t)
 	server.awayTimeout = 0
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,7 +124,7 @@ func TestExploreThroughServer(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "out exploring") {
 		t.Errorf("Feeding while exploring: status %d, body %s", rec.Code, rec.Body.String())
 	}
-	if s := statusOf(t, server); s["exploring"] != true || s["activity"] != "is exploring" {
+	if s := statusOf(t, server); s["exploring"] != true || s["activity"] != "is out exploring" {
 		t.Errorf("Status should show the trip: %+v", s)
 	}
 
@@ -149,7 +151,7 @@ func TestExploreThroughServer(t *testing.T) {
 
 func TestRecallAndQuitThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -181,7 +183,7 @@ func TestRecallAndQuitThroughServer(t *testing.T) {
 
 func TestHealThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.Injured = true
@@ -203,7 +205,7 @@ func TestHealThroughServer(t *testing.T) {
 
 func TestMessagesUsePetName(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.HibernationEnabled = true
@@ -262,7 +264,7 @@ func TestHibernationSetting(t *testing.T) {
 func TestStatusShowsCauseOfDeath(t *testing.T) {
 	server := newTestServer(t)
 	server.awayTimeout = 0
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -283,7 +285,7 @@ func TestTimeScaleSetsGameSpeed(t *testing.T) {
 		server := newTestServer(t)
 		server.awayTimeout = 0
 		server.clock = simulation.NewTimeManager(scale)
-		if err := server.createPet("Biscuit", false, false); err != nil {
+		if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 			t.Fatal(err)
 		}
 		age := server.pet.GetAge()
@@ -303,7 +305,7 @@ func TestTimeScaleSetsGameSpeed(t *testing.T) {
 
 func TestStatusShowsNeeds(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	needs, ok := statusOf(t, server)["needs"].([]interface{})
@@ -314,7 +316,7 @@ func TestStatusShowsNeeds(t *testing.T) {
 
 func TestStatusShowsEnvironment(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	env, ok := statusOf(t, server)["environment"].(map[string]interface{})
@@ -325,7 +327,7 @@ func TestStatusShowsEnvironment(t *testing.T) {
 
 func TestRefusedCareThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.Biology.Vitals.Nutrition = 0.95
@@ -350,12 +352,12 @@ func makeAdult(server *Server) {
 
 func TestBreedingThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	makeAdult(server)
 	partnerSlot := server.slot
-	if err := server.createPet("Pepper", false, false); err != nil {
+	if err := server.createPet("Pepper", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
 	makeAdult(server)
@@ -411,5 +413,99 @@ func TestBreedingThroughServer(t *testing.T) {
 	}
 	if len(resp.Data) != 2 {
 		t.Errorf("Partners should list the two other pets: %+v", resp.Data)
+	}
+}
+
+func TestPetCareThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	if rec := post(t, server.handleCreate, `{"name":"Rex","species":"hamster"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("An unknown species should be refused, got %d", rec.Code)
+	}
+	if rec := post(t, server.handleCreate, `{"name":"Rex","species":"dog"}`); rec.Code != http.StatusOK {
+		t.Fatalf("Creating a dog: %d %s", rec.Code, rec.Body.String())
+	}
+
+	status := statusOf(t, server)
+	if status["species"] != "dog" {
+		t.Errorf("The pet should be a dog: %v", status["species"])
+	}
+	if body, _ := status["body"].([]interface{}); len(body) != 4 {
+		t.Errorf("Status should list four organ systems: %v", status["body"])
+	}
+	if area, _ := status["living_area"].(map[string]interface{}); area["name"] != "Home" || area["cleanliness"] != 1.0 {
+		t.Errorf("A dog's living area is its home: %v", status["living_area"])
+	}
+	if checklist, _ := status["checklist"].([]interface{}); len(checklist) != 4 {
+		t.Errorf("A dog's checklist has four tasks: %v", status["checklist"])
+	}
+
+	// Cleaning a clean home is refused; a walk is accepted and teaches
+	rec := post(t, server.handleInteract, `{"action":"clean"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "nothing to clean up") {
+		t.Errorf("Cleaning a clean home: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = post(t, server.handleInteract, `{"action":"walk"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"lesson":"`) {
+		t.Errorf("A walk should be accepted with a lesson: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The care guide follows the pet's species, or the one asked for
+	rec = httptest.NewRecorder()
+	server.handleGuide(rec, httptest.NewRequest(http.MethodGet, "/api/guide", nil))
+	if !strings.Contains(rec.Body.String(), "Bathroom breaks") {
+		t.Errorf("A dog's guide should cover bathroom breaks: %s", rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.handleGuide(rec, httptest.NewRequest(http.MethodGet, "/api/guide?species=cat", nil))
+	if !strings.Contains(rec.Body.String(), "Litter box") {
+		t.Errorf("A cat's guide should cover the litter box: %s", rec.Body.String())
+	}
+}
+
+func TestStatusShowsPersonalityChanges(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if changes, ok := statusOf(t, server)["personality_changes"].([]interface{}); !ok || len(changes) != 0 {
+		t.Errorf("A new pet hasn't changed: %v", changes)
+	}
+	for i := 0; i < 40; i++ {
+		v := server.pet.Biology.Vitals
+		v.Energy, v.Fatigue, v.Stress = 1, 0, 0
+		server.pet.RecentCare = nil // As if the care were spread out over time
+		server.pet.Interact(types.InteractionPlaying, 1.0)
+	}
+	changes, _ := statusOf(t, server)["personality_changes"].([]interface{})
+	if !slices.Contains(changes, interface{}("more playful")) {
+		t.Errorf("Status should say how the pet has changed: %v", changes)
+	}
+}
+
+func TestRepeatedCareIsReported(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for i := 0; i < 3; i++ {
+		body = post(t, server.handleInteract, `{"action":"pet"}`).Body.String()
+	}
+	if !strings.Contains(body, "Biscuit has had plenty of this just now") {
+		t.Errorf("Repeated care should be reported: %s", body)
+	}
+}
+
+func TestStatusShowsAttentionStyle(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	status := statusOf(t, server)
+	if status["attention"] != core.AttentionTolerates {
+		t.Errorf("A balanced cat tolerates attention: %v", status["attention"])
+	}
+	if tolerates, ok := status["tolerates"].([]interface{}); !ok || len(tolerates) != 0 {
+		t.Errorf("A new pet tolerates nothing yet: %v", status["tolerates"])
 	}
 }

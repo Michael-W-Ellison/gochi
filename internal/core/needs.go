@@ -29,6 +29,8 @@ var needsMet = map[types.InteractionType]map[types.NeedType]float64{
 	types.InteractionTraining:                {types.NeedMentalStimulation: 1.0, types.NeedSocial: 0.3},
 	types.InteractionEnvironmentalEnrichment: {types.NeedExploration: 2.0, types.NeedExercise: 1.0},
 	types.InteractionRewards:                 {types.NeedAffection: 0.3},
+	types.InteractionWalking:                 {types.NeedExercise: 1.0, types.NeedExploration: 0.5, types.NeedSocial: 0.3},
+	types.InteractionSocialIntroduction:      {types.NeedSocial: 0.5}, // More when the meeting goes well (social.go)
 }
 
 // unmetNeedUnhappiness is how much happiness each critically unmet
@@ -143,6 +145,8 @@ func (p *DigitalPet) Walk(meters float64) (float64, error) {
 
 	p.ensureNeedsLocked()
 	p.Needs.SatisfyNeed(types.NeedExercise, sessions, p.Biology.GetAgeInDays())
+	p.Biology.EnsurePhysiology()
+	p.Biology.Exercise(sessions)
 	p.Biology.Vitals.Energy = max(p.Biology.Vitals.Energy-walkEnergyCost*sessions, 0)
 	p.syncPhysicalNeedsLocked()
 	return sessions, nil

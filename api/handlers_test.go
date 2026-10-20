@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -562,5 +563,27 @@ func TestPaginatedResponseJSON(t *testing.T) {
 	}
 	if !decoded.HasMore {
 		t.Error("Expected HasMore to be true")
+	}
+}
+
+func TestEmptyListsAreNotNull(t *testing.T) {
+	handler := createTestHandler()
+
+	for name, run := range map[string]func(*httptest.ResponseRecorder){
+		"pets": func(rr *httptest.ResponseRecorder) {
+			handler.HandleGetPets(rr, httptest.NewRequest("GET", "/api/v1/pets", nil))
+		},
+		"nearby": func(rr *httptest.ResponseRecorder) {
+			handler.HandleGetNearbyPets(rr, httptest.NewRequest("GET", "/api/v1/social/nearby?latitude=37.7749&longitude=-122.4194", nil))
+		},
+		"friends": func(rr *httptest.ResponseRecorder) {
+			handler.HandleGetFriends(rr, httptest.NewRequest("GET", "/api/v1/social/friends?pet_id=none", nil))
+		},
+	} {
+		rr := httptest.NewRecorder()
+		run(rr)
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"data":[]`) {
+			t.Errorf("%s: an empty list should be [], got %d %s", name, rr.Code, rr.Body.String())
+		}
 	}
 }

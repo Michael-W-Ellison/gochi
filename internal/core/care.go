@@ -60,6 +60,35 @@ func (p *DigitalPet) sleepQualityLocked() float64 {
 	return quality
 }
 
+// careRefusalLocked returns why care can't be given for reasons of the
+// pet's species or home, or "". Caller must hold p.mu.
+func (p *DigitalPet) careRefusalLocked(interactionType types.InteractionType) string {
+	switch interactionType {
+	case types.InteractionWalking:
+		if p.speciesLocked() != SpeciesDog {
+			return "Cats don't go for walks; play with " + p.Name + " indoors instead."
+		}
+	case types.InteractionCleaning:
+		if p.LivingAreaWaste < 0.05 {
+			if p.speciesLocked() == SpeciesDog {
+				return "There's nothing to clean up."
+			}
+			return "The litter box is already clean."
+		}
+	}
+	return ""
+}
+
+// eatLocked puts food in the pet's stomach; too much at once makes it
+// throw up. Caller must hold p.mu.
+func (p *DigitalPet) eatLocked(amount float64) {
+	if p.Biology.Eat(amount) {
+		p.evolveFromHardshipLocked(0.1)
+		p.recordHealthEventLocked("feeding", "%s ate too much and threw up. "+
+			"Smaller, measured meals and fewer treats are easier on the stomach.", p.Name)
+	}
+}
+
 // CareDescription explains what an interaction does
 func CareDescription(interactionType types.InteractionType) string {
 	return interaction.GetInteractionDescription(interactionType)

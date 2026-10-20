@@ -23,7 +23,35 @@ func (s *Server) interactionData(result core.InteractionResult) map[string]inter
 		"boosted_by":        result.BoostedBy,
 		"reaction":          result.Reaction,
 		"reaction_text":     result.ReactionText,
+		"lesson":            result.Lesson,
+		"note":              result.Note,
+		"repeated":          result.Repeated,
 	}
+}
+
+// handleGuide handles GET /api/guide - the care guide for the active pet's
+// species, or ?species=cat or dog
+func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	species, ok := core.ParseSpecies(r.URL.Query().Get("species"))
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose a cat or a dog"})
+		return
+	}
+	if r.URL.Query().Get("species") == "" {
+		s.mu.RLock()
+		if s.pet != nil {
+			species = s.pet.GetSpecies()
+		}
+		s.mu.RUnlock()
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"species": species,
+		"topics":  core.CareGuide(species),
+	}})
 }
 
 // writeActivityError reports why the pet cannot do an activity
@@ -55,6 +83,16 @@ func writeActivityError(w http.ResponseWriter, name string, err error) {
 		message = "Start a game of hide and seek first."
 	case errors.Is(err, core.ErrUnknownTrick):
 		status, message = http.StatusBadRequest, "Unknown trick"
+	case errors.Is(err, core.ErrNoSupply):
+		message = "There's none of that left in the pantry. Buy more in the shop."
+	case errors.Is(err, core.ErrNoTreats):
+		message = "Training with treats needs treats from the shop."
+	case errors.Is(err, core.ErrNoClicker):
+		message = "Clicker training needs a clicker from the shop."
+	case errors.Is(err, core.ErrWrongSpecies):
+		status, message = http.StatusBadRequest, "That isn't for "+name+"'s species"
+	case errors.Is(err, core.ErrUnknownChoice):
+		status, message = http.StatusBadRequest, "Unknown choice"
 	case errors.Is(err, core.ErrInvalidSpot):
 		status, message = http.StatusBadRequest, "Unknown hiding spot"
 	default:
@@ -105,7 +143,8 @@ func (s *Server) trickData(result core.TrickResult) map[string]interface{} {
 func (s *Server) handleTrick(perform bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Trick string `json:"trick"`
+			Trick  string `json:"trick"`
+			Method string `json:"method"` // Training method (training only); "" for none
 		}
 		if r.Method == http.MethodPost {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -115,7 +154,7 @@ func (s *Server) handleTrick(perform bool) http.HandlerFunc {
 		}
 
 		s.withActivePet(w, r, func() {
-			train := s.pet.TrainTrick
+			train := func(trick string) (core.TrickResult, error) { return s.pet.TrainTrickWith(trick, req.Method) }
 			if perform {
 				train = s.pet.PerformTrick
 			}

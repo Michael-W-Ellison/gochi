@@ -106,7 +106,7 @@ type Memory struct {
 // it changes only when that interaction happens again.
 type InteractionPreference struct {
 	Affinity   float64 `json:"affinity"`   // Learned like (+) or dislike (-), -1.0 to 1.0
-	Experience int     `json:"experience"` // Number of interactions learned from
+	Experience float64 `json:"experience"` // Interactions learned from (repeats in quick succession count less)
 }
 
 const (
@@ -264,13 +264,35 @@ func (m *MemorySystem) RecordInteractionFull(interactionType types.InteractionTy
 	tags := []string{"interaction", interactionType.String()}
 
 	memory := m.RecordMemoryFull(MemoryInteraction, "User interaction: "+interactionType.String(), gameTime, strength, emotion, details, valence, arousal, importanceFromIntensity(arousal), tags)
-	m.learnPreference(interactionType, valence)
+	m.learnPreference(interactionType, valence, 1)
+	return memory
+}
+
+// RecordInteractionExperience records an interaction like
+// RecordInteractionFull, but learns the preference from experienced: how
+// the pet itself took the interaction (-1.0 to 1.0), which can differ from
+// the emotions it caused. weight (0.0 to 1.0) is how much this interaction
+// counts towards the preference; repeats in quick succession count less.
+func (m *MemorySystem) RecordInteractionExperience(interactionType types.InteractionType, gameTime, quality float64, emotion string, valence, arousal, experienced, weight float64) *Memory {
+	details := map[string]interface{}{
+		"interaction_type": interactionType.String(),
+		"quality":          quality,
+	}
+	strength := 0.3 + (quality * 0.7)
+	tags := []string{"interaction", interactionType.String()}
+
+	memory := m.RecordMemoryFull(MemoryInteraction, "User interaction: "+interactionType.String(), gameTime, strength, emotion, details, valence, arousal, importanceFromIntensity(arousal), tags)
+	m.learnPreference(interactionType, experienced, weight)
 	return memory
 }
 
 // learnPreference folds one interaction's valence into the learned preference
-// for that interaction type
-func (m *MemorySystem) learnPreference(interactionType types.InteractionType, valence float64) {
+// for that interaction type, counting it by weight (1.0 for a full
+// interaction)
+func (m *MemorySystem) learnPreference(interactionType types.InteractionType, valence, weight float64) {
+	if weight <= 0 {
+		return
+	}
 	if m.Preferences == nil {
 		m.Preferences = make(map[types.InteractionType]*InteractionPreference)
 	}
@@ -281,10 +303,10 @@ func (m *MemorySystem) learnPreference(interactionType types.InteractionType, va
 		m.Preferences[interactionType] = pref
 	}
 
-	pref.Experience++
-	rate := 1.0 / float64(pref.Experience)
-	if rate < minPreferenceRate {
-		rate = minPreferenceRate
+	pref.Experience += weight
+	rate := weight / pref.Experience
+	if rate < minPreferenceRate*weight {
+		rate = minPreferenceRate * weight
 	}
 	pref.Affinity = clamp(pref.Affinity+rate*(clamp(valence, -1.0, 1.0)-pref.Affinity), -1.0, 1.0)
 }
@@ -297,7 +319,7 @@ func (m *MemorySystem) GetLearnedAffinity(interactionType types.InteractionType)
 		return 0.0
 	}
 
-	experience := float64(pref.Experience)
+	experience := pref.Experience
 	confidence := experience / (experience + preferenceConfidenceScale)
 	return pref.Affinity * confidence
 }
