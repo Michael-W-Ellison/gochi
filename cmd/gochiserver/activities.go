@@ -420,11 +420,7 @@ func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
 		slot string
 		pet  *core.DigitalPet
 	}{{req.PartnerSlot, partner}, {babySlot, baby}} {
-		data, err := save.pet.Save()
-		if err == nil {
-			err = s.store.Save(save.slot, data)
-		}
-		if err != nil {
+		if err := s.store.SavePet(save.slot, save.pet); err != nil {
 			log.Printf("Failed to save %s after breeding: %v", save.pet.Name, err)
 		}
 	}

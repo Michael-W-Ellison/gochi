@@ -20,6 +20,17 @@ server:
   # minute; 0 turns the limit off
   api_rate_limit: 120
 
+hub:
+  # Also run this server as a cloud hub at /hub/v1, which other Gochi
+  # servers can connect to (from the Cloud panel) to back up and sync pets,
+  # see pets nearby and share achievements. Hub data is kept in the data
+  # directory's hub/ folder.
+  enabled: false
+
+  # The code players need to register with the hub. Empty closes
+  # registration (existing accounts still work).
+  join_code: ""
+
 simulation:
   # Game speed: game (one game day per real minute), 24x (one game day per
   # real hour), 4x (one game day per six real hours) or realtime

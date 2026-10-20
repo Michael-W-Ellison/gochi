@@ -134,11 +134,7 @@ func (a apiPetStore) CreatePet(pet *core.DigitalPet) error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 
-	data, err := pet.Save()
-	if err != nil {
-		return err
-	}
-	return s.store.Save(s.store.NewSlot(pet), data)
+	return s.store.SavePet(s.store.NewSlot(pet), pet)
 }
 
 func (a apiPetStore) UpdatePet(pet *core.DigitalPet) error {
@@ -158,11 +154,7 @@ func (a apiPetStore) UpdatePet(pet *core.DigitalPet) error {
 	if err != nil {
 		return err
 	}
-	data, err := pet.Save()
-	if err != nil {
-		return err
-	}
-	return s.store.Save(slot, data)
+	return s.store.SavePet(slot, pet)
 }
 
 // DeletePet is not allowed: deleting a pet needs the confirmations the

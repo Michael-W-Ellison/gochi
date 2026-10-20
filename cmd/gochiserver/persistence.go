@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +20,11 @@ import (
 // petStore saves and restores pets through a DataManager. Each pet has its
 // own save slot: a save file named <slot>.json with its own backups.
 type petStore struct {
+	// Preferences recorded in each save: the game speed and how often the
+	// active pet is saved (seconds; 0 for off)
+	timeScale       string
+	autosaveSeconds int
+
 	mu    sync.Mutex // Serializes saves and loads
 	dm    *data.DataManager
 	saves map[string]*data.SaveData // Save metadata per slot
@@ -41,6 +48,7 @@ type cachedSave struct {
 
 // savedPet summarizes a saved pet for the pet list
 type savedPet struct {
+	ID          string    `json:"-"`
 	Slot        string    `json:"slot"`
 	Name        string    `json:"name"`
 	Species     string    `json:"species"` // cat or dog
@@ -164,6 +172,23 @@ func (ps *petStore) LoadMostRecent() (pet *core.DigitalPet, slot, path string, w
 // Save writes serialized pet data (from DigitalPet.Save) to slot.
 // The previous save of that slot is kept as a backup.
 func (ps *petStore) Save(slot string, petData []byte) error {
+	return ps.SaveWithRecord(slot, petData, nil)
+}
+
+// SavePet saves a pet and its record to slot
+func (ps *petStore) SavePet(slot string, pet *core.DigitalPet) error {
+	petData, err := pet.Save()
+	if err != nil {
+		return err
+	}
+	record := pet.SaveRecord()
+	return ps.SaveWithRecord(slot, petData, &record)
+}
+
+// SaveWithRecord writes serialized pet data to slot, with the pet's record
+// (its history, achievements, unlocks and statistics) if record is not
+// nil. The previous save of that slot is kept as a backup.
+func (ps *petStore) SaveWithRecord(slot string, petData []byte, record *core.SaveRecord) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
@@ -177,6 +202,10 @@ func (ps *petStore) Save(slot string, petData []byte) error {
 	if err := saveData.SetPetData(json.RawMessage(petData)); err != nil {
 		return err
 	}
+	if record != nil {
+		applyRecord(saveData, *record)
+	}
+	saveData.Preferences.TimeScale, saveData.Preferences.AutoSaveInterval = ps.timeScale, ps.autosaveSeconds
 	if err := ps.dm.Save(saveData, slot); err != nil {
 		ps.cache.Delete(slot)
 		return err
@@ -232,6 +261,7 @@ func (ps *petStore) readSummary(slot, path string) (savedPet, error) {
 // data, not the whole pet
 func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error) {
 	var summary struct {
+		ID          string `json:"id"`
 		Name        string `json:"name"`
 		Species     string `json:"species"`
 		Hibernating bool   `json:"hibernating"`
@@ -251,6 +281,7 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		species = core.SpeciesCat
 	}
 	return savedPet{
+		ID:          summary.ID,
 		Slot:        slot,
 		Name:        summary.Name,
 		Species:     string(species),
@@ -277,12 +308,7 @@ func (ps *petStore) Delete(slot string) error {
 
 // NewSlot returns an unused slot name for a pet, derived from its ID
 func (ps *petStore) NewSlot(pet *core.DigitalPet) string {
-	base := sanitizeSlot(string(pet.ID))
-	slot := base
-	for i := 2; ps.dm.Exists(slot); i++ {
-		slot = fmt.Sprintf("%s-%d", base, i)
-	}
-	return slot
+	return ps.NewSlotFor(string(pet.ID))
 }
 
 // ValidSlot reports whether slot is a well-formed slot name
@@ -316,4 +342,109 @@ func (ps *petStore) SaveDir() string {
 // SavePath returns where the pet in slot is saved
 func (ps *petStore) SavePath(slot string) string {
 	return filepath.Join(ps.dm.SavePath, slot+".json")
+}
+
+// applyRecord copies a pet's record into its save file
+func applyRecord(saveData *data.SaveData, record core.SaveRecord) {
+	saveData.CareHistory = make([]data.HistoryEntry, len(record.History))
+	for i, h := range record.History {
+		saveData.CareHistory[i] = data.HistoryEntry{Timestamp: h.Time, ActionType: h.Action, Description: h.Description,
+			PetAge: h.Age, Outcome: h.Outcome}
+	}
+	saveData.Achievements = make([]data.Achievement, len(record.Achievements))
+	for i, a := range record.Achievements {
+		saveData.Achievements[i] = data.Achievement{ID: a.ID, Name: a.Name, Description: a.Description,
+			UnlockedAt: a.EarnedAt, Rarity: a.Rarity, Points: a.Points}
+	}
+	u := record.Unlocks
+	saveData.Unlocks = data.UnlockableContent{Locations: u.Places, Accessories: u.Items, Foods: u.Foods, Toys: u.Toys,
+		Backgrounds: saveData.Unlocks.Backgrounds, PetVariants: u.Variants, Tricks: u.Tricks}
+	stats := &saveData.Statistics
+	stats.TotalPlayTime = record.Stats.PlayTime
+	stats.TotalInteractions = record.Stats.Interactions
+	stats.LongestLifespan = max(stats.LongestLifespan, record.Stats.Age)
+	stats.HighestHappiness = max(stats.HighestHappiness, record.Stats.Happiness)
+	stats.AchievementsEarned = record.Stats.Achievements
+	if !record.Stats.Alive && stats.PetsLost == 0 {
+		stats.PetsLost = 1
+	}
+}
+
+// exportedSave is a save file as it is uploaded to the cloud hub
+type exportedSave struct {
+	JSON       []byte    // The save file's contents (data.SaveData)
+	PetHash    string    // Changes when the pet itself changes (not when it is merely saved again)
+	LastPlayed time.Time // When time last passed for the pet
+}
+
+// petFingerprint returns a hash of a pet's data and when it was last
+// played
+func petFingerprint(petData []byte) (string, time.Time) {
+	sum := sha256.Sum256(petData)
+	var pet struct {
+		LastUpdateAt time.Time `json:"last_update_at"`
+	}
+	json.Unmarshal(petData, &pet)
+	return hex.EncodeToString(sum[:]), pet.LastUpdateAt
+}
+
+// Export returns the save in slot, to upload to the cloud hub
+func (ps *petStore) Export(slot string) (exportedSave, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	var saveData *data.SaveData
+	if entry, ok := ps.cached(slot); ok {
+		saveData = entry.saveData
+	} else {
+		loaded, path, err := ps.dm.LoadLatest(slot)
+		if err != nil {
+			return exportedSave{}, err
+		}
+		if path != ps.SavePath(slot) {
+			return exportedSave{}, fmt.Errorf("the save of %s is damaged; load it to restore it from a backup first", slot)
+		}
+		saveData = loaded
+		ps.cacheLocked(slot, saveData)
+	}
+	contents, err := saveData.ToJSON()
+	if err != nil {
+		return exportedSave{}, err
+	}
+	hash, played := petFingerprint(saveData.PetData)
+	return exportedSave{JSON: contents, PetHash: hash, LastPlayed: played}, nil
+}
+
+// Import replaces the save in slot with one downloaded from the cloud hub
+// (the previous save is kept as a backup) and returns the pet's hash (see
+// Export)
+func (ps *petStore) Import(slot string, contents []byte) (string, error) {
+	saveData, err := data.FromJSON(contents)
+	if err != nil {
+		return "", fmt.Errorf("the downloaded save can't be read: %w", err)
+	}
+	if _, err := core.Load(saveData.PetData); err != nil {
+		return "", fmt.Errorf("the downloaded pet can't be read: %w", err)
+	}
+
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if err := ps.dm.Save(saveData, slot); err != nil {
+		ps.cache.Delete(slot)
+		return "", err
+	}
+	ps.saves[slot] = saveData
+	ps.cacheLocked(slot, saveData)
+	hash, _ := petFingerprint(saveData.PetData)
+	return hash, nil
+}
+
+// NewSlotFor returns an unused slot for a pet with the given ID and name
+func (ps *petStore) NewSlotFor(id string) string {
+	base := sanitizeSlot(id)
+	slot := base
+	for i := 2; ps.dm.Exists(slot); i++ {
+		slot = fmt.Sprintf("%s-%d", base, i)
+	}
+	return slot
 }

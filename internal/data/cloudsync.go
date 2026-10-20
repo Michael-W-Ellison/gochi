@@ -405,6 +405,7 @@ func mergeUnlocks(local, cloud UnlockableContent) UnlockableContent {
 		Toys:        uniqueStrings(append(local.Toys, cloud.Toys...)),
 		Backgrounds: uniqueStrings(append(local.Backgrounds, cloud.Backgrounds...)),
 		PetVariants: uniqueStrings(append(local.PetVariants, cloud.PetVariants...)),
+		Tricks:      uniqueStrings(append(local.Tricks, cloud.Tricks...)),
 	}
 }
 

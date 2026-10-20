@@ -24,6 +24,11 @@ type Config struct {
 		APIRateLimit int    `yaml:"api_rate_limit"` // REST API requests per minute per client; 0 turns the limit off
 	} `yaml:"server"`
 
+	Hub struct {
+		Enabled  bool   `yaml:"enabled"`   // Also run as a cloud hub
+		JoinCode string `yaml:"join_code"` // Players need it to register; "" closes registration
+	} `yaml:"hub"`
+
 	Simulation struct {
 		TimeScale string        `yaml:"time_scale"` // game, 24x, 4x or realtime
 		Autosave  time.Duration `yaml:"autosave"`   // 0 turns autosave off

@@ -19,6 +19,7 @@ import (
 
 	"github.com/Michael-W-Ellison/gochi/internal/ar"
 	"github.com/Michael-W-Ellison/gochi/internal/core"
+	"github.com/Michael-W-Ellison/gochi/internal/hub"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -32,6 +33,8 @@ type Server struct {
 	webDir string
 	clock  *simulation.TimeManager // Game clock; its scale sets the game's speed
 	store  *petStore               // nil disables saving
+	cloud  *cloud                  // Connection to a cloud hub; nil disables cloud features
+	hub    *hub.Hub                // This server's own hub, if it runs one
 	events *core.EventSystem       // What happened to the pets while time passed
 
 	// Time stops while the game is paused, so the pet cannot decline
@@ -101,6 +104,8 @@ type PetStatus struct {
 	Rewarded         []string               `json:"rewarded"`            // Behaviors it has learned you reward, by mood
 	Trends           []string               `json:"trends"`              // Which way its recent experiences move its personality
 	Life             core.LifeStatus        `json:"life"`
+	Achievements     []core.Achievement     `json:"achievements"`
+	AchievementTotal int                    `json:"achievement_total"`
 	LifeSeconds      int                    `json:"life_seconds"` // Real seconds of play left at the default pace
 	Attention        string                 `json:"attention"`    // How much it enjoys attention by nature
 	Tolerates        []string               `json:"tolerates"`    // Care it neither likes nor dislikes
@@ -128,6 +133,8 @@ func main() {
 	addr := flag.String("addr", defaults.Server.Addr, "address to listen on")
 	apiToken := flag.String("api-token", defaults.Server.APIToken, "enable the REST API at /api/v1 for requests with this bearer token")
 	scaleName := flag.String("time-scale", defaults.Simulation.TimeScale, "game speed: game (1 game day per real minute), 24x, 4x or realtime")
+	hubEnabled := flag.Bool("hub", defaults.Hub.Enabled, "also run as a cloud hub other Gochi servers can connect to")
+	hubJoinCode := flag.String("hub-join-code", defaults.Hub.JoinCode, "the code players need to register with this hub")
 	flag.Parse()
 
 	// Find web directory
@@ -163,6 +170,10 @@ func main() {
 			config.Server.APIToken = *apiToken
 		case "time-scale":
 			config.Simulation.TimeScale = *scaleName
+		case "hub":
+			config.Hub.Enabled = *hubEnabled
+		case "hub-join-code":
+			config.Hub.JoinCode = *hubJoinCode
 		}
 	})
 	if err := config.validate(); err != nil {
@@ -175,6 +186,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not set up save directory: %v", err)
 	}
+	store.timeScale, store.autosaveSeconds = config.Simulation.TimeScale, int(config.Simulation.Autosave.Seconds())
+	dataPath := filepath.Dir(store.SaveDir())
+	cloudConn, err := newCloud(dataPath)
+	if err != nil {
+		log.Fatalf("Could not read the cloud settings: %v", err)
+	}
+	var hubServer *hub.Hub
+	if config.Hub.Enabled {
+		if hubServer, err = hub.New(filepath.Join(dataPath, "hub"), config.Hub.JoinCode); err != nil {
+			log.Fatalf("Could not set up the cloud hub: %v", err)
+		}
+	}
 
 	// Create server
 	server := &Server{
@@ -184,6 +207,19 @@ func main() {
 		lastActivity: time.Now(),
 		awayTimeout:  config.Simulation.AwayPause,
 		events:       newEventSystem(),
+		cloud:        cloudConn,
+		hub:          hubServer,
+	}
+
+	// Sync with the cloud hub first, so the newest saves are restored
+	if server.cloudStatus().Connected {
+		syncCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		if report, err := server.cloudSync(syncCtx); err != nil {
+			log.Printf("Cloud sync failed: %v", err)
+		} else {
+			log.Printf("Cloud sync: %s", report.summary())
+		}
+		cancel()
 	}
 
 	// Restore the most recently saved pet. Time does not pass while the
@@ -215,6 +251,8 @@ func main() {
 		go server.autosaveLoop(ctx, config.Simulation.Autosave)
 		log.Printf("Autosaving every %s", config.Simulation.Autosave)
 	}
+	go server.syncLoop(ctx)
+	go server.shareLoop(ctx)
 
 	// Setup routes
 	mux := http.NewServeMux()
@@ -230,6 +268,23 @@ func main() {
 			log.Printf("REST API clients may make %d requests a minute", config.Server.APIRateLimit)
 		}
 	}
+
+	// The cloud hub, for other Gochi servers
+	if hubServer != nil {
+		mux.Handle("/hub/v1/", hubServer.Handler())
+		if hubServer.RegistrationOpen() {
+			log.Printf("Cloud hub enabled at /hub/v1; players register with the join code")
+		} else {
+			log.Printf("Cloud hub enabled at /hub/v1; registration is closed (no join code)")
+		}
+	}
+	mux.HandleFunc("/api/cloud", server.handleCloud)
+	mux.HandleFunc("/api/cloud/connect", server.handleCloudConnect)
+	mux.HandleFunc("/api/cloud/disconnect", server.handleCloudDisconnect)
+	mux.HandleFunc("/api/cloud/sync", server.handleCloudSync)
+	mux.HandleFunc("/api/cloud/profile", server.handleCloudProfile)
+	mux.HandleFunc("/api/cloud/nearby", server.handleCloudNearby)
+	mux.HandleFunc("/api/cloud/feed", server.handleCloudFeed)
 
 	// Simple API routes
 	mux.HandleFunc("/api/status", server.handleStatus)
@@ -315,6 +370,15 @@ func main() {
 	} else if saved {
 		log.Printf("Saved pet to %s", store.SavePath(server.slot))
 	}
+	if server.cloudStatus().Connected {
+		syncCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		if report, err := server.cloudSync(syncCtx); err != nil {
+			log.Printf("Cloud sync on exit failed: %v", err)
+		} else {
+			log.Printf("Cloud sync: %s", report.summary())
+		}
+		cancel()
+	}
 }
 
 func findWebDir() string {
@@ -381,6 +445,20 @@ func (s *Server) tick(now time.Time) {
 	s.pet.Update(gameSeconds / secondsPerGameDay)
 	for _, event := range core.ConditionEvents(before, s.pet.Conditions()) {
 		s.events.Emit(event)
+		s.pet.RecordEvent(event)
+	}
+	s.announceAchievementsLocked()
+}
+
+// announceAchievementsLocked records achievements the active pet has newly
+// earned as events (and shares them through the cloud hub, if the player
+// has chosen to). Caller must hold s.mu.
+func (s *Server) announceAchievementsLocked() {
+	for _, a := range s.pet.CheckAchievements() {
+		s.events.Emit(core.GameEvent{Type: core.EventAchievement, PetID: s.pet.ID, Good: true,
+			Message: fmt.Sprintf("🏆 %s earned an achievement: %s %s (%s).", s.pet.Name, a.Icon, a.Name,
+				strings.ToLower(a.Description[:1])+a.Description[1:])})
+		s.shareAchievementLocked(a)
 	}
 }
 
@@ -594,6 +672,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .stat-fill.area.critical { background: #fa5252; }
         .illness { margin-top: 8px; font-weight: 700; color: #c92a2a; }
         .life-line, .rhythm-line { margin-top: 8px; font-size: 0.85em; color: #555; }
+        .cloud-field { display: block; margin-top: 8px; font-size: 0.85em; color: #555; }
+        .cloud-field input { display: block; width: 100%; padding: 7px 9px; margin-top: 3px; border: 2px solid #ddd; border-radius: 10px; }
+        .cloud-note { color: #777; font-size: 0.85em; }
+        .cloud-key { word-break: break-all; font-family: monospace; font-size: 0.8em; }
         .rhythm-line { color: #777; }
         .potion-btn { margin-top: 8px; }
         .symptom { margin-top: 8px; font-size: 0.88em; color: #5c3c00; background: #fff4e6; border-radius: 10px; padding: 6px 10px; }
@@ -865,6 +947,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" onclick="openChooser()">Switch Pet</button>
                 <button class="save-btn" onclick="openShop()">Shop</button>
                 <button class="save-btn" onclick="openGuide()">📖 Care guide</button>
+                <button class="save-btn" onclick="openCloud()">☁️ Cloud</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
@@ -885,6 +968,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutRewarded"></div>
                 <div id="aboutRelations"></div>
                 <div id="aboutTreasures"></div>
+                <div id="aboutAchievements"></div>
                 <div id="aboutSeason"></div>
                 <div id="aboutGeneration"></div>
             </div>
@@ -1486,6 +1570,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             setList('aboutAttention', 'Attention', status.attention ? [status.name + ' ' + status.attention] : [], 'unknown');
             setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
             setList('aboutTrends', 'Lately becoming', status.trends || [], 'no clear change');
+            setList('aboutAchievements', 'Achievements (' + (status.achievements || []).length + ' of ' +
+                status.achievement_total + ')', (status.achievements || []).map(a => a.icon + ' ' + a.name), 'none yet');
             setList('aboutRewarded', 'Has learned you respond to', status.rewarded || [], 'nothing yet');
             setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description +
                 (r.last_shared ? '; last: ' + r.last_shared : '') + ')'),
@@ -2080,6 +2166,135 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             p.append(buttons);
         }
 
+        // Cloud: back up and sync pets through a Gochi hub, see pets nearby
+        // and shared achievements
+        function openCloud() {
+            panelMode = 'cloud';
+            fetch('/api/cloud').then(r => r.json()).then(data => {
+                if (data.success) renderCloud(data.data);
+            }).catch(console.error);
+        }
+
+        function cloudField(p, label, id, value, placeholder, type) {
+            const row = document.createElement('label');
+            row.className = 'cloud-field';
+            row.textContent = label;
+            const input = document.createElement('input');
+            input.type = type || 'text';
+            input.id = id;
+            input.value = value || '';
+            input.placeholder = placeholder || '';
+            row.append(input);
+            p.append(row);
+            return input;
+        }
+
+        function cloudText(p, text, className) {
+            const div = document.createElement('div');
+            div.className = className || 'panel-text';
+            div.textContent = text;
+            p.append(div);
+            return div;
+        }
+
+        function cloudButton(parent, text, onClick) {
+            const btn = document.createElement('button');
+            btn.className = 'save-btn';
+            btn.textContent = text;
+            btn.onclick = onClick;
+            parent.append(btn);
+            return btn;
+        }
+
+        function cloudPost(url, body, done) {
+            postJSON(url, body).then(data => {
+                showPointsToast(data.success ? (data.data && data.data.text) || 'Done.' : (data.error || 'Something went wrong'));
+                if (data.success && done) done(data.data);
+                openCloud();
+                fetchStatus();
+            }).catch(console.error);
+        }
+
+        function renderCloud(cloud) {
+            const p = panel();
+            p.replaceChildren(panelHeader('Cloud'));
+            if (cloud.hosting) {
+                cloudText(p, '🏠 This server is also a cloud hub. Other players connect to its address with the join code.', 'panel-text cloud-note');
+            }
+
+            if (!cloud.connected) {
+                cloudText(p, 'Connect to a Gochi hub to back up your pets, play them on your other devices, ' +
+                    'see pets nearby and share achievements. A hub is any Gochi server started with -hub.');
+                const url = cloudField(p, 'Hub address', 'cloudUrl', '', 'https://hub.example.com');
+                const user = cloudField(p, 'Username', 'cloudUser', '', 'your name on the hub');
+                const code = cloudField(p, 'Join code (new account)', 'cloudCode', '', 'from whoever runs the hub', 'password');
+                const key = cloudField(p, 'Or account key (already have an account)', 'cloudKey', '', 'from your other device', 'password');
+                const row = document.createElement('div');
+                row.className = 'save-row';
+                cloudButton(row, 'Connect', () => cloudPost('/api/cloud/connect',
+                    {hub_url: url.value, username: user.value, join_code: code.value, account_key: key.value}));
+                p.append(row);
+                p.classList.remove('hidden');
+                return;
+            }
+
+            cloudText(p, 'Connected to ' + cloud.hub_url + ' as ' + cloud.username + '.');
+            cloudText(p, cloud.last_sync ? 'Last synced ' + new Date(cloud.last_sync).toLocaleString() + '. ' + cloud.last_report :
+                'Not synced yet.', 'panel-text cloud-note');
+            const actions = document.createElement('div');
+            actions.className = 'save-row';
+            cloudButton(actions, '🔄 Sync now', () => cloudPost('/api/cloud/sync', {}));
+            const keyBtn = cloudButton(actions, 'Show account key', () => {
+                keyLine.textContent = 'Account key for your other devices (keep it secret): ' + cloud.account_key;
+                keyLine.classList.remove('hidden');
+                keyBtn.disabled = true;
+            });
+            cloudButton(actions, 'Disconnect', () => {
+                if (confirm('Disconnect from the hub? Your pets stay on this device and on the hub.')) {
+                    cloudPost('/api/cloud/disconnect', {});
+                }
+            });
+            p.append(actions);
+            const keyLine = cloudText(p, '', 'panel-text cloud-key hidden');
+
+            const title = cloudText(p, 'Nearby pets and sharing', 'section-title');
+            title.style.marginTop = '14px';
+            cloudText(p, 'Type your town or area. When sharing is on, players who chose the same area see your pets ' +
+                '(name, species and age group) and your pets\' achievements are posted to the hub. Nothing more precise ' +
+                'than the area name is shared.', 'panel-text cloud-note');
+            const area = cloudField(p, 'Area', 'cloudArea', cloud.area, 'for example Leeds');
+            const share = document.createElement('label');
+            share.className = 'method-row';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = cloud.sharing;
+            share.append(box, ' Share my pets and achievements');
+            p.append(share);
+            const saveRow = document.createElement('div');
+            saveRow.className = 'save-row';
+            cloudButton(saveRow, 'Save', () => cloudPost('/api/cloud/profile', {area: area.value, sharing: box.checked},
+                () => showPointsToast(box.checked ? 'Sharing with players in ' + area.value + '.' : 'Sharing is off.')));
+            p.append(saveRow);
+
+            const nearby = cloudText(p, cloud.sharing ? 'Looking for pets nearby…' : 'Turn on sharing to see pets nearby.', 'panel-text');
+            const feed = cloudText(p, '', 'panel-text');
+            p.classList.remove('hidden');
+
+            if (cloud.sharing) {
+                fetch('/api/cloud/nearby').then(r => r.json()).then(data => {
+                    if (!data.success) { nearby.textContent = data.error; return; }
+                    nearby.textContent = data.data.length === 0 ? 'No pets nearby yet.' :
+                        'Nearby: ' + data.data.map(n => (n.species === 'dog' ? '🐶 ' : '🐱 ') + n.name + ' (' +
+                            n.stage.toLowerCase() + ', ' + n.owner + ')').join(' · ');
+                }).catch(console.error);
+            }
+            fetch('/api/cloud/feed').then(r => r.json()).then(data => {
+                if (!data.success || data.data.length === 0) return;
+                feed.textContent = 'Shared achievements: ' + data.data.slice(0, 10).map(a =>
+                    a.icon + ' ' + a.pet_name + ' (' + a.owner + '): ' + a.name).join(' · ');
+            }).catch(console.error);
+        }
+
         function openTricks() {
             panelMode = 'tricks';
             loadCareOptions().then(renderTricks).catch(renderTricks);
@@ -2541,12 +2756,13 @@ func (s *Server) saveNow() (bool, error) {
 	}
 	slot := s.slot
 	petData, err := s.pet.Save()
+	record := s.pet.SaveRecord()
 	s.mu.RUnlock()
 	if err != nil {
 		return false, err
 	}
 
-	if err := s.store.Save(slot, petData); err != nil {
+	if err := s.store.SaveWithRecord(slot, petData, &record); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -2558,11 +2774,7 @@ func (s *Server) saveActiveLocked() error {
 	if s.store == nil || s.pet == nil {
 		return nil
 	}
-	petData, err := s.pet.Save()
-	if err != nil {
-		return err
-	}
-	return s.store.Save(s.slot, petData)
+	return s.store.SavePet(s.slot, s.pet)
 }
 
 // switchPet saves the active pet, then makes the pet returned by next the
@@ -2873,9 +3085,9 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	active := s.pet != nil && s.slot == req.Slot
 
 	// The active pet may have been renamed since it was last saved
-	var name string
+	var name, petID string
 	if active {
-		name = s.pet.Name
+		name, petID = s.pet.Name, string(s.pet.ID)
 	} else {
 		summary, err := s.store.Summary(req.Slot)
 		switch {
@@ -2885,7 +3097,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			name = req.Slot // Unreadable save: confirm with the slot name
 		default:
-			name = summary.Name
+			name, petID = summary.Name, summary.ID
 		}
 	}
 
@@ -2907,6 +3119,9 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Deleted %s (%s)", name, req.Slot)
+	if petID != "" {
+		go s.cloudForget(context.Background(), petID) // Other devices stop syncing it
+	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
 		"deleted":    req.Slot,
 		"was_active": active,
@@ -3037,6 +3252,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.Changes = s.pet.PersonalityChanges()
 	petStatus.Rewarded, petStatus.Trends = s.pet.LearningSummary()
 	petStatus.Life = s.pet.LifeStatus()
+	petStatus.Achievements = s.pet.EarnedAchievements()
+	petStatus.AchievementTotal = core.AchievementCount()
 	petStatus.LifeSeconds = gameDaysToSeconds(petStatus.Life.Remaining)
 	petStatus.Attention = s.pet.AttentionStyle()
 	petStatus.Relations = s.pet.Relations()

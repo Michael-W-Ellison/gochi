@@ -31,13 +31,14 @@ const (
 	EventTripReturned
 	EventTrickRusty
 	EventLifeStage
+	EventAchievement
 )
 
 // String returns the event type's name
 func (et EventType) String() string {
 	return [...]string{
 		"PetDied", "PetHibernated", "PetSick", "PetRecovered", "PetHungry",
-		"PetThirsty", "WarningSign", "TripReturned", "TrickRusty", "LifeStage",
+		"PetThirsty", "WarningSign", "TripReturned", "TrickRusty", "LifeStage", "Achievement",
 	}[et]
 }
 

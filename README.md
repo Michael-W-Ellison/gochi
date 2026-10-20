@@ -127,6 +127,56 @@ To play with a different pet, press **Switch Pet**. The pet list shows every sav
 to switch to one, or create a new pet below the list. Your current pet is saved first, so no
 progress is lost.
 
+Each save file also records the pet's **history** (the last 500 kinds of care it was given, how it
+took them, and what happened to it on its own), its **achievements**, what it has **unlocked** (places
+discovered, shop items, foods and toys in its pantry, tricks learned) and lifetime **statistics**,
+along with the game speed and autosave interval it was played with.
+
+**Achievements** are milestones a pet reaches: learning a first trick or every trick, finding a first
+souvenir or a crystal, discovering every place, growing up, becoming a senior, living past a typical
+lifespan, a best friend, a baby, 500 Friendship Points earned, and owning five shop items. They are
+listed under **About** and announced under **Recently** when earned.
+
+### Cloud: Backup, Sync and Sharing
+
+A Gochi server can also run as a **cloud hub** that other Gochi servers connect to, so you can back up
+your pets, play them on other devices, see other players' pets nearby and share achievements. The hub
+is self-hosted: it is just another Gochi server, and nothing is sent anywhere else.
+
+**Running a hub**: start a server with `-hub -hub-join-code SOMECODE` (or `hub.enabled` and
+`hub.join_code` in the config file) and give the join code to the people who may register. The hub
+answers at `/hub/v1` on the same address as the game; its data is kept in `<data-dir>/hub/`
+(accounts, with account keys stored only as hashes, each player's pets, and the shared achievements).
+With no join code, nobody new can register. The hub allows each client 120 requests a minute and
+each player 50 pets. The hub speaks plain HTTP: to use it over the internet, put it behind an HTTPS
+reverse proxy so account keys and saves aren't sent in the clear.
+
+**Connecting**: press **☁️ Cloud**, enter the hub's address, a username and the join code, and press
+**Connect**. Your pets are uploaded straight away. To connect another device to the same account, press
+**Show account key** on the first device and enter that key (with the same username) on the other
+device instead of the join code. The connection is kept in `<data-dir>/cloud.json`, readable only by
+you.
+
+**Syncing** happens when the program starts (before your last pet is restored), every 5 minutes, when
+you press **Sync now**, and when you exit. For each pet:
+
+- a pet that changed only on this device is uploaded, and one that changed only on the hub is
+  downloaded (the previous local save is kept as a backup). Saving a pet that hasn't changed (for
+  example while the game is paused) doesn't count as a change;
+- a pet that changed on both is resolved in favour of the copy that was played most recently; the
+  other stays as a backup on its side (the hub keeps one previous version of each pet);
+- a pet new on the hub is downloaded into a new slot, and your active pet is reloaded if a newer copy
+  was downloaded;
+- deleting a pet removes it from the hub. Your other devices then report that it was deleted on
+  another device and stop syncing it, but keep their copy until you delete it there too.
+
+**Nearby pets and sharing**: in the Cloud panel, type your town or area and turn on **Share my pets
+and achievements**. Players on the same hub who chose the same area (ignoring capitals and extra
+spaces) then see your pets' names, species and age groups, and you see theirs. Your pets'
+achievements are posted to the hub's feed as they are earned, and the panel shows recent ones from
+everyone sharing on the hub. Nothing more precise than the area name is shared, and with sharing off
+you neither appear nor see anyone.
+
 ### Pausing Time
 
 Pets need regular care, so time only passes while you are playing:
@@ -572,6 +622,8 @@ options:
 | `server.data_dir` | `-data-dir` | `""` (`~/.gochi`); a relative path is relative to the file |
 | `server.api_token` | `-api-token` | `""` (REST API off) |
 | `server.api_rate_limit` | | `120` REST API requests a minute per client (0 for no limit) |
+| `hub.enabled` | `-hub` | `false` (also run as a cloud hub) |
+| `hub.join_code` | `-hub-join-code` | `""` (registration closed) |
 | `simulation.time_scale` | `-time-scale` | `"game"` |
 | `simulation.autosave` | `-autosave` | `1m` |
 | `simulation.away_pause` | `-away-pause` | `2m` |

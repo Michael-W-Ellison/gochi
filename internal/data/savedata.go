@@ -92,6 +92,7 @@ type UnlockableContent struct {
 	Toys        []string `json:"toys"`
 	Backgrounds []string `json:"backgrounds"`
 	PetVariants []string `json:"pet_variants"`
+	Tricks      []string `json:"tricks"`
 }
 
 // GameStatistics tracks overall game stats

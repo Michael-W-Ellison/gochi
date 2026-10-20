@@ -778,6 +778,21 @@ is replaced by its newest working backup.
 Saves read or written are kept in an in-memory cache (least recently used first out, up to 32 MB
 of pet data) along with the file's modification time and size; a load or pet list entry uses the
 cache only while the file is unchanged, so a damaged or replaced file is always read and checked.
+Save contents: each save records, besides the pet, its care history (the last 500 entries: each kind
+of care with how the pet took it, achievements earned and events from section 5.1), achievements
+(unlock times kept with the pet; 12 milestones with rarities from common to legendary), unlocks
+(places discovered, shop items owned, foods and toys in the pantry, tricks learned, species) and
+statistics (play time, interactions, longest life, highest happiness, achievements), with the game
+speed and autosave interval as preferences. Achievements are checked on each update and announced as
+events.
+Cloud (saveToCloud, loadFromCloud, synchronize): see section 4.2. Sync state is kept in cloud.json
+per pet: the hub's version and a hash of the pet data when last synced. A pet has changed locally
+when its pet data hash differs (so saving an unchanged pet is not a change) and on the hub when the
+hub's version differs. Changed on one side only: that side's copy wins (upload, or download with the
+local save kept as a backup). Changed on both: the copy last played (the pet's last update time)
+wins. New on the hub: downloaded into a new slot. Deleted on the hub: reported and no longer synced;
+the local copy is kept. If the active pet is downloaded, it is reloaded. Syncs run at startup
+(before restoring the last pet), every 5 minutes, on request and on exit.
 4.2 Cloud Integration
 cppclass CloudService {
     void uploadPetData(string userId, DigitalPet pet);
@@ -786,6 +801,20 @@ cppclass CloudService {
     vector<DigitalPet> getNearbyPets(Location userLocation);
     void shareAchievement(Achievement achievement);
 };
+
+Implementation (internal/hub): the cloud service is a hub, which any Gochi server can run (-hub with
+a join code). Players register with the join code and get an account key (32 random bytes; the hub
+stores its SHA-256 hash); other devices connect with the username and key. HTTP API at /hub/v1:
+register; list, get, put (with the base version: a stale upload is refused with 409 and the hub's
+version) and delete pets, keyed by a hash of the pet ID; get and set the profile (area and sharing);
+nearby pets; and the achievements feed. uploadPetData / downloadPetData store and return a pet's
+whole save file (at most 8 MB, 50 pets per account); the hub keeps one previous version, and a
+deleted pet leaves a marker so other devices don't upload it again. enableSocialFeatures sets the
+player's area (typed by the player, at most 60 characters) and sharing. getNearbyPets returns living
+pets of other sharing players whose area matches (case and spacing ignored): owner, name, species,
+life stage and when last played. shareAchievement posts to a feed of the last 200 (players must be
+sharing); the game shares each achievement as it is earned. Each client may make 120 requests a
+minute.
 4.3 REST API
 cppclass RestAPI {   // /api/v1, enabled with -api-token; Bearer token required
     GET    /pets;  POST /pets;  GET /pets/{id};  PUT /pets/{id};  GET /pets/{id}/status;
