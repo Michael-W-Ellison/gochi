@@ -465,3 +465,36 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		"last":   last,
 	}})
 }
+
+// handlePotion handles POST /api/potion - gives the active pet a
+// life-extension potion from its pantry, and saves it
+func (s *Server) handlePotion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	s.mu.Lock()
+	if s.pet == nil || !s.pet.IsAlive() {
+		message := s.unavailableMessageLocked()
+		s.mu.Unlock()
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: message})
+		return
+	}
+	s.markActiveLocked(time.Now())
+	name := s.pet.Name
+	text, err := s.pet.GiveLifePotion()
+	s.mu.Unlock()
+
+	switch {
+	case errors.Is(err, core.ErrNoPotion):
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false,
+			Error: "There's no life-extension potion in the pantry. Buy one in the shop."})
+	case err != nil:
+		writeActivityError(w, name, err)
+	default:
+		if _, err := s.saveNow(); err != nil {
+			log.Printf("Failed to save after giving a potion: %v", err)
+		}
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"text": text}})
+	}
+}

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -146,7 +147,7 @@ func (p *DigitalPet) Walk(meters float64) (float64, error) {
 	p.ensureNeedsLocked()
 	p.Needs.SatisfyNeed(types.NeedExercise, sessions, p.Biology.GetAgeInDays())
 	p.Biology.EnsurePhysiology()
-	p.Biology.Exercise(sessions)
+	p.Biology.ProcessExercise(biology.ExerciseWalk, sessions)
 	p.Biology.Vitals.Energy = max(p.Biology.Vitals.Energy-walkEnergyCost*sessions, 0)
 	p.syncPhysicalNeedsLocked()
 	return sessions, nil

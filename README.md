@@ -156,7 +156,12 @@ what it does.
 
 When your pet gets very tired it falls asleep. A sleeping pet only accepts food, water and medical
 care; it sleeps until it is rested, recovering energy and losing tiredness, and wakes on its own.
-Good weather for sleeping and a **Cozy Bed** make its sleep more restful.
+Good weather for sleeping and a **Cozy Bed** make its sleep more restful. Pets have a daily rhythm:
+they get sleepy at night (cats sleep from about 11 pm to 5 am, dogs from 10 pm to 6 am, by the
+game's clock), tire faster in the dark, and fall asleep more easily then. A pet that stays awake too
+long builds up a sleep debt, which makes it tire faster and learn more slowly until it has slept it
+off. While asleep it goes through light, deep and REM sleep; deep sleep helps the body repair
+itself.
 
 Under its name, the page shows your pet's surroundings: the weather, temperature, season and time
 of day. Each pet has its own weather and seasons, which move on with its own time (so they pause
@@ -189,6 +194,38 @@ systems:
   pet more easily stressed.
 
 An organ system that gets too weak costs the pet health.
+
+Under the organ bars, the page shows your pet's **age and life stage**, its **sleep** (awake,
+drowsy, or the stage of sleep it is in, and any sleep debt) and its **hormones**, which respond to
+how it lives:
+
+- **Stress hormone** (cortisol) follows stress and spikes with frights, scolding, injuries and
+  illness. High levels weaken the immune system, so a stressed pet falls ill more easily, and make
+  sleep less restful. Affection brings it down.
+- **Mood hormone** (serotonin) rises with exercise, company, daylight and a full stomach, and sets
+  the mood your pet settles back to when nothing is happening.
+- **Bonding hormone** (oxytocin) is released by petting, grooming and treats a pet enjoys, and
+  calms it.
+- **Growth hormone** is high in young pets and released in deep sleep. It speeds up healing and
+  helps exercise build fitness.
+- **Sleep hormone** (melatonin) rises in the dark.
+
+**Growing up and growing old**: a pet is young for its first 60 game days (about an hour of play at
+the default speed), an adult until 6,000 game days (about 100 hours) and then a senior. Young pets
+are hungrier, learn tricks faster and gain fitness more easily; only adults can have babies. Seniors
+slow down more and more as they near the end of their lives: their metabolism slows, they recover
+less energy in sleep, lose fitness faster, fall ill more easily and learn more slowly. The page
+announces when a pet grows up and when it becomes a senior, and the care guide has a page on caring
+for an older cat or dog.
+
+A typical pet lives about 9,000 game days, about 150 hours of play at the default speed. Cats live
+a little longer than dogs; a pet's genes add or take up to 10%, and its care over its life (a running
+record of its wellbeing) up to 15%. Hover over the age line to see your pet's care record. Near the
+end the pet shows the warning sign **Very old and frail**, and it then dies of old age, unless gentle
+mode is on (see below). A **Life-extension potion** from the shop (1,000 points; it unlocks once the
+pet has earned 600 points over its life) adds about 1,500 game days (25 hours of play) each time;
+press **Give life-extension potion** under **Body** to give one. A pet that is well cared for and
+given a potion now and then can live on indefinitely.
 
 **The living area** gets dirty as the pet relieves itself. A cat uses its litter box several times
 a day, so scoop it regularly; if the box gets too dirty, the cat goes elsewhere and gets stressed. A
@@ -253,6 +290,14 @@ is not listed.
   it is petted; one that tolerates it learns to put up with it. Care a pet has had five or more
   times but neither likes nor dislikes is listed under "Puts up with". Care repeated in quick
   succession counts less towards what it learns.
+- **What it has learned**: under **About**, "Lately becoming" says which way your recent care is
+  moving its personality (for example "more playful"), and "Has learned you respond to" lists, for
+  each of its moods, the behavior of its own that your attention has rewarded most (for example
+  "when happy, playing"). When it misses you, a pet asks for the kind of attention it expects to
+  enjoy most in its current mood, from how it has taken that care in that mood before.
+- **On its own**: besides playing, seeking attention and sniffing around, a pet grooms itself when
+  its coat needs it (cats far more than dogs, which keeps a cat cleaner and calms it) and an
+  energetic pet that hasn't had enough exercise runs around, which builds a little fitness.
 - **A personality that grows**: a pet's personality changes slowly with how it is treated.
   Enjoyed play makes it more playful, enjoyed petting more affectionate, good trips more curious,
   and consistent care calmer and more attached to you. Scolding, injuries, illness and accidents
@@ -332,7 +377,7 @@ Several kinds of care come in variants, each with its own effect and lesson:
 
 Press **💞 Breed** to have a baby with one of your other saved pets. The panel lists each saved
 pet with how genetically compatible it is with your pet and, if they can't breed right now, why.
-Both pets must be the same species and at least 7 game days old, healthy (health at least 60%) and happy (happiness at
+Both pets must be the same species and adults (60 to 6,000 game days old), healthy (health at least 60%) and happy (happiness at
 least 50%), and at least 30% compatible; neither can be hibernating, exploring or have passed
 away. Breeding can still fail by chance; less compatible pairs fail more often. The season matters
 too: babies are likelier in spring and less likely in fall and winter, and the panel says so. Two
@@ -381,6 +426,7 @@ are kept in the pet's pantry, and the shop only shows those for the pet's specie
 - **Toys**: for cats a feather wand, a catnip mouse (about two cats in three react to catnip,
   depending on their genes) and a laser pointer; for dogs a tennis ball, a rope toy and a chew toy;
   and a puzzle feeder for either. Most toys wear out after a number of play sessions.
+- **Health**: the life-extension potion (see Health and Learning Real Care).
 
 Supplies come in rarities. Common ones are available from the start; uncommon, rare, epic and
 legendary ones unlock once the pet has earned 50, 150, 300 and 600 Friendship Points over its
@@ -397,7 +443,8 @@ critical level (10%), or whose food and energy both do, goes into hibernation in
 While it hibernates its stats, age and mood stay exactly as they are and it does not respond to
 care. Press **Revive** to wake it: its health, water, food and energy are restored to at least
 half, and you can look after it again. Turning gentle mode off does not wake a pet that is
-already hibernating.
+already hibernating. Gentle mode pets also never die of old age: past their expected lifespan they
+stay seniors.
 
 ### Deleting Pets
 

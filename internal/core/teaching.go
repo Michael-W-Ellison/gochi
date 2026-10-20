@@ -1,6 +1,9 @@
 package core
 
 import (
+	"fmt"
+
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -148,6 +151,10 @@ var careGuide = map[Species][]GuideTopic{
 		{"stress", "Stress", "Cats under long-term stress may hide, over-groom, stop eating or go outside the " +
 			"litter box. Keep a predictable routine, give your cat places to hide and climb, and avoid punishment, " +
 			"which only adds to stress."},
+		{"senior", "Older cats", "Cats are seniors from about 11 years old and often live into their late teens. " +
+			"Older cats sleep more, may lose muscle and find high places harder to reach. Take a senior cat to the " +
+			"vet twice a year, keep it active with gentle play, and watch for weight loss, drinking more, or changes " +
+			"in litter box habits, which can be early signs of kidney disease, diabetes or an overactive thyroid."},
 	},
 	SpeciesDog: {
 		{"feeding", "Feeding", "Most adult dogs eat two measured meals a day of complete dog food; puppies eat " +
@@ -173,6 +180,10 @@ var careGuide = map[Species][]GuideTopic{
 			"See a vet if your dog coughs or breathes with effort."},
 		{"stress", "Stress", "Stressed dogs may pace, pant, chew, bark or have accidents. Regular walks, a " +
 			"predictable routine and reward-based training help; punishment makes stress and fear worse."},
+		{"senior", "Older dogs", "Dogs become seniors at about 7 to 10 years old, large breeds sooner. Older dogs " +
+			"slow down, sleep more and may get stiff joints. Keep walks shorter and more frequent, keep your dog " +
+			"lean to spare its joints, and take it to the vet twice a year: early checks catch arthritis, dental " +
+			"disease and heart or kidney problems."},
 	},
 }
 
@@ -279,6 +290,20 @@ func (p *DigitalPet) symptomsLocked() []Symptom {
 			sign = "Pacing and restless"
 		}
 		symptoms = append(symptoms, Symptom{sign, "Signs of long-term stress. A calm routine, play and rest help.", "stress", false})
+	}
+	// Old age
+	if b := p.Biology; b.LifeStage() == biology.StageSenior {
+		remaining := b.CalculateLifespan()
+		switch {
+		case b.OldAgeDeath && remaining < frailDays:
+			symptoms = append(symptoms, Symptom{"Very old and frail",
+				fmt.Sprintf("%s is near the end of its life (about %.0f game days left). A life-extension potion from the shop "+
+					"gives it about %.0f more.", p.Name, remaining, lifePotionDays), "senior", false})
+		case b.Senescence() > 0.3:
+			symptoms = append(symptoms, Symptom{"Slowing down with age",
+				"Older pets tire sooner and fall ill more easily. Gentle exercise, easy-to-digest food and regular checkups help.",
+				"senior", false})
+		}
 	}
 	if ph.DigestiveHealth < 0.6 && (p.Illness == nil || p.Illness.Kind != IllnessParasites) {
 		symptoms = append(symptoms, Symptom{"Upset stomach",

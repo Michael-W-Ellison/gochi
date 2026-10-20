@@ -173,8 +173,10 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		return
 	}
 
-	// Belongings such as bowls and beds slow the pet's needs
+	// Belongings such as bowls and beds slow the pet's needs, and the body
+	// responds to its surroundings, needs and age
 	p.Biology.DecayMultipliers = p.decayMultipliersLocked()
+	p.prepareBodyLocked()
 
 	// Update biological systems in small steps, stopping if the pet
 	// hibernates or dies; the rest of the pet lives only that long
@@ -192,7 +194,7 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	deltaTime = elapsed
 
 	if !p.Biology.IsAlive {
-		if name := p.illnessNameLocked(); name != "" {
+		if name := p.illnessNameLocked(); name != "" && p.Biology.CauseOfDeath != causeOldAge {
 			p.Biology.CauseOfDeath = "Untreated " + strings.ToLower(name)
 		}
 		// A pet that dies on a trip or mid-game does not come back; record
@@ -211,6 +213,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 
 	// Tricks the pet hasn't practiced in a while get rusty
 	p.decayTricksLocked(deltaTime)
+
+	// Grooming itself and running around do the pet some good
+	p.selfCareLocked(deltaTime)
 
 	// Needs build up over time, and the weather and season affect the pet
 	p.updateNeedsLocked(deltaTime)
@@ -366,6 +371,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	// Apply biological effects; the boost strengthens the benefits only
 	p.applyInteractionEffects(interactionType, intensity, boost)
+	p.careHormonesLocked(interactionType, boost, unwanted)
 	choiceLesson := p.applyChoiceLocked(boost) // The variant chosen, such as the food or toy
 	intensity *= boost
 
@@ -393,6 +399,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	// living area doesn't involve the pet)
 	if involved {
 		p.learnFromResponseLocked(behaviorBefore, contextBefore, valence*weight)
+		p.recordExperienceLocked(interactionType, contextBefore, valence, weight)
 		p.evolveFromCareLocked(interactionType, valence, weight)
 		if weight < diminishedWeight {
 			result.Repeated = fmt.Sprintf("%s has had plenty of this just now; more right away won't change how %s grows.",
@@ -433,10 +440,9 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		if p.choice != nil && p.choice.food != nil {
 			portion = p.choice.food.food.nutrition
 		}
-		vitals.Nutrition += 0.3 * portion * intensity * boost * p.Biology.Absorption()
 		vitals.Energy += 0.1 * intensity * boost
 		vitals.Happiness += 0.05 * intensity * boost
-		p.eatLocked(0.3 * portion * intensity)
+		p.digestLocked(biology.FoodItem{Bulk: 0.3 * portion * intensity, Nutrition: 0.3 * portion * intensity * boost})
 
 	case types.InteractionPetting:
 		vitals.Happiness += 0.15 * intensity * boost
@@ -446,7 +452,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.2 * intensity * boost
 		vitals.Energy -= 0.1 * intensity
 		vitals.Stress -= 0.05 * intensity * boost
-		p.Biology.Exercise(intensity)
+		p.Biology.ProcessExercise(biology.ExercisePlay, intensity)
 
 	case types.InteractionDrinking:
 		vitals.Hydration += 0.4 * intensity * boost
@@ -461,7 +467,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.15 * intensity * boost
 		vitals.Stress -= 0.05 * intensity * boost
 		vitals.Energy -= 0.15 * intensity
-		p.Biology.Exercise(1.5 * intensity)
+		p.Biology.ProcessExercise(biology.ExerciseExplore, 1.5*intensity)
 
 	case types.InteractionGrooming:
 		vitals.Cleanliness += 0.3 * intensity * boost
@@ -473,7 +479,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 
 	case types.InteractionRewards:
 		vitals.Happiness += 0.25 * intensity * boost
-		p.eatLocked(0.1 * intensity) // Treats are food too
+		p.digestLocked(biology.FoodItem{Bulk: 0.1 * intensity}) // Treats are food too
 
 	case types.InteractionCleaning:
 		p.LivingAreaWaste = 0
@@ -486,7 +492,7 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 		vitals.Happiness += 0.15 * intensity * boost
 		vitals.Stress -= 0.05 * intensity * boost
 		vitals.Energy -= 0.08 * intensity
-		p.Biology.Exercise(intensity)
+		p.Biology.ProcessExercise(biology.ExerciseWalk, intensity)
 
 	case types.InteractionDiscipline:
 		vitals.Stress += 0.15 * intensity
@@ -553,6 +559,18 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 			types.BehaviorInvestigating,
 			p.Personality.GetTraitInfluence("explore") + learnedBehaviorWeight*learned(types.InteractionEnvironmentalEnrichment) +
 				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorInvestigating),
+		},
+		{
+			// A pet grooms itself when its coat needs it; cats groom far
+			// more than dogs, and tidy pets more than others
+			types.BehaviorGrooming,
+			p.selfGroomingScoreLocked() + learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorGrooming),
+		},
+		{
+			// An energetic pet that hasn't had enough exercise runs around
+			// to burn off energy
+			types.BehaviorExercising,
+			p.selfExerciseScoreLocked() + learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorExercising),
 		},
 	}
 

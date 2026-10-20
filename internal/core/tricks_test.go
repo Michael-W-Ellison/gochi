@@ -124,6 +124,7 @@ func TestTricksFromOlderSavesStartTheirGracePeriod(t *testing.T) {
 
 func TestRustyTrickEvent(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
+	pet.Biology.Processes.Age = 100 // An adult, so growing up isn't reported too
 	learnTrick(t, pet, "sit")
 	before := pet.Conditions()
 	passTrickTime(pet, trickRustGrace+1)

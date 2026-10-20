@@ -98,9 +98,13 @@ type PetStatus struct {
 	Wellbeing        float64                `json:"wellbeing"`
 	Personality      string                 `json:"personality"`
 	Changes          []string               `json:"personality_changes"` // How its personality has changed
-	Attention        string                 `json:"attention"`           // How much it enjoys attention by nature
-	Tolerates        []string               `json:"tolerates"`           // Care it neither likes nor dislikes
-	Relations        []core.PetRelation     `json:"relations"`           // Pets it knows and how they get along
+	Rewarded         []string               `json:"rewarded"`            // Behaviors it has learned you reward, by mood
+	Trends           []string               `json:"trends"`              // Which way its recent experiences move its personality
+	Life             core.LifeStatus        `json:"life"`
+	LifeSeconds      int                    `json:"life_seconds"` // Real seconds of play left at the default pace
+	Attention        string                 `json:"attention"`    // How much it enjoys attention by nature
+	Tolerates        []string               `json:"tolerates"`    // Care it neither likes nor dislikes
+	Relations        []core.PetRelation     `json:"relations"`    // Pets it knows and how they get along
 	Likes            []string               `json:"likes"`
 	Dislikes         []string               `json:"dislikes"`
 	Slot             string                 `json:"slot"`
@@ -252,6 +256,7 @@ func main() {
 	mux.HandleFunc("/api/explore/places", server.handlePlaces)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 	mux.HandleFunc("/api/guide", server.handleGuide)
+	mux.HandleFunc("/api/potion", server.handlePotion)
 	mux.HandleFunc("/api/events", server.handleEvents)
 	mux.HandleFunc("/api/care/options", server.handleCareOptions)
 	mux.HandleFunc("/api/supplies", server.handleSupplies)
@@ -587,6 +592,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .stat-fill.area.low { background: #fab005; }
         .stat-fill.area.critical { background: #fa5252; }
         .illness { margin-top: 8px; font-weight: 700; color: #c92a2a; }
+        .life-line, .rhythm-line { margin-top: 8px; font-size: 0.85em; color: #555; }
+        .rhythm-line { color: #777; }
+        .potion-btn { margin-top: 8px; }
         .symptom { margin-top: 8px; font-size: 0.88em; color: #5c3c00; background: #fff4e6; border-radius: 10px; padding: 6px 10px; }
         .symptom-hint { color: #666; margin-top: 2px; }
         .symptom.good { color: #2b8a3e; background: #ebfbee; }
@@ -834,6 +842,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="health-panel">
                 <div class="section-title">Body</div>
                 <div class="body-systems" id="bodySystems"></div>
+                <div class="life-line" id="lifeLine"></div>
+                <div class="rhythm-line" id="rhythmLine"></div>
+                <button class="save-btn potion-btn hidden" id="potionBtn" onclick="givePotion()">🧪 Give life-extension potion</button>
                 <div class="living-area">
                     <span id="livingAreaLabel">Litter box</span>
                     <div class="stat-bar"><div class="stat-fill area" id="livingAreaBar" style="width: 100%"></div></div>
@@ -869,6 +880,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutTolerates"></div>
                 <div id="aboutDislikes"></div>
                 <div id="aboutChanges"></div>
+                <div id="aboutTrends"></div>
+                <div id="aboutRewarded"></div>
                 <div id="aboutRelations"></div>
                 <div id="aboutTreasures"></div>
                 <div id="aboutSeason"></div>
@@ -1202,7 +1215,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         // Supplies: food, treats and toys that are used up; rarer ones unlock
         // as the pet earns points, and some are on sale each day
-        const supplyKinds = [['food', 'Food (used up)'], ['treat', 'Treats (used up)'], ['toy', 'Toys (wear out)']];
+        const supplyKinds = [['food', 'Food (used up)'], ['treat', 'Treats (used up)'], ['toy', 'Toys (wear out)'],
+            ['health', 'Health (used up)']];
         function renderSupplies(data) {
             const list = document.getElementById('shopList');
             supplyKinds.forEach(([kind, title]) => {
@@ -1470,6 +1484,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
             setList('aboutAttention', 'Attention', status.attention ? [status.name + ' ' + status.attention] : [], 'unknown');
             setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
+            setList('aboutTrends', 'Lately becoming', status.trends || [], 'no clear change');
+            setList('aboutRewarded', 'Has learned you respond to', status.rewarded || [], 'nothing yet');
             setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description + ')'),
                 'no other pets yet');
             document.getElementById('activity').textContent =
@@ -1529,7 +1545,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             effects.classList.toggle('hidden', active.length === 0);
             document.getElementById('mood').textContent = 'Mood: ' + status.mood;
             document.getElementById('statusText').textContent =
-                'Age: ' + status.age.toFixed(1) + ' days | Wellbeing: ' + (status.wellbeing * 100).toFixed(0) + '%';
+                (status.life ? status.life.stage : 'Age') + ': ' + status.age.toFixed(1) + ' days | Wellbeing: ' +
+                (status.wellbeing * 100).toFixed(0) + '%';
 
             const set = spriteSet(status);
             let sprite = set.idle;
@@ -1585,6 +1602,33 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 cell.append(bar);
                 body.append(cell);
             });
+
+            // Age, life stage and lifespan; the sleep cycle and hormones
+            const life = status.life;
+            if (life) {
+                let text = '🎂 ' + life.stage + ', ' + Math.floor(life.age) + ' game days old';
+                if (!status.is_alive) {
+                    text += '.';
+                } else if (life.old_age_death) {
+                    text += ' · expected to live about ' + Math.round(life.lifespan).toLocaleString() + ' game days (' +
+                        formatPlayTime(status.life_seconds) + ' of play left)';
+                } else {
+                    text += ' · gentle mode: will not die of old age';
+                }
+                document.getElementById('lifeLine').textContent = text;
+                document.getElementById('lifeLine').title = 'Lifespan depends on species, genes and how well ' + status.name +
+                    ' has been cared for over its life (care record ' + Math.round(life.care_quality * 100) + '%)' +
+                    (life.extension > 0 ? '; potions have added ' + Math.round(life.extension).toLocaleString() + ' game days' : '') + '.';
+                const h = life.hormones;
+                document.getElementById('rhythmLine').textContent = status.is_alive ?
+                    '🌙 ' + life.sleep_phase + (life.sleep_debt >= 1 ? ' · owes ' + life.sleep_debt.toFixed(0) + ' h of sleep' : '') +
+                    ' · stress hormone ' + Math.round(h.cortisol * 100) + '% · mood ' + Math.round(h.serotonin * 100) +
+                    '% · bonding ' + Math.round(h.oxytocin * 100) + '% · growth ' + Math.round(h.growth * 100) +
+                    '% · sleep hormone ' + Math.round(h.melatonin * 100) + '%' : '';
+                const potion = document.getElementById('potionBtn');
+                potion.classList.toggle('hidden', !status.is_alive || life.potions === 0);
+                potion.textContent = '🧪 Give life-extension potion (' + life.potions + ' in the pantry)';
+            }
 
             const area = status.living_area || {name: 'Litter box', cleanliness: 1};
             document.getElementById('livingAreaLabel').textContent = area.name;
@@ -2296,6 +2340,21 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('adventureBanner').classList.add('hidden');
         }
 
+        // Play time, from real seconds at the default pace
+        function formatPlayTime(seconds) {
+            const hours = seconds / 3600;
+            return hours >= 2 ? 'about ' + Math.round(hours).toLocaleString() + ' hours' : formatWait(seconds);
+        }
+
+        function givePotion() {
+            postJSON('/api/potion')
+                .then(data => {
+                    showPointsToast(data.success ? data.data.text : (data.error || 'Something went wrong'));
+                    fetchStatus();
+                })
+                .catch(console.error);
+        }
+
         function formatWait(seconds) {
             return seconds >= 90 ? 'about ' + Math.round(seconds / 60) + ' minutes' : seconds + ' seconds';
         }
@@ -2909,6 +2968,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		petStatus.LastAdventure = a
 	}
 	petStatus.Changes = s.pet.PersonalityChanges()
+	petStatus.Rewarded, petStatus.Trends = s.pet.LearningSummary()
+	petStatus.Life = s.pet.LifeStatus()
+	petStatus.LifeSeconds = gameDaysToSeconds(petStatus.Life.Remaining)
 	petStatus.Attention = s.pet.AttentionStyle()
 	petStatus.Relations = s.pet.Relations()
 	petStatus.Tolerates = s.pet.Tolerates()

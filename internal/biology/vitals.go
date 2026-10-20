@@ -122,11 +122,27 @@ func NewPhysiologicalProcesses() *PhysiologicalProcesses {
 type BiologicalSystems struct {
 	Vitals       *VitalStats
 	Processes    *PhysiologicalProcesses
-	Physiology   *Physiology `json:"physiology"` // Organ systems; nil in saves made before they existed
+	Physiology   *Physiology      `json:"physiology"` // Organ systems; nil in saves made before they existed
+	Hormones     *Hormones        `json:"hormones"`   // nil in saves made before they existed
+	Circadian    *CircadianRhythm `json:"circadian"`  // Sleep phases and sleep debt; nil in older saves
 	BirthTime    time.Time
 	LastUpdate   time.Time
 	IsAlive      bool
 	CauseOfDeath string
+
+	// Aging: the record of how well the pet has been cared for (0.0 to
+	// 1.0, 0 meaning no record yet), its inherited longevity (0.0 to 1.0,
+	// 0 meaning average) and game days added to its lifespan
+	CareQuality   float64 `json:"care_quality"`
+	Longevity     float64 `json:"longevity"`
+	LifeExtension float64 `json:"life_extension"`
+
+	// Set by the pet before each update (not saved): how long its species
+	// lives relative to BaseLifespan (0 means 1), whether it can die of
+	// old age, and what its body responds to from outside
+	SpeciesLifespan float64    `json:"-"`
+	OldAgeDeath     bool       `json:"-"`
+	Inputs          BodyInputs `json:"-"`
 
 	// DecayMultipliers scale how fast needs build up (set by the pet's
 	// belongings each update; not saved)
@@ -162,6 +178,8 @@ func NewBiologicalSystems() *BiologicalSystems {
 		Vitals:     NewVitalStats(),
 		Processes:  NewPhysiologicalProcesses(),
 		Physiology: NewPhysiology(),
+		Hormones:   NewHormones(),
+		Circadian:  NewCircadianRhythm(),
 		BirthTime:  now,
 		LastUpdate: now,
 		IsAlive:    true,
@@ -178,12 +196,19 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 
 	// Age the pet
 	b.Processes.Age += deltaTime
+	b.EnsurePhysiology()
+	b.EnsureHormones()
+	b.EnsureCircadian()
+
+	// The sleep cycle, hormones, and the abilities age and hormones give
+	b.Circadian.Follow(deltaTime*24, b.Inputs.TimeOfDay, b.Inputs.Asleep)
+	b.updateHormones(deltaTime)
+	b.updateAging(deltaTime)
 
 	// Process metabolism - convert nutrition to energy
 	b.processMetabolism(deltaTime)
 
 	// Digestion, fitness, breathing and stress regulation
-	b.EnsurePhysiology()
 	b.updatePhysiology(deltaTime, 1-b.AirPollution)
 
 	// Natural decay of vital stats
@@ -191,6 +216,7 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 
 	// Check for death conditions
 	b.CheckDeathConditions()
+	b.checkOldAge()
 
 	// Ensure all values stay in valid range
 	b.Vitals.Clamp()
@@ -204,15 +230,31 @@ func (b *BiologicalSystems) EnsurePhysiology() {
 	}
 }
 
+// EnsureCircadian gives a pet saved before the sleep cycle was tracked a
+// fresh one
+func (b *BiologicalSystems) EnsureCircadian() {
+	if b.Circadian == nil {
+		b.Circadian = NewCircadianRhythm()
+	}
+}
+
+// SleepDebtLevel returns how much sleep the pet owes, 0.0 (none) to 1.0
+// (12 hours or more)
+func (b *BiologicalSystems) SleepDebtLevel() float64 {
+	b.EnsureCircadian()
+	return min(b.Circadian.GetSleepDebt()/12, 1)
+}
+
 // ProcessRest lets a sleeping pet recover over deltaTime game days:
 // tiredness falls and energy returns, faster with better sleep quality
-// (1.0 is normal)
+// (1.0 is normal; hormones change it further) and slower in old age
 func (b *BiologicalSystems) ProcessRest(deltaTime, sleepQuality float64) {
 	if !b.IsAlive {
 		return
 	}
-	b.Vitals.Fatigue -= 0.5 * sleepQuality * deltaTime
-	b.Vitals.Energy += 0.15 * sleepQuality * deltaTime
+	quality := sleepQuality * b.SleepQualityFactor()
+	b.Vitals.Fatigue -= 0.5 * quality * deltaTime
+	b.Vitals.Energy += 0.15 * quality * b.agingFactor(0.3) * deltaTime
 	b.Vitals.Clamp()
 }
 
@@ -230,32 +272,37 @@ func (b *BiologicalSystems) processMetabolism(deltaTime float64) {
 
 	// Consume energy
 	b.Vitals.Energy -= energyConsumption
-
-	// Stress increases metabolic rate
-	b.Processes.MetabolicRate = 1.0 + (b.Vitals.Stress * 0.5)
 }
 
 // decayVitalStats handles natural decay of stats over time
 func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	// Natural decay rates (per game day)
 	b.Vitals.Hydration -= deltaTime * 0.05 * rate(b.DecayMultipliers.Hydration)
-	b.Vitals.Nutrition -= deltaTime * 0.03 * rate(b.DecayMultipliers.Nutrition)
+	b.Vitals.Nutrition -= deltaTime * 0.03 * rate(b.DecayMultipliers.Nutrition) * b.Processes.MetabolicRate
 	b.Vitals.Energy -= deltaTime * 0.02 * rate(b.DecayMultipliers.Energy) * b.EnergyDrain()
 
-	// Fatigue builds up over time awake
-	b.Vitals.Fatigue += deltaTime * 0.01 * rate(b.DecayMultipliers.Fatigue)
+	// Fatigue builds up over time awake, faster at night (melatonin) and
+	// when the pet owes sleep
+	if !b.Inputs.Asleep {
+		b.Vitals.Fatigue += deltaTime * 0.01 * rate(b.DecayMultipliers.Fatigue) *
+			(1 + b.Hormones.Melatonin) * (1 + b.SleepDebtLevel())
+	}
 
 	// Cleanliness decreases slowly
 	b.Vitals.Cleanliness -= deltaTime * 0.01
 
-	// Happiness slowly trends toward neutral
-	if b.Vitals.Happiness > 0.5 {
-		b.Vitals.Happiness -= deltaTime * 0.005
+	// Happiness slowly drifts towards the mood serotonin sets
+	setPoint := b.moodSetPoint()
+	if b.Vitals.Happiness > setPoint {
+		b.Vitals.Happiness = max(b.Vitals.Happiness-deltaTime*0.005, setPoint)
+	} else {
+		b.Vitals.Happiness = min(b.Vitals.Happiness+deltaTime*0.005, setPoint)
 	}
 
-	// Stress slowly decreases if conditions are good
+	// Stress slowly decreases if conditions are good, faster with
+	// oxytocin from affection
 	if b.Vitals.GetOverallWellbeing() > 0.7 {
-		b.Vitals.Stress -= deltaTime * 0.02
+		b.Vitals.Stress -= deltaTime * (0.02 + 0.03*b.Hormones.Oxytocin)
 	} else {
 		// Stress increases if wellbeing is poor, faster with a worn
 		// nervous system
@@ -267,8 +314,9 @@ func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	if wellbeing < 0.4 {
 		b.Vitals.Health -= deltaTime * 0.01
 	} else if wellbeing > 0.8 {
-		// Slowly recover health when wellbeing is high
-		b.Vitals.Health += deltaTime * 0.005
+		// Slowly recover health when wellbeing is high, faster with
+		// growth hormone, which repairs the body
+		b.Vitals.Health += deltaTime * (0.005 + 0.01*b.Hormones.Growth)
 	}
 }
 
@@ -289,23 +337,6 @@ func (b *BiologicalSystems) CheckDeathConditions() {
 // GetAgeInDays returns the pet's age in days
 func (b *BiologicalSystems) GetAgeInDays() float64 {
 	return b.Processes.Age
-}
-
-// CalculateLifespan estimates remaining lifespan based on current health
-func (b *BiologicalSystems) CalculateLifespan() float64 {
-	// Base lifespan of 30 days, modified by health
-	baseLifespan := 30.0
-	healthModifier := b.Vitals.Health
-	immuneModifier := b.Processes.ImmuneStrength
-
-	estimatedTotal := baseLifespan * healthModifier * immuneModifier
-	remaining := estimatedTotal - b.Processes.Age
-
-	if remaining < 0 {
-		remaining = 0
-	}
-
-	return remaining
 }
 
 // GetStatus returns a human-readable status string

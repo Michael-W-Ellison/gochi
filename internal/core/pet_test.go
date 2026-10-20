@@ -238,6 +238,7 @@ func TestDisciplineMakesPetWithdrawn(t *testing.T) {
 
 func TestLearnedBehaviorPersistsWithoutInteraction(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.HibernationEnabled = true // Four weeks of play outlasts a pet's lifespan; gentle mode keeps it
 
 	for i := 0; i < 10; i++ {
 		pet.RecentCare = nil // Care spread out over time

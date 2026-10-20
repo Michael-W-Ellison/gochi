@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -449,7 +450,7 @@ func (p *DigitalPet) applyChoiceLocked(boost float64) string {
 
 	case c.toy != nil:
 		t := c.toy.toy
-		p.Biology.Exercise(t.exercise - 1) // Playing already counted one session
+		p.Biology.ProcessExercise(biology.ExercisePlay, t.exercise-1) // Playing already counted one session
 		p.Needs.SatisfyNeed(types.NeedExercise, t.exercise-1, age)
 		p.Needs.SatisfyNeed(types.NeedMentalStimulation, t.stimulation, age)
 		v.Stress -= t.calming
@@ -476,7 +477,7 @@ func (p *DigitalPet) applyChoiceLocked(boost float64) string {
 		p.Needs.SatisfyNeed(types.NeedMentalStimulation, ch.stimulation*n, age)
 		p.Needs.SatisfyNeed(types.NeedExploration, ch.exploration*n, age)
 		p.Needs.SatisfyNeed(types.NeedExercise, ch.exercise*n, age)
-		p.Biology.Exercise(ch.exercise * n)
+		p.Biology.ProcessExercise(biology.ExerciseRun, ch.exercise*n)
 		v.Stress -= ch.calming * n * (0.5 + p.Personality.Traits.Neuroticism)
 		v.Happiness += 0.08 * n * boost
 		return ch.lesson

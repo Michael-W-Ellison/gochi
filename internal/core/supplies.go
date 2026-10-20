@@ -17,9 +17,10 @@ import (
 
 // Kinds of supply
 const (
-	SupplyFood  = "food"
-	SupplyTreat = "treat"
-	SupplyToy   = "toy"
+	SupplyFood   = "food"
+	SupplyTreat  = "treat"
+	SupplyToy    = "toy"
+	SupplyHealth = "health" // Medicine the owner gives (see GiveLifePotion)
 )
 
 // supply describes one kind of supply
@@ -164,6 +165,10 @@ var supplyCatalog = []supply{
 		icon: "🧩", kind: SupplyToy, pack: 1,
 		toy: &toyProfile{fit: 0.1, exercise: 0.3, stimulation: 1.2, calming: 0.05,
 			lesson: "Puzzle feeders make a pet work for its food, which keeps its mind busy and slows down fast eaters."}},
+	// Health
+	{item: interaction.Item{ID: LifePotionID, Name: "Life-extension potion", Price: 1000, Rarity: interaction.RarityLegendary,
+		Type: interaction.ItemTypeMedicine, Description: "Adds about 1,500 game days to your pet's life. Give it from the Body panel."},
+		icon: "🧪", kind: SupplyHealth, pack: 1},
 }
 
 // Points a pet must have earned over its life to unlock each rarity

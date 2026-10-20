@@ -178,7 +178,7 @@ func (p *DigitalPet) catchIllnessLocked(deltaTime float64) {
 	if p.Illness != nil {
 		return
 	}
-	resistance := max(1.2-p.Biology.Processes.ImmuneStrength, 0.1)
+	resistance := max(1.2-p.Biology.ImmuneResponse(), 0.1) // Weaker with stress hormones and old age
 
 	kind, rate := "", 0.0
 	if p.LivingAreaWaste > illnessAreaLevel {
