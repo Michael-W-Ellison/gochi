@@ -6,6 +6,7 @@
 *.dylib
 gochi
 cmd/gochi/gochi
+/gochiserver
 
 # Test binary, built with `go test -c`
 *.test
