@@ -181,6 +181,9 @@ func (p *DigitalPet) innateReactionLocked(interactionType types.InteractionType)
 		score += (v.Energy - 0.5) * 0.4
 		ph := p.Biology.Physiology
 		score += max(ph.Bowel, ph.Bladder) * 0.4 // Relief at going outside
+		if suitability := p.outdoorSuitabilityLocked(); suitability < goodOutdoorLevel {
+			score -= (goodOutdoorLevel - suitability) * 0.5 // Rain, storms and darkness spoil a walk
+		}
 		score += speciesLiking[p.speciesLocked()][interactionType]
 	case types.InteractionDiscipline:
 		score -= 0.5

@@ -630,6 +630,9 @@ func (p *DigitalPet) finishExploringLocked() {
 			adventure.Text = fmt.Sprintf("%s came home from %s empty-handed.", p.Name, where)
 		}
 	}
+	if adventure.Outcome != OutcomeInjured {
+		adventure.Text += p.visitPlaceLocked()
+	}
 	adventure.Text += p.takeFromPlaceLocked(adventure.Outcome)
 
 	adventure.ReturnedAge = p.Biology.GetAgeInDays()

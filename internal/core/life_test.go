@@ -21,6 +21,7 @@ func TestLifeStatus(t *testing.T) {
 	// Cats live a little longer than dogs
 	dog := NewDigitalPet("Rex", "user123")
 	dog.Species = SpeciesDog
+	dog.Genome = pet.Genome.Clone() // The same genes, so only the species differs
 	if dog.LifeStatus().Lifespan >= life.Lifespan {
 		t.Errorf("Dog lifespan %.0f should be shorter than a cat's %.0f", dog.LifeStatus().Lifespan, life.Lifespan)
 	}

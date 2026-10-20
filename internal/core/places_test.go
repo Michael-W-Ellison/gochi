@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Michael-W-Ellison/gochi/internal/environment"
 )
 
 // placeByID finds a place in the pet's list
@@ -84,14 +86,16 @@ func TestFindsDepletePlaces(t *testing.T) {
 		t.Error("Other places should be untouched")
 	}
 
-	// Resources grow back over time: 0.3 takes 6 game days
-	pet.Environment.Update(5 * 24)
+	// Resources grow back over time, at 0.05 a day scaled by the season's
+	// food availability (winter 0.6): 0.3 takes 10 game days in winter
+	pet.Environment.ForceSeason(environment.SeasonWinter, 10)
+	pet.Environment.Update(9 * 24)
 	if r := placeByID(t, pet, "park").Resources; r >= 1 {
-		t.Errorf("The park should still be growing back after 5 game days, resources %.3f", r)
+		t.Errorf("The park should still be growing back after 9 winter days, resources %.3f", r)
 	}
-	pet.Environment.Update(1.01 * 24)
+	pet.Environment.Update(1.1 * 24)
 	if r := placeByID(t, pet, "park").Resources; r != 1 {
-		t.Errorf("The park should grow back fully in 6 game days, resources %.3f", r)
+		t.Errorf("The park should grow back fully in 10 winter days, resources %.3f", r)
 	}
 }
 

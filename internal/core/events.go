@@ -32,13 +32,14 @@ const (
 	EventTrickRusty
 	EventLifeStage
 	EventAchievement
+	EventGoal // A daily goal was completed
 )
 
 // String returns the event type's name
 func (et EventType) String() string {
 	return [...]string{
 		"PetDied", "PetHibernated", "PetSick", "PetRecovered", "PetHungry",
-		"PetThirsty", "WarningSign", "TripReturned", "TrickRusty", "LifeStage", "Achievement",
+		"PetThirsty", "WarningSign", "TripReturned", "TrickRusty", "LifeStage", "Achievement", "Goal",
 	}[et]
 }
 

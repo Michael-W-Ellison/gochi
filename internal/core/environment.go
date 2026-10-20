@@ -135,21 +135,83 @@ func (p *DigitalPet) environmentRatesLocked() (hunger, thirst, energy float64) {
 	return effects.HungerRate, effects.ThirstRate, effects.EnergyDrainRate
 }
 
+// outdoorSuitabilityLocked returns how good it is to be outdoors now, 0.0
+// to 1.0: the weather's comfort (rain and storms 0.2), halved at night.
+// Caller must hold p.mu.
+func (p *DigitalPet) outdoorSuitabilityLocked() float64 {
+	p.ensureEnvironmentLocked()
+	suitability := p.Environment.Weather.GetWeatherEffects()["outdoor_suitability"]
+	if !p.Environment.IsDaytime() {
+		suitability *= 0.5
+	}
+	return min(max(suitability, 0), 1)
+}
+
+// goodOutdoorLevel is the outdoor suitability above which the weather
+// doesn't make trips riskier, and pets ask to go out
+const goodOutdoorLevel = 0.6
+
 // explorationConditionsLocked returns how the surroundings change a trip's
 // odds: extra injury chance (percentage points) and a souvenir chance
-// multiplier. Bad weather is dangerous and night makes finds rarer.
-// Caller must hold p.mu.
+// multiplier. Poor weather and darkness are dangerous (up to 12 points
+// more), and night makes finds rarer. Caller must hold p.mu.
 func (p *DigitalPet) explorationConditionsLocked() (extraInjury int, treasureFactor float64) {
 	p.ensureEnvironmentLocked()
 	treasureFactor = 1.0
-	if !p.Environment.Weather.IsOutdoorSafe() {
-		extraInjury += 10
+	if suitability := p.outdoorSuitabilityLocked(); suitability < goodOutdoorLevel {
+		extraInjury += int((goodOutdoorLevel - suitability) / goodOutdoorLevel * 12)
 	}
 	if !p.Environment.IsDaytime() {
-		extraInjury += 5
 		treasureFactor = 0.6
 	}
 	return extraInjury, treasureFactor
+}
+
+// activityDriveLocked returns how the season and weather change how
+// active the pet wants to be (1.0 = no change): the season's activity
+// level, lower in heat, storms, rain and cold, and lower at night except
+// for cats, which are most active at dawn and dusk. Caller must hold p.mu.
+func (p *DigitalPet) activityDriveLocked() float64 {
+	p.ensureEnvironmentLocked()
+	env := p.Environment
+	drive := env.GetSeasonalEffects().ActivityLevel
+	if drive <= 0 {
+		drive = 1
+	}
+	switch weather := env.GetWeather(); weather.Type {
+	case environment.WeatherHot:
+		drive *= 0.8
+	case environment.WeatherStormy:
+		drive *= 0.85
+	case environment.WeatherRainy, environment.WeatherCold, environment.WeatherSnowy:
+		drive *= 0.9
+	case environment.WeatherClear:
+		if weather.Comfort > 0.7 {
+			drive *= 1.05
+		}
+	}
+	phase := env.GetDayPhase()
+	switch {
+	case p.speciesLocked() == SpeciesCat && (phase == "Dawn" || phase == "Dusk"):
+		drive *= 1.1
+	case !env.IsDaytime():
+		drive *= 0.9
+	}
+	return drive
+}
+
+// comfortSeekingLocked returns how much more the pet seeks company in bad
+// weather: storms, cold and snow draw pets to their owners, nervous ones
+// most. Caller must hold p.mu.
+func (p *DigitalPet) comfortSeekingLocked() float64 {
+	p.ensureEnvironmentLocked()
+	switch p.Environment.GetWeather().Type {
+	case environment.WeatherStormy:
+		return 0.1 + 0.15*p.Personality.Traits.Neuroticism
+	case environment.WeatherCold, environment.WeatherSnowy:
+		return 0.05 + 0.05*p.Personality.Traits.Affectionate
+	}
+	return 0
 }
 
 // EnvironmentStatus describes the pet's current surroundings
@@ -173,7 +235,7 @@ func (p *DigitalPet) EnvironmentStatus() EnvironmentStatus {
 		BreedingSeason: p.seasonalBreedingLocked() > 1.0,
 		DayPhase:       env.GetDayPhase(),
 		Daytime:        env.IsDaytime(),
-		OutdoorSafe:    env.Weather.IsOutdoorSafe(),
+		OutdoorSafe:    p.outdoorSuitabilityLocked() >= goodOutdoorLevel,
 		Location:       env.Locations.GetCurrentLocationName(),
 	}
 }

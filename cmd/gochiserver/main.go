@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/ai"
 	"github.com/Michael-W-Ellison/gochi/internal/ar"
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/internal/hub"
@@ -36,6 +37,11 @@ type Server struct {
 	cloud  *cloud                  // Connection to a cloud hub; nil disables cloud features
 	hub    *hub.Hub                // This server's own hub, if it runs one
 	events *core.EventSystem       // What happened to the pets while time passed
+
+	// When the player is usually around, learned from when they use the
+	// page; nil disables it
+	owner     *ai.OwnerSchedule
+	ownerPath string // Where owner is saved; "" to not save it
 
 	// Time stops while the game is paused, so the pet cannot decline
 	manualPause  bool          // Paused with the Pause button
@@ -81,6 +87,13 @@ type PetStatus struct {
 	Symptoms    []core.Symptom       `json:"symptoms"`
 	GuideTopics []string             `json:"guide_topics"`
 	Checklist   []core.ChecklistItem `json:"checklist"`
+
+	// Today's goals and their difficulty (1 to 5), what the pet will soon
+	// need, and when the player usually plays ("" until it is known)
+	Goals        []core.Goal      `json:"goals"`
+	GoalLevel    float64          `json:"goal_level"`
+	Forecasts    []forecastStatus `json:"forecasts"`
+	PlaySchedule string           `json:"play_schedule"`
 
 	Tricks           []core.TrickProgress   `json:"tricks"`
 	Exploring        bool                   `json:"exploring"`
@@ -192,6 +205,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not read the cloud settings: %v", err)
 	}
+	owner, ownerPath, err := loadOwnerSchedule(dataPath)
+	if err != nil {
+		log.Printf("Warning: could not read the play schedule, starting a new one: %v", err)
+		owner = &ai.OwnerSchedule{}
+	}
 	var hubServer *hub.Hub
 	if config.Hub.Enabled {
 		if hubServer, err = hub.New(filepath.Join(dataPath, "hub"), config.Hub.JoinCode); err != nil {
@@ -209,6 +227,8 @@ func main() {
 		events:       newEventSystem(),
 		cloud:        cloudConn,
 		hub:          hubServer,
+		owner:        owner,
+		ownerPath:    ownerPath,
 	}
 
 	// Sync with the cloud hub first, so the newest saves are restored
@@ -364,6 +384,9 @@ func main() {
 		log.Printf("Warning: HTTP shutdown: %v", err)
 	}
 
+	if err := server.saveOwner(); err != nil {
+		log.Printf("Could not save the play schedule: %v", err)
+	}
 	if saved, err := server.saveNow(); err != nil {
 		log.Printf("Failed to save pet on exit: %v", err)
 		os.Exit(1)
@@ -431,6 +454,11 @@ func (s *Server) updateLoop() {
 func (s *Server) tick(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Goals completed by care since the last tick
+	if s.pet != nil {
+		s.announceGoalsLocked()
+	}
 
 	// No time passes while paused; resuming continues from now
 	paused := s.pet == nil || !s.pet.IsAlive() || s.pauseReasonLocked(now) != ""
@@ -522,6 +550,9 @@ func (s *Server) pauseReasonLocked(now time.Time) string {
 // was paused because they were away. Caller must hold s.mu for writing.
 func (s *Server) markActiveLocked(now time.Time) {
 	s.lastActivity = now
+	if s.owner != nil {
+		s.owner.RecordPresence(now)
+	}
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -685,6 +716,13 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .checklist { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #ebfbee; border: 2px solid #d3f9d8; font-size: 0.9em; }
         .checklist-item { margin-top: 3px; color: #2b8a3e; }
         .checklist-item.todo { color: #555; }
+        .goals { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fff9db; border: 2px solid #ffec99; font-size: 0.9em; }
+        .goal-item { margin-top: 3px; color: #555; }
+        .goal-item.done { color: #2b8a3e; }
+        .goal-reward { color: #e67700; font-size: 0.85em; white-space: nowrap; }
+        .forecast { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #e7f5ff; border: 2px solid #d0ebff; font-size: 0.9em; color: #1864ab; }
+        .forecast-item { margin-top: 3px; }
+        .play-schedule { margin-top: 4px; color: #555; font-size: 0.85em; }
         .event-log { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; border: 2px solid #e9ecef; font-size: 0.88em; }
         .event-log-item { margin-top: 3px; color: #5c3c00; }
         .event-log-item.good { color: #2b8a3e; }
@@ -936,6 +974,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="symptoms"></div>
             </div>
             <div class="checklist" id="checklist"></div>
+            <div class="goals hidden" id="goals"></div>
+            <div class="forecast hidden" id="forecast"></div>
             <div class="event-log hidden" id="eventLog">
                 <div class="section-title">Recently</div>
                 <div id="eventLogItems"></div>
@@ -1768,7 +1808,67 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 checklist.append(line);
             });
 
+            updateGoals(status);
+            updateForecast(status);
             fetchEvents(status.name);
+        }
+
+        // Today's goals, with the bonus points each earns
+        function updateGoals(status) {
+            const box = document.getElementById('goals');
+            const goals = status.goals || [];
+            box.classList.toggle('hidden', !status.is_alive || goals.length === 0);
+            box.replaceChildren();
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = "Today's goals (level " + status.goal_level + ')';
+            box.append(title);
+            goals.forEach(goal => {
+                const line = document.createElement('div');
+                line.className = 'goal-item' + (goal.done ? ' done' : '');
+                let text = (goal.done ? '✅ ' : goal.icon + ' ') + goal.text;
+                if (!goal.done && goal.kind === 'care' && goal.target > 1) {
+                    text += ' (' + goal.progress + '/' + goal.target + ')';
+                } else if (!goal.done && goal.kind === 'happiness') {
+                    text += ' (now ' + goal.progress + '%)';
+                }
+                line.textContent = text + ' ';
+                const reward = document.createElement('span');
+                reward.className = 'goal-reward';
+                reward.textContent = '+' + goal.reward + ' ⭐';
+                line.append(reward);
+                box.append(line);
+            });
+        }
+
+        // What the pet will soon need, and when the player usually plays
+        function updateForecast(status) {
+            const box = document.getElementById('forecast');
+            const forecasts = status.forecasts || [];
+            box.classList.toggle('hidden', forecasts.length === 0 && !status.play_schedule);
+            box.replaceChildren();
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = 'Coming up';
+            box.append(title);
+            forecasts.forEach(f => {
+                const line = document.createElement('div');
+                line.className = 'forecast-item';
+                line.textContent = f.icon + ' In ' + formatWait(f.in_seconds) + ': ' + f.message;
+                box.append(line);
+            });
+            if (forecasts.length === 0) {
+                const line = document.createElement('div');
+                line.className = 'forecast-item';
+                line.textContent = status.name + " won't need anything new for a while.";
+                box.append(line);
+            }
+            if (status.play_schedule) {
+                const line = document.createElement('div');
+                line.className = 'play-schedule';
+                line.textContent = 'You usually play on ' + status.play_schedule + '.';
+                box.append(line);
+            }
         }
 
         // Things that happened to the pet on its own (illness, hunger,
@@ -2733,6 +2833,9 @@ func (s *Server) autosaveLoop(ctx context.Context, interval time.Duration) {
 			if _, err := s.saveNow(); err != nil {
 				log.Printf("Autosave failed: %v", err)
 			}
+			if err := s.saveOwner(); err != nil {
+				log.Printf("Could not save the play schedule: %v", err)
+			}
 		}
 	}
 }
@@ -3246,6 +3349,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	petStatus.Checklist = s.pet.DailyChecklist()
+	petStatus.Goals, petStatus.GoalLevel = s.pet.DailyGoals()
+	petStatus.Forecasts = s.forecastsLocked(now)
+	if s.owner != nil {
+		petStatus.PlaySchedule = s.owner.Summary()
+	}
 	if a := s.pet.LastAdventure; a != nil && status.Age-a.ReturnedAge < recentAdventureDays {
 		petStatus.LastAdventure = a
 	}

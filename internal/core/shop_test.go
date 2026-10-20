@@ -34,6 +34,7 @@ func TestDrinkRestoresHydration(t *testing.T) {
 func TestCareEarnsPointsWithCooldown(t *testing.T) {
 	clock := useClock(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
 	pet := NewDigitalPet("TestPet", "user123")
+	pet.Goals = &GoalBoard{Day: today(), Level: 1} // No goal rewards
 	hungry := func() { pet.Biology.Vitals.Nutrition = 0.3 }
 
 	hungry()

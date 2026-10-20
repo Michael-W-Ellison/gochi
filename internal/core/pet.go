@@ -75,13 +75,15 @@ type DigitalPet struct {
 	TrickPracticedAge map[string]float64   `json:"trick_practiced_age"` // Age each trick was last trained or performed
 	TricksLearned     map[string]bool      `json:"tricks_learned"`      // Tricks the pet has ever learned
 	ExploringUntilAge float64              `json:"exploring_until_age"`
-	ExploringTo       string               `json:"exploring_to"` // Where the current or last trip went
-	TripsTaken        int                  `json:"trips_taken"`  // Trips finished, which discover new places
+	ExploringTo       string               `json:"exploring_to"`      // Where the current or last trip went
+	ParasiteExposure  float64              `json:"parasite_exposure"` // Builds with trips to risky places (places.go)
+	TripsTaken        int                  `json:"trips_taken"`       // Trips finished, which discover new places
 	Souvenirs         []string             `json:"souvenirs"`
 	LastAdventure     *Adventure           `json:"last_adventure"`
 	LastGameReward    time.Time            `json:"last_game_reward"`
 	Injured           bool                 `json:"injured"`       // Hurt while exploring; healed by medical care
 	History           []HistoryEntry       `json:"history"`       // What happened to the pet, oldest first (records.go)
+	Goals             *GoalBoard           `json:"goals"`         // Today's adaptive goals (goals.go)
 	Achievements      map[string]time.Time `json:"achievements"`  // Achievements earned, by ID, with when
 	LastBredAge       float64              `json:"last_bred_age"` // Age at the last breeding (0 if never)
 	BabiesWith        map[types.PetID]int  `json:"babies_with"`   // Babies had with each mate
@@ -104,6 +106,10 @@ type DigitalPet struct {
 	KnownPets      map[types.PetID]string                `json:"known_pets"`      // Names of the pets it has met or is related to
 	choice         *careChoice                           // Variant of the care being given (not saved)
 	behavior       *ai.BehaviorStateMachine
+
+	// completedGoals are goals completed since TakeCompletedGoals was last
+	// called (not saved)
+	completedGoals []Goal
 
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
@@ -429,6 +435,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	result.Changes = statChanges(before, *p.Biology.Vitals)
 	description, outcome := careHistoryText(interactionType, result)
 	p.addHistoryLocked(interactionType.String(), description, outcome)
+	p.progressGoalsLocked(interactionType)
 	return result
 }
 
@@ -539,6 +546,9 @@ const (
 // gradually change the learned preferences.
 func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 	learned := p.Memory.GetLearnedAffinity
+	// The season and weather make a pet more or less active, and bad
+	// weather draws it to its owner
+	drive, comfort := p.activityDriveLocked(), p.comfortSeekingLocked()
 
 	candidates := []struct {
 		behavior types.BehaviorState
@@ -547,14 +557,14 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 		{
 			// Enjoying play makes a pet more playful
 			types.BehaviorPlaying,
-			p.Personality.GetTraitInfluence("play") + learnedBehaviorWeight*learned(types.InteractionPlaying) +
+			p.Personality.GetTraitInfluence("play")*drive + learnedBehaviorWeight*learned(types.InteractionPlaying) +
 				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorPlaying),
 		},
 		{
 			// Enjoying petting draws a pet toward its owner; discipline
 			// (always negative) makes it more withdrawn
 			types.BehaviorSocialInteraction,
-			p.Personality.GetTraitInfluence("social") +
+			p.Personality.GetTraitInfluence("social") + comfort +
 				learnedBehaviorWeight*(learned(types.InteractionPetting)+learned(types.InteractionDiscipline)) +
 				learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorSocialInteraction),
 		},
@@ -574,7 +584,7 @@ func (p *DigitalPet) chooseDiscretionaryBehavior() types.BehaviorState {
 			// An energetic pet that hasn't had enough exercise runs around
 			// to burn off energy
 			types.BehaviorExercising,
-			p.selfExerciseScoreLocked() + learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorExercising),
+			p.selfExerciseScoreLocked()*drive + learnedBehaviorWeight*p.learnedRewardLocked(types.BehaviorExercising),
 		},
 	}
 

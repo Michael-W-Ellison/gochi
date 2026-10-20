@@ -226,7 +226,8 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	if p.needWarningLocked(types.NeedMentalStimulation) && v.Energy > minTrainingEnergy {
 		return &PetRequest{"train", "🎓", p.Name + " is bored and wants to learn something new."}
 	}
-	if p.needWarningLocked(types.NeedExploration) && !p.Injured &&
+	// Pets ask to go exploring only when it's good to be outdoors
+	if p.needWarningLocked(types.NeedExploration) && !p.Injured && p.outdoorSuitabilityLocked() >= goodOutdoorLevel &&
 		v.Energy >= minExploreLevel && v.Hydration >= minExploreLevel && v.Nutrition >= minExploreLevel {
 		return &PetRequest{"explore", "🧭", p.Name + " is curious about the world and wants to go exploring!"}
 	}
