@@ -71,13 +71,18 @@ type DigitalPet struct {
 	// Activities: trick skills (0.0 to 1.0, learned at 1.0), an exploring
 	// trip that ends at ExploringUntilAge (0 when home), souvenirs found
 	// while exploring, the most recent trip, and the last game bonus
-	TrickSkills       map[string]float64 `json:"trick_skills"`
-	ExploringUntilAge float64            `json:"exploring_until_age"`
-	Souvenirs         []string           `json:"souvenirs"`
-	LastAdventure     *Adventure         `json:"last_adventure"`
-	LastGameReward    time.Time          `json:"last_game_reward"`
-	Injured           bool               `json:"injured"`       // Hurt while exploring; healed by medical care
-	LastBredAge       float64            `json:"last_bred_age"` // Age at the last breeding (0 if never)
+	TrickSkills       map[string]float64  `json:"trick_skills"`
+	TrickPracticedAge map[string]float64  `json:"trick_practiced_age"` // Age each trick was last trained or performed
+	TricksLearned     map[string]bool     `json:"tricks_learned"`      // Tricks the pet has ever learned
+	ExploringUntilAge float64             `json:"exploring_until_age"`
+	ExploringTo       string              `json:"exploring_to"` // Where the current or last trip went
+	TripsTaken        int                 `json:"trips_taken"`  // Trips finished, which discover new places
+	Souvenirs         []string            `json:"souvenirs"`
+	LastAdventure     *Adventure          `json:"last_adventure"`
+	LastGameReward    time.Time           `json:"last_game_reward"`
+	Injured           bool                `json:"injured"`       // Hurt while exploring; healed by medical care
+	LastBredAge       float64             `json:"last_bred_age"` // Age at the last breeding (0 if never)
+	BabiesWith        map[types.PetID]int `json:"babies_with"`   // Babies had with each mate
 
 	// Health care: how dirty the living area is (0.0 clean to 1.0
 	// filthy), the illness the pet has (nil if well), recent health
@@ -203,6 +208,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	if p.CurrentBehavior == types.BehaviorSleeping {
 		p.Biology.ProcessRest(deltaTime, p.sleepQualityLocked())
 	}
+
+	// Tricks the pet hasn't practiced in a while get rusty
+	p.decayTricksLocked(deltaTime)
 
 	// Needs build up over time, and the weather and season affect the pet
 	p.updateNeedsLocked(deltaTime)

@@ -509,3 +509,33 @@ func TestStatusShowsAttentionStyle(t *testing.T) {
 		t.Errorf("A new pet tolerates nothing yet: %v", status["tolerates"])
 	}
 }
+
+func TestExplorePlacesThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	server.awayTimeout = 0
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.handlePlaces(rec, httptest.NewRequest(http.MethodGet, "/api/explore/places", nil))
+	var resp struct {
+		Data []core.Place `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Data) != 6 ||
+		resp.Data[0].ID != "park" || !resp.Data[0].Discovered || resp.Data[1].Discovered {
+		t.Fatalf("Places: %d %s", rec.Code, rec.Body.String())
+	}
+
+	if rec := post(t, server.handleExplore, `{"place":"beach"}`); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "Biscuit hasn't discovered that place yet") {
+		t.Errorf("Undiscovered place: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(t, server.handleExplore, `{"place":"moon"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Unknown place: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(t, server.handleExplore, `{"place":"park"}`); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "Biscuit sets off to explore the park!") {
+		t.Errorf("Park: %d %s", rec.Code, rec.Body.String())
+	}
+}

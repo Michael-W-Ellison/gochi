@@ -633,3 +633,28 @@ func TestWeatherChangesWithGameTime(t *testing.T) {
 		t.Error("Weather should change as game time passes, regardless of the real clock")
 	}
 }
+
+func TestSeasonEffectsBlendFromPreviousSeason(t *testing.T) {
+	sc := NewSeasonalCycle()
+	sc.SetSeason(SeasonSpring, 10)
+	if sc.Effects.BreedingModifier != 1.3 {
+		t.Errorf("Mid-spring should have spring's effects, breeding %.2f", sc.Effects.BreedingModifier)
+	}
+	sc.SetSeason(SeasonSpring, sc.DaysPerSeason)
+	if sc.Effects.BreedingModifier != 1.3 {
+		t.Errorf("The end of spring should still be spring, breeding %.2f", sc.Effects.BreedingModifier)
+	}
+
+	// The first day of summer is mostly spring; summer takes over
+	sc.Update(1)
+	if sc.CurrentSeason != SeasonSummer {
+		t.Fatalf("Expected summer, got %s", sc.CurrentSeason)
+	}
+	if b := sc.Effects.BreedingModifier; b <= 1.0 || b >= 1.3 {
+		t.Errorf("Early summer should blend spring into summer, breeding %.2f", b)
+	}
+	sc.Update(seasonTransitionDays)
+	if sc.Effects.BreedingModifier != 1.0 {
+		t.Errorf("Summer should take over after %v days, breeding %.2f", seasonTransitionDays, sc.Effects.BreedingModifier)
+	}
+}

@@ -16,7 +16,7 @@ import (
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
-func newTestStore(t *testing.T) *petStore {
+func newTestStore(t testing.TB) *petStore {
 	t.Helper()
 	store, err := newPetStore(t.TempDir())
 	if err != nil {
@@ -36,7 +36,7 @@ func savePet(t *testing.T, store *petStore, slot string, pet *core.DigitalPet) {
 	}
 }
 
-func newTestServer(t *testing.T) *Server {
+func newTestServer(t testing.TB) *Server {
 	t.Helper()
 	now := time.Now()
 	return &Server{
@@ -44,6 +44,7 @@ func newTestServer(t *testing.T) *Server {
 		clock:        simulation.NewTimeManager(types.TimeScaleGame),
 		lastActivity: now,
 		awayTimeout:  2 * time.Minute,
+		events:       newEventSystem(),
 	}
 }
 
@@ -704,5 +705,55 @@ func TestInteractReportsReaction(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, `"reaction":"delighted"`) || !strings.Contains(body, `"reaction_text":"Biscuit gobbles up every bite!"`) {
 		t.Errorf("Response should include the reaction: %s", body)
+	}
+}
+
+func TestPetStoreCachesSaves(t *testing.T) {
+	store := newTestStore(t)
+	savePet(t, store, "mochi", core.NewDigitalPet("Mochi", "web_user"))
+
+	// Saving caches the pet; loading and listing use the cache
+	pet, path, _, err := store.Load("mochi")
+	if err != nil || pet.Name != "Mochi" || path != store.SavePath("mochi") {
+		t.Fatalf("Load = %v, %q, %v", pet, path, err)
+	}
+	if summary, err := store.Summary("mochi"); err != nil || summary.Name != "Mochi" {
+		t.Fatalf("Summary = %+v, %v", summary, err)
+	}
+	if hits := store.cache.Stats().Hits; hits != 2 {
+		t.Errorf("Load and Summary should come from the cache, %d hits", hits)
+	}
+
+	// Each load is a separate pet
+	again, _, _, _ := store.Load("mochi")
+	if again == pet {
+		t.Error("Loads should not share a pet")
+	}
+
+	// A change made to the file some other way is noticed
+	other, err := newPetStore(filepath.Dir(store.SaveDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := core.NewDigitalPet("Pepper", "web_user")
+	data, _ := renamed.Save()
+	if err := other.Save("mochi", data); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Hour) // In case both writes share a timestamp
+	os.Chtimes(store.SavePath("mochi"), future, future)
+	if pet, _, _, err := store.Load("mochi"); err != nil || pet.Name != "Pepper" {
+		t.Errorf("Load should read the changed file: %v, %v", pet, err)
+	}
+	if summary, _ := store.Summary("mochi"); summary.Name != "Pepper" {
+		t.Errorf("Summary should read the changed file: %+v", summary)
+	}
+
+	// Deleting forgets the cached save
+	if err := store.Delete("mochi"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.Load("mochi"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("A deleted pet should be gone: %v", err)
 	}
 }

@@ -28,7 +28,7 @@ func TestRESTAPI(t *testing.T) {
 	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
-	handler := server.apiHandler("secret")
+	handler := server.apiHandler("secret", 0)
 	id := string(server.pet.ID)
 
 	// Pet routes need the token
@@ -91,5 +91,17 @@ func TestRESTAPI(t *testing.T) {
 	// Health needs no token
 	if rec := apiRequest(t, handler, http.MethodGet, "/health", "", ""); rec.Code != http.StatusOK {
 		t.Errorf("Health check: %d", rec.Code)
+	}
+}
+
+func TestRESTAPIRateLimit(t *testing.T) {
+	server := newTestServer(t)
+	handler := server.apiHandler("secret", 2)
+
+	// Failed token guesses count too
+	for i, want := range []int{http.StatusUnauthorized, http.StatusUnauthorized, http.StatusTooManyRequests} {
+		if rec := apiRequest(t, handler, http.MethodGet, "/api/v1/pets", "", "guess"); rec.Code != want {
+			t.Errorf("Request %d: expected %d, got %d", i+1, want, rec.Code)
+		}
 	}
 }

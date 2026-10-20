@@ -162,7 +162,10 @@ Under its name, the page shows your pet's surroundings: the weather, temperature
 of day. Each pet has its own weather and seasons, which move on with its own time (so they pause
 when the game is paused). Hot or stormy weather and the seasons change how quickly your pet gets
 hungry, thirsty and tired and can lift or lower its mood. Exploring in storms or extreme
-temperatures is riskier, and trips at night find fewer souvenirs.
+temperatures is riskier, and trips at night find fewer souvenirs. Each pet also has a favorite
+season, from its personality (curious pets love spring, energetic ones summer, adaptable ones
+fall, and cuddly, low-energy pets winter), shown under **About**: it is happier in that season and
+a little less happy in the opposite one.
 
 Below the bars, five smaller bars show needs that build up over time: **Exercise** (met by play,
 hide and seek and exploring), **Company** and **Affection** (petting, grooming, treats and
@@ -215,6 +218,12 @@ The game teaches care in four ways:
 
 The lessons and guide give general care advice. For a real pet, follow your veterinarian's advice.
 
+**Recently**, under the checklist, lists what happened to your pet on its own while time passed:
+when it got hungry or thirsty, showed a new warning sign, fell ill or recovered, came home from a
+trip, got rusty at a trick, went into hibernation or died. It keeps the last few of these, so you
+can see what happened while you weren't watching. Care you give is reported when you give it and
+is not listed.
+
 ### Getting to Know Your Pet
 
 - **What it is doing**: the line under the picture says what your pet is doing, such as
@@ -230,8 +239,8 @@ The lessons and guide give general care advice. For a real pet, follow your vete
   attention or play), the matching button is highlighted, and the browser tab title shows 💬.
   A pet left alone for a while asks for the kind of attention it likes best.
 - **About**: shows your pet's personality, how much it enjoys attention, what it likes, puts up
-  with and dislikes, how its personality has changed since you adopted it, and the treasures it
-  has found.
+  with and dislikes, how its personality has changed since you adopted it, the treasures it
+  has found, and its favorite season.
 - **Attention**: by nature, some pets love attention, some tolerate it in moderation and some
   prefer their own space. Affectionate, outgoing pets love it; independent and nervous ones would
   rather be left alone; dogs are on the whole keener than cats. A pet that is lonely welcomes
@@ -291,11 +300,21 @@ Several kinds of care come in variants, each with its own effect and lesson:
 
 - **🎓 Train**: teach tricks (Sit, Shake a paw, Spin, Roll over, Play dead). Each session
   improves the trick; harder tricks take longer, and clever pets learn faster. Once a trick is
-  learned, press **Do it!** to have your pet perform it. A tired pet can't train.
+  learned, press **Do it!** to have your pet perform it. A tired pet can't train. Tricks need
+  practice to stay sharp: a trick that hasn't been trained or performed for 120 game days (two
+  hours of play at the default speed) starts to fade. A learned trick that fades becomes
+  **rusty**; your pet can't perform it until you **Practice** it, which takes a session or two,
+  because it never forgets more than a quarter of a trick it has learned. Progress on a trick that
+  was never learned fades away completely.
 - **🙈 Hide & Seek**: your pet hides in one of four places and you get two guesses. Finding it
   counts as play and earns a 5-point game bonus (at most once every 3 minutes). Press **Stop
   playing** (or close the panel) to end the game early; an unfinished game earns nothing.
-- **🧭 Explore**: send your pet out for about 2 minutes. It needs energy, water and food to go,
+- **🧭 Explore**: send your pet out for about 2 minutes. Once it has discovered more than the
+  park, pick where it goes: the park, then the beach (discovered after 2 trips), the farm (4),
+  the forest (6), the city (9) and the mountain (12). Wilder places hold more to find and are more
+  dangerous. What your pet finds is taken from the place (a souvenir takes more than looking
+  around and finding nothing), shown as a bar of what is left to find; a place grows back over
+  about 20 game days, so going to the same place again and again finds less. It needs energy, water and food to go,
   and can't be cared for while it is away, though you can still clean its living area. Pausing
   time pauses the trip too. Trips don't always go well:
   - a little over half the time your pet brings home a souvenir for its treasure collection (curious
@@ -315,7 +334,9 @@ Press **💞 Breed** to have a baby with one of your other saved pets. The panel
 pet with how genetically compatible it is with your pet and, if they can't breed right now, why.
 Both pets must be the same species and at least 7 game days old, healthy (health at least 60%) and happy (happiness at
 least 50%), and at least 30% compatible; neither can be hibernating, exploring or have passed
-away. Breeding can still fail by chance; less compatible pairs fail more often.
+away. Breeding can still fail by chance; less compatible pairs fail more often. The season matters
+too: babies are likelier in spring and less likely in fall and winter, and the panel says so. Two
+pets can have at most 5 babies together.
 
 The baby is saved as a new pet (find it under **Switch Pet**); your current pet stays active. Its
 personality is inherited from both parents through their genes, with an occasional mutation, and
@@ -390,6 +411,9 @@ be undone.
 # Run tests
 make test
 
+# Run benchmarks (pet creation, updates, saving and loading, server ticks)
+go test -run '^$' -bench . ./internal/core ./cmd/gochiserver
+
 # Run tests with coverage
 make test-coverage
 
@@ -419,6 +443,11 @@ the header `Authorization: Bearer my-secret`; `/health` and `/ready` need no tok
 | `POST /api/v1/pets/{id}/interactions` | Care for a pet (`{"type": "feed", "intensity": 1}`; types: feed, drink, pet, play, train, groom, medical, reward, discipline, clean, walk) |
 | `POST /api/v1/pets/{id}/interactions/feed`, `.../play` | Shortcuts for feeding and playing |
 | `GET /api/v1/social/friends?pet_id=...` | A pet's friends |
+
+Each client (by IP address) may make 120 requests a minute (set with `server.api_rate_limit`;
+0 turns the limit off). Requests that fail authentication count too, which limits guessing the
+token. Responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a client over the limit
+gets status 429 with `X-RateLimit-Reset`, the time it may try again.
 
 Care through the API follows the game's rules: a pet that turns something down answers with
 status 409 and the reason. Pets can't be deleted through the API (403), because deleting asks for
@@ -469,6 +498,7 @@ options:
 | `server.addr` | `-addr` | `":8080"` |
 | `server.data_dir` | `-data-dir` | `""` (`~/.gochi`); a relative path is relative to the file |
 | `server.api_token` | `-api-token` | `""` (REST API off) |
+| `server.api_rate_limit` | | `120` REST API requests a minute per client (0 for no limit) |
 | `simulation.time_scale` | `-time-scale` | `"game"` |
 | `simulation.autosave` | `-autosave` | `1m` |
 | `simulation.away_pause` | `-away-pause` | `2m` |

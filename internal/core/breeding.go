@@ -2,6 +2,8 @@ package core
 
 import (
 	"errors"
+	"fmt"
+	"maps"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
@@ -32,6 +34,10 @@ func (e BreedingError) Error() string {
 
 // errDifferentSpecies explains why a cat and a dog can't breed
 const errDifferentSpecies = "cats and dogs can't have babies together"
+
+// maxBabiesPerPair is how many babies two pets can have together over
+// their lives, so a pair can't fill the save list with siblings
+const maxBabiesPerPair = 5
 
 // childMutationRate is the chance each inherited personality trait mutates
 const childMutationRate = 0.05
@@ -88,6 +94,8 @@ type breedingInfo struct {
 	hibernationEnabled                 bool
 	owner                              types.UserID
 	species                            Species
+	seasonBreeding                     float64 // How the season changes the chance of a baby
+	babiesWith                         map[types.PetID]int
 }
 
 // breedingInfo snapshots the pet for breeding, so two pets' locks are
@@ -115,7 +123,22 @@ func (p *DigitalPet) breedingInfo() breedingInfo {
 		hibernationEnabled: p.HibernationEnabled,
 		owner:              p.Owner,
 		species:            p.speciesLocked(),
+		seasonBreeding:     p.seasonalBreedingLocked(),
+		babiesWith:         maps.Clone(p.BabiesWith),
 	}
+}
+
+// pairProblem explains why two pets can't have a baby together, whatever
+// their condition, or returns ""
+func pairProblem(a, b breedingInfo) string {
+	if a.species != b.species {
+		return errDifferentSpecies
+	}
+	// Either pet's record counts, in case one was saved before the other
+	if max(a.babiesWith[b.id], b.babiesWith[a.id]) >= maxBabiesPerPair {
+		return fmt.Sprintf("%s and %s have already had %d babies together", a.name, b.name, maxBabiesPerPair)
+	}
+	return ""
 }
 
 // lastBreedingTime converts the age at the last breeding into the real
@@ -162,8 +185,11 @@ func BreedingCompatibility(a, b *DigitalPet) (float64, string) {
 			return compatibility, reason
 		}
 	}
-	if infoA.species != infoB.species {
-		return 0, errDifferentSpecies
+	if reason := pairProblem(infoA, infoB); reason != "" {
+		if infoA.species != infoB.species {
+			return 0, reason
+		}
+		return compatibility, reason
 	}
 	now := time.Now()
 	if reason := gs.CheckRequirements(infoA.candidate(now), infoB.candidate(now)); reason != "" {
@@ -187,8 +213,8 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 			return nil, BreedingError{reason}
 		}
 	}
-	if infoA.species != infoB.species {
-		return nil, BreedingError{errDifferentSpecies}
+	if reason := pairProblem(infoA, infoB); reason != "" {
+		return nil, BreedingError{reason}
 	}
 
 	gs := genetics.NewGeneticSystem()
@@ -196,6 +222,9 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 	if reason := gs.CheckRequirements(infoA.candidate(now), infoB.candidate(now)); reason != "" {
 		return nil, BreedingError{reason}
 	}
+	// Babies are likelier in spring and less likely in winter; each pet
+	// lives in its own environment, so the two seasons are averaged
+	gs.SeasonModifier = (infoA.seasonBreeding + infoB.seasonBreeding) / 2
 	result := gs.Breed(infoA.genome, infoB.genome) // Checks compatibility; can fail by chance
 	if !result.Success {
 		return nil, BreedingError{result.FailureReason}
@@ -225,6 +254,10 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 	}{{a, infoB.id, infoB.name}, {b, infoA.id, infoA.name}} {
 		parent.pet.mu.Lock()
 		parent.pet.LastBredAge = parent.pet.Biology.GetAgeInDays()
+		if parent.pet.BabiesWith == nil {
+			parent.pet.BabiesWith = make(map[types.PetID]int)
+		}
+		parent.pet.BabiesWith[parent.mate]++
 		parent.pet.Relationships.AddRelationship(parent.mate, types.RelationshipMate)
 		parent.pet.Relationships.AddRelationship(child.ID, types.RelationshipOffspring)
 		parent.pet.rememberPetLocked(child.ID, child.Name)

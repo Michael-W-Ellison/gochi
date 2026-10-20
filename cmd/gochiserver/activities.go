@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,6 +80,12 @@ func writeActivityError(w http.ResponseWriter, name string, err error) {
 		message = name + " is already home."
 	case errors.Is(err, core.ErrTrickNotKnown):
 		message = name + " hasn't learned that trick yet."
+	case errors.Is(err, core.ErrUnknownPlace):
+		status, message = http.StatusBadRequest, "Unknown place"
+	case errors.Is(err, core.ErrPlaceLocked):
+		message = name + " hasn't discovered that place yet. Keep exploring!"
+	case errors.Is(err, core.ErrTrickRusty):
+		message = name + " is rusty at that trick. Practice it with Train first."
 	case errors.Is(err, core.ErrNoGame):
 		message = "Start a game of hide and seek first."
 	case errors.Is(err, core.ErrUnknownTrick):
@@ -216,18 +223,53 @@ func (s *Server) handleHideSeekGuess(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleExplore handles POST /api/explore - sends the pet exploring
+// handleExplore handles POST /api/explore with an optional {"place": id}
+// - sends the pet exploring (to the park if no place is given)
 func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Place string `json:"place"`
+	}
+	if r.Method == http.MethodPost && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
+			return
+		}
+	}
+	if req.Place == "" {
+		req.Place = "park"
+	}
 	s.withActivePet(w, r, func() {
-		if err := s.pet.SendExploring(); err != nil {
+		if err := s.pet.SendExploringTo(req.Place); err != nil {
 			writeActivityError(w, s.pet.Name, err)
 			return
 		}
+		name := req.Place
+		for _, place := range s.pet.Places() {
+			if place.ID == req.Place {
+				name = strings.ToLower(place.Name)
+			}
+		}
 		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
-			"text":              s.pet.Name + " sets off to explore!",
+			"text":              s.pet.Name + " sets off to explore the " + name + "!",
 			"exploring_seconds": gameDaysToSeconds(s.pet.ExploringRemaining()),
 		}})
 	})
+}
+
+// handlePlaces handles GET /api/explore/places - where the active pet can
+// explore, how much is left to find there and how dangerous it is
+func (s *Server) handlePlaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.pet.Places()})
 }
 
 // handleRecall handles POST /api/explore/recall - calls the pet home
@@ -395,5 +437,31 @@ func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
 		"baby_name": baby.Name,
 		"baby_slot": babySlot,
 		"text":      s.pet.Name + " and " + partner.Name + " had a baby: " + baby.Name + "! Find " + baby.Name + " under Switch Pet.",
+	}})
+}
+
+// handleEvents handles GET /api/events?after=seq - what happened to the
+// active pet on its own (illness, hunger, trips ending) after the event
+// numbered seq, oldest first, and the number to ask after next time
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	if err != nil && r.URL.Query().Get("after") != "" {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid event number"})
+		return
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	events, last := s.events.Since(after, s.pet.ID)
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"events": events,
+		"last":   last,
 	}})
 }

@@ -18,9 +18,10 @@ import (
 // one before.
 type Config struct {
 	Server struct {
-		Addr     string `yaml:"addr"`      // Address and port to listen on
-		DataDir  string `yaml:"data_dir"`  // Saves and backups; "" means ~/.gochi
-		APIToken string `yaml:"api_token"` // Turns on the REST API; "" leaves it off
+		Addr         string `yaml:"addr"`           // Address and port to listen on
+		DataDir      string `yaml:"data_dir"`       // Saves and backups; "" means ~/.gochi
+		APIToken     string `yaml:"api_token"`      // Turns on the REST API; "" leaves it off
+		APIRateLimit int    `yaml:"api_rate_limit"` // REST API requests per minute per client; 0 turns the limit off
 	} `yaml:"server"`
 
 	Simulation struct {
@@ -35,6 +36,7 @@ type Config struct {
 func defaultConfig() Config {
 	var c Config
 	c.Server.Addr = ":8080"
+	c.Server.APIRateLimit = 120
 	c.Simulation.TimeScale = "game"
 	c.Simulation.Autosave = time.Minute
 	c.Simulation.AwayPause = 2 * time.Minute
@@ -84,6 +86,9 @@ func (c Config) validate() error {
 	}
 	if c.Simulation.Autosave < 0 || c.Simulation.AwayPause < 0 {
 		return errors.New("autosave and away_pause can't be negative")
+	}
+	if c.Server.APIRateLimit < 0 {
+		return errors.New("api_rate_limit can't be negative")
 	}
 	return nil
 }

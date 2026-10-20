@@ -61,6 +61,39 @@ type Location struct {
 	Unlocked    bool             `json:"unlocked"`
 	VisitCount  int              `json:"visit_count"`
 	TimeSpent   float64          `json:"time_spent"` // Total hours spent
+	Depletion   float64          `json:"depletion"`  // How much of what can be found here has been taken (0.0 to 1.0)
+}
+
+// resourceRegrowth is how much of a place's resources come back per game
+// day: a place picked clean is full again after 20 game days
+const resourceRegrowth = 0.05
+
+// ResourceLevel returns how much is left to find at the location (1.0 when
+// untouched)
+func (l *Location) ResourceLevel() float64 {
+	return 1.0 - l.Depletion
+}
+
+// Deplete takes some of the location's resources
+func (l *Location) Deplete(amount float64) {
+	l.Depletion = math.Min(math.Max(l.Depletion+amount, 0), 1)
+}
+
+// RegenerateResources lets every location's resources grow back over
+// gameDays
+func (lm *LocationManager) RegenerateResources(gameDays float64) {
+	for _, loc := range lm.Locations {
+		loc.Depletion = math.Max(loc.Depletion-resourceRegrowth*gameDays, 0)
+	}
+}
+
+// tripOrder lists the places a pet can explore, nearest first
+var tripOrder = []string{"park", "beach", "farm", "forest", "city", "mountain"}
+
+// TripDestinations returns the IDs of the places a pet can explore (every
+// place but home), nearest first
+func TripDestinations() []string {
+	return append([]string(nil), tripOrder...)
 }
 
 // ClimateType represents the climate of a location

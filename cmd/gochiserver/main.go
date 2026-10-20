@@ -32,6 +32,7 @@ type Server struct {
 	webDir string
 	clock  *simulation.TimeManager // Game clock; its scale sets the game's speed
 	store  *petStore               // nil disables saving
+	events *core.EventSystem       // What happened to the pets while time passed
 
 	// Time stops while the game is paused, so the pet cannot decline
 	manualPause  bool          // Paused with the Pause button
@@ -178,6 +179,7 @@ func main() {
 		store:        store,
 		lastActivity: time.Now(),
 		awayTimeout:  config.Simulation.AwayPause,
+		events:       newEventSystem(),
 	}
 
 	// Restore the most recently saved pet. Time does not pass while the
@@ -215,11 +217,14 @@ func main() {
 
 	// The REST API from the api package, for other clients
 	if config.Server.APIToken != "" {
-		apiRoutes := server.apiHandler(config.Server.APIToken)
+		apiRoutes := server.apiHandler(config.Server.APIToken, config.Server.APIRateLimit)
 		for _, pattern := range []string{"/api/v1", "/api/v1/", "/health", "/ready"} {
 			mux.Handle(pattern, apiRoutes)
 		}
 		log.Printf("REST API enabled at /api/v1")
+		if config.Server.APIRateLimit > 0 {
+			log.Printf("REST API clients may make %d requests a minute", config.Server.APIRateLimit)
+		}
 	}
 
 	// Simple API routes
@@ -244,8 +249,10 @@ func main() {
 	mux.HandleFunc("/api/breed", server.handleBreed)
 	mux.HandleFunc("/api/breed/partners", server.handleBreedPartners)
 	mux.HandleFunc("/api/explore/recall", server.handleRecall)
+	mux.HandleFunc("/api/explore/places", server.handlePlaces)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 	mux.HandleFunc("/api/guide", server.handleGuide)
+	mux.HandleFunc("/api/events", server.handleEvents)
 	mux.HandleFunc("/api/care/options", server.handleCareOptions)
 	mux.HandleFunc("/api/supplies", server.handleSupplies)
 	mux.HandleFunc("/api/supplies/buy", server.handleBuySupply)
@@ -364,7 +371,22 @@ func (s *Server) tick(now time.Time) {
 	}
 
 	// The pet's simulation counts time in game days
+	before := s.pet.Conditions()
 	s.pet.Update(gameSeconds / secondsPerGameDay)
+	for _, event := range core.ConditionEvents(before, s.pet.Conditions()) {
+		s.events.Emit(event)
+	}
+}
+
+// newEventSystem creates the server's event system, which also logs the
+// most serious events
+func newEventSystem() *core.EventSystem {
+	events := core.NewEventSystem()
+	logEvent := func(event core.GameEvent) { log.Print(event.Message) }
+	for _, eventType := range []core.EventType{core.EventPetDied, core.EventPetHibernated, core.EventPetSick} {
+		events.RegisterHandler(eventType, logEvent)
+	}
+	return events
 }
 
 // careActions maps the page's care buttons to interactions
@@ -572,6 +594,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .checklist { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #ebfbee; border: 2px solid #d3f9d8; font-size: 0.9em; }
         .checklist-item { margin-top: 3px; color: #2b8a3e; }
         .checklist-item.todo { color: #555; }
+        .event-log { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; border: 2px solid #e9ecef; font-size: 0.88em; }
+        .event-log-item { margin-top: 3px; color: #5c3c00; }
+        .event-log-item.good { color: #2b8a3e; }
+        .event-log-time { color: #868e96; margin-right: 6px; }
         .guide-topic { margin-top: 6px; border-radius: 10px; background: #fff; border: 1px solid #e9ecef; padding: 6px 10px; }
         .guide-topic summary { cursor: pointer; font-weight: 600; color: #333; }
         .guide-topic.relevant { border-color: #fab005; background: #fff9db; }
@@ -816,6 +842,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="symptoms"></div>
             </div>
             <div class="checklist" id="checklist"></div>
+            <div class="event-log hidden" id="eventLog">
+                <div class="section-title">Recently</div>
+                <div id="eventLogItems"></div>
+            </div>
 
             <div class="save-row">
                 <button class="save-btn" id="saveBtn" onclick="savePet()">Save</button>
@@ -841,6 +871,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutChanges"></div>
                 <div id="aboutRelations"></div>
                 <div id="aboutTreasures"></div>
+                <div id="aboutSeason"></div>
                 <div id="aboutGeneration"></div>
             </div>
 
@@ -1424,6 +1455,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             document.getElementById('aboutPersonality').textContent = status.personality;
             document.getElementById('aboutGeneration').textContent = 'Generation ' + (status.generation || 1);
+            document.getElementById('aboutSeason').textContent = env && env.favorite_season ?
+                'Favorite season: ' + env.favorite_season + (env.favorite_season === env.season ? ' (now!)' : '') : '';
             const setList = (id, label, items, none) => {
                 const el = document.getElementById(id);
                 el.replaceChildren();
@@ -1602,6 +1635,47 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     (item.target > 1 ? ' (' + item.done + '/' + item.target + ')' : '');
                 checklist.append(line);
             });
+
+            fetchEvents(status.name);
+        }
+
+        // Things that happened to the pet on its own (illness, hunger,
+        // trips ending), newest first
+        const maxLoggedEvents = 8;
+        let lastEventSeq = 0;
+        let eventLogPet = null;
+        let fetchingEvents = false;
+
+        function fetchEvents(petName) {
+            if (petName !== eventLogPet) {
+                // Another pet: show its own events from the start
+                eventLogPet = petName;
+                lastEventSeq = 0;
+                document.getElementById('eventLogItems').replaceChildren();
+                document.getElementById('eventLog').classList.add('hidden');
+            }
+            if (fetchingEvents) return; // The next status update asks again
+            fetchingEvents = true;
+            fetch('/api/events?after=' + lastEventSeq)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success || petName !== eventLogPet) return;
+                    lastEventSeq = data.data.last;
+                    const items = document.getElementById('eventLogItems');
+                    data.data.events.forEach(event => {
+                        const line = document.createElement('div');
+                        line.className = 'event-log-item' + (event.good ? ' good' : '');
+                        const time = document.createElement('span');
+                        time.className = 'event-log-time';
+                        time.textContent = new Date(event.timestamp).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+                        line.append(time, event.message);
+                        items.prepend(line);
+                    });
+                    while (items.children.length > maxLoggedEvents) items.lastChild.remove();
+                    document.getElementById('eventLog').classList.toggle('hidden', items.children.length === 0);
+                })
+                .catch(console.error)
+                .finally(() => { fetchingEvents = false; });
         }
 
         // The care guide for the pet's species; topics related to its
@@ -1929,7 +2003,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 row.className = 'trick-row';
                 const name = document.createElement('span');
                 name.className = 'trick-name';
-                name.textContent = trick.icon + ' ' + trick.name;
+                name.textContent = trick.icon + ' ' + trick.name + (trick.rusty ? ' (rusty)' : '');
+                if (trick.rusty) name.title = lastStatus.name + ' needs practice before doing this trick again';
                 const bar = document.createElement('div');
                 bar.className = 'trick-bar';
                 const fill = document.createElement('div');
@@ -1938,7 +2013,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 bar.append(fill);
                 const btn = document.createElement('button');
                 btn.className = 'save-btn';
-                btn.textContent = trick.learned ? 'Do it!' : 'Train';
+                btn.textContent = trick.learned ? 'Do it!' : (trick.rusty ? 'Practice' : 'Train');
                 btn.onclick = () => doTrick(trick.id, trick.learned);
                 row.append(name, bar, btn);
                 p.append(row);
@@ -2037,8 +2112,66 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .catch(console.error);
         }
 
+        // Exploring: with only the park discovered, the pet goes straight
+        // there; otherwise the player picks a place
         function explore() {
-            postJSON('/api/explore')
+            fetch('/api/explore/places')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        showPointsToast(data.error || 'Something went wrong');
+                        return;
+                    }
+                    const discovered = data.data.filter(place => place.discovered);
+                    if (discovered.length <= 1) exploreTo(discovered.length ? discovered[0].id : 'park');
+                    else renderPlaces(data.data);
+                })
+                .catch(console.error);
+        }
+
+        function renderPlaces(places) {
+            panelMode = 'places';
+            const p = panel();
+            p.replaceChildren(panelHeader('Explore'));
+            const name = (lastStatus && lastStatus.name) || 'Your pet';
+            const intro = document.createElement('div');
+            intro.className = 'panel-text';
+            intro.textContent = 'Where should ' + name + ' explore? Wilder places hold more to find and more danger. ' +
+                'What ' + name + ' finds is taken from the place and grows back over time.';
+            p.append(intro);
+            places.forEach(place => {
+                const row = document.createElement('div');
+                row.className = 'trick-row';
+                const label = document.createElement('span');
+                label.className = 'trick-name';
+                label.textContent = place.icon + ' ' + place.name;
+                if (!place.discovered) {
+                    const info = document.createElement('span');
+                    info.style.cssText = 'flex: 1; font-size: 0.8em; color: #777;';
+                    info.textContent = 'Discovered after ' + place.trips_needed + ' trips';
+                    row.append(label, info);
+                } else {
+                    const bar = document.createElement('div');
+                    bar.className = 'trick-bar';
+                    bar.title = Math.round(place.resources * 100) + '% left to find' +
+                        (place.danger >= 0.25 ? ' · risky' : '');
+                    const fill = document.createElement('div');
+                    fill.className = 'trick-fill';
+                    fill.style.width = Math.round(place.resources * 100) + '%';
+                    bar.append(fill);
+                    const btn = document.createElement('button');
+                    btn.className = 'save-btn';
+                    btn.textContent = 'Go';
+                    btn.onclick = () => exploreTo(place.id);
+                    row.append(label, bar, btn);
+                }
+                p.append(row);
+            });
+            p.classList.remove('hidden');
+        }
+
+        function exploreTo(place) {
+            postJSON('/api/explore', {place: place})
                 .then(data => {
                     if (data.success) {
                         closePanel();
@@ -2109,6 +2242,15 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             input.placeholder = "Baby's name";
             input.style.cssText = 'width: 100%; padding: 8px 10px; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px;';
             p.append(input);
+
+            const env = lastStatus && lastStatus.environment;
+            if (env && (env.breeding_season || env.season === 'Winter' || env.season === 'Fall')) {
+                const season = document.createElement('div');
+                season.className = 'panel-text';
+                season.textContent = env.breeding_season ? 'It\'s ' + env.season.toLowerCase() + ': babies are more likely now.' :
+                    'It\'s ' + env.season.toLowerCase() + ': babies are less likely until spring.';
+                p.append(season);
+            }
 
             partners.forEach(partner => {
                 const row = document.createElement('div');

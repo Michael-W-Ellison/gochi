@@ -16,6 +16,10 @@ server:
   # (Authorization: Bearer <token>). Empty leaves the API off.
   api_token: ""
 
+  # How many REST API requests each client (by IP address) may make per
+  # minute; 0 turns the limit off
+  api_rate_limit: 120
+
 simulation:
   # Game speed: game (one game day per real minute), 24x (one game day per
   # real hour), 4x (one game day per six real hours) or realtime

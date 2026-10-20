@@ -20,10 +20,13 @@ var errOffline = errors.New("this feature needs the cloud service, which this se
 
 // apiHandler returns the api package's REST API (/api/v1, /health and
 // /ready), backed by this server's saved pets. Requests to pet routes
-// must carry "Authorization: Bearer <token>".
-func (s *Server) apiHandler(token string) http.Handler {
+// must carry "Authorization: Bearer <token>". Each client may make
+// rateLimit requests a minute (0 for no limit).
+func (s *Server) apiHandler(token string, rateLimit int) http.Handler {
 	handler := api.NewHandler(apiPetStore{s}, nil, offlineSocial{s}, offlineSync{})
-	return api.NewServer(api.DefaultServerConfig(), handler, tokenValidator(token)).SetupRoutes()
+	config := api.DefaultServerConfig()
+	config.RateLimit = rateLimit
+	return api.NewServer(config, handler, tokenValidator(token)).SetupRoutes()
 }
 
 // tokenValidator accepts a single token, which identifies the local player
