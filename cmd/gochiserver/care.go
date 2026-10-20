@@ -249,6 +249,7 @@ func (s *Server) handleIntroduce(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SavePet(req.PartnerSlot, partner); err != nil {
 		log.Printf("Failed to save %s after meeting: %v", partner.Name, err)
 	}
+	s.observePet(partner, false)
 	if err := s.saveActiveLocked(); err != nil {
 		log.Printf("Failed to save %s after meeting: %v", s.pet.Name, err)
 	}
@@ -324,6 +325,7 @@ func (s *Server) handleGroup(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.SavePet(req.PartnerSlots[i], partner); err != nil {
 			log.Printf("Failed to save %s after a group activity: %v", partner.Name, err)
 		}
+		s.observePet(partner, false)
 	}
 	if err := s.saveActiveLocked(); err != nil {
 		log.Printf("Failed to save %s after a group activity: %v", s.pet.Name, err)

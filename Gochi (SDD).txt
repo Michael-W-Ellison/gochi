@@ -1080,11 +1080,17 @@ Beta Phase: Social features and advanced AI
 Launch Version: Full feature set with AR integration
 Post-Launch: Regular content updates and seasonal events
 
-8.2 Monitoring and Analytics
+8.2 Player Statistics (No Monitoring or Analytics)
 
-Pet Health Metrics: Population-level statistics on pet well-being
-User Engagement: Care patterns and session duration tracking
-Performance Monitoring: App performance and crash reporting
-A/B Testing: Feature variations and user experience optimization
+The game does no monitoring or analytics. It collects no population-level statistics, tracks no
+care patterns or session lengths, sends no crash reports and runs no A/B tests: nothing about how
+the game is played leaves the player's computer.
+
+Instead each player keeps their own statistics, which only they can see:
+Pets Raised: How many pets they have raised, adopted and bred, how many are alive, died or were deleted, and how many times their pets hibernated
+Deaths: Each cause of death and how many pets it took
+Care: Every interaction, counted by kind (each pet also counts its own, in its save)
+Each Pet: Its name, species, generation, age, whether it is alive or how it died, and how much care it had
+Storage: stats.json in the player's data directory, readable only by their user account, kept apart from the pet saves so it lasts after a pet is deleted; never part of cloud sync, the hub or the REST API
 
 This advanced Tamagotchi system represents a significant evolution in digital pet simulation, combining realistic biological modeling with sophisticated AI to create truly engaging and adaptive virtual companions that grow and evolve with their caregivers.

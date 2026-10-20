@@ -48,8 +48,10 @@ type DigitalPet struct {
 	Owner        types.UserID `json:"owner"`
 
 	// Statistics
-	TotalInteractions int     `json:"total_interactions"`
-	TotalPlayTime     float64 `json:"total_play_time"` // In hours
+	TotalInteractions int            `json:"total_interactions"`
+	TotalPlayTime     float64        `json:"total_play_time"` // In hours
+	CareCounts        map[string]int `json:"care_counts"`     // Interactions by kind, e.g. "Feeding" (records.go)
+	Hibernations      int            `json:"hibernations"`    // Times it has gone into hibernation
 
 	// HibernationEnabled is the owner's choice of whether the pet hibernates
 	// instead of dying when a vital stat reaches a critical level (off by
@@ -285,6 +287,9 @@ func (p *DigitalPet) isCriticalLocked() bool {
 
 // hibernateLocked puts the pet into hibernation. Caller must hold p.mu.
 func (p *DigitalPet) hibernateLocked() {
+	if !p.Hibernating {
+		p.Hibernations++
+	}
 	p.Hibernating = true
 	p.CurrentBehavior = types.BehaviorHibernating
 	p.ExploringUntilAge = 0 // A trip ends early so the pet is home to be revived
@@ -351,6 +356,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	}
 
 	p.TotalInteractions++
+	p.countCareLocked(interactionType)
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
 	treated := ""
 	if interactionType == types.InteractionMedicalCare {

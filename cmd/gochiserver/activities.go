@@ -453,6 +453,8 @@ func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
 	if err := s.saveActiveLocked(); err != nil {
 		log.Printf("Failed to save %s after breeding: %v", s.pet.Name, err)
 	}
+	s.observePet(baby, true)
+	s.observePet(partner, false)
 
 	log.Printf("%s and %s had a baby: %s", s.pet.Name, partner.Name, baby.Name)
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{

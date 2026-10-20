@@ -267,3 +267,44 @@ func (p *DigitalPet) SaveRecord() SaveRecord {
 	record.Unlocks.Variants = []string{string(p.speciesLocked())}
 	return record
 }
+
+// countCareLocked counts an interaction the pet was given, by kind.
+// Caller must hold p.mu.
+func (p *DigitalPet) countCareLocked(interactionType types.InteractionType) {
+	if p.CareCounts == nil {
+		p.CareCounts = make(map[string]int)
+	}
+	p.CareCounts[interactionType.String()]++
+}
+
+// Tally is what a pet's owner keeps in their own statistics about it (see
+// the game server's stats.go)
+type Tally struct {
+	ID           types.PetID
+	Name         string
+	Species      Species
+	Generation   int
+	Alive        bool
+	CauseOfDeath string  // "" while alive
+	Age          float64 // Game days
+	Interactions int
+	Care         map[string]int // Interactions by kind; ones from before they were counted by kind are not included
+	Hibernations int
+}
+
+// Tally returns the pet's tally
+func (p *DigitalPet) Tally() Tally {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ensureGenomeLocked()
+	t := Tally{ID: p.ID, Name: p.Name, Species: p.speciesLocked(), Generation: p.Genome.Generation,
+		Alive: p.Biology.IsAlive, Age: p.Biology.GetAgeInDays(), Interactions: p.TotalInteractions,
+		Care: make(map[string]int, len(p.CareCounts)), Hibernations: p.Hibernations}
+	if !t.Alive {
+		t.CauseOfDeath = p.Biology.CauseOfDeath
+	}
+	for kind, n := range p.CareCounts {
+		t.Care[kind] = n
+	}
+	return t
+}

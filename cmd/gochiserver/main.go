@@ -44,6 +44,10 @@ type Server struct {
 	owner     *ai.OwnerSchedule
 	ownerPath string // Where owner is saved; "" to not save it
 
+	// The player's own statistics, kept on this computer only; nil
+	// disables them
+	stats *playerStats
+
 	// The AR playdate the player is at, through the cloud hub
 	playdates playdateState
 
@@ -241,6 +245,10 @@ func main() {
 		log.Printf("Warning: could not read the play schedule, starting a new one: %v", err)
 		owner = &ai.OwnerSchedule{}
 	}
+	stats, err := loadPlayerStats(dataPath)
+	if err != nil {
+		log.Fatalf("Could not read your statistics: %v", err)
+	}
 	pairing, err := loadDevicePairing(dataPath)
 	if err != nil {
 		log.Fatalf("Could not read the paired devices: %v", err)
@@ -264,6 +272,7 @@ func main() {
 		hub:          hubServer,
 		owner:        owner,
 		ownerPath:    ownerPath,
+		stats:        stats,
 		parental:     parental,
 		pairing:      pairing,
 		listenAddr:   config.Server.Addr,
@@ -299,6 +308,8 @@ func main() {
 		log.Printf("Warning: could not restore a saved pet: %v", err)
 		log.Printf("Starting without a pet; the save files have been left in place in %s", store.SaveDir())
 	}
+	server.recordSavedPets()
+	server.observePet(server.pet, false)
 	if config.Simulation.AwayPause > 0 {
 		log.Printf("Time pauses after %s without the player", config.Simulation.AwayPause)
 	}
@@ -387,6 +398,7 @@ func main() {
 	mux.HandleFunc("/api/guide", server.handleGuide)
 	mux.HandleFunc("/api/species", server.handleSpecies)
 	mux.HandleFunc("/api/privacy", server.handlePrivacy)
+	mux.HandleFunc("/api/stats", server.handleStats)
 	mux.HandleFunc("/api/potion", server.handlePotion)
 	mux.HandleFunc("/api/events", server.handleEvents)
 	mux.HandleFunc("/api/care/options", server.handleCareOptions)
@@ -458,6 +470,12 @@ func main() {
 
 	if err := server.saveOwner(); err != nil {
 		log.Printf("Could not save the play schedule: %v", err)
+	}
+	server.mu.RLock()
+	server.observePet(server.pet, false)
+	server.mu.RUnlock()
+	if err := stats.save(); err != nil {
+		log.Printf("Could not save your statistics: %v", err)
 	}
 	if saved, err := server.saveNow(); err != nil {
 		log.Printf("Failed to save pet on exit: %v", err)
@@ -548,6 +566,7 @@ func (s *Server) tick(now time.Time) {
 		s.pet.RecordEvent(event)
 	}
 	s.announceAchievementsLocked()
+	s.observePet(s.pet, false)
 }
 
 // announceAchievementsLocked records achievements the active pet has newly
@@ -787,6 +806,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .cloud-field { display: block; margin-top: 8px; font-size: 0.85em; color: #555; }
         .cloud-field input { display: block; width: 100%; padding: 7px 9px; margin-top: 3px; border: 2px solid #ddd; border-radius: 10px; }
         .cloud-note { color: #777; font-size: 0.85em; }
+        .stats-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 0.9em; }
+        .stats-table td { padding: 3px 6px; border-bottom: 1px solid #eee; color: #444; }
+        .stats-table td:last-child { text-align: right; font-weight: 600; }
         .cloud-key { word-break: break-all; font-family: monospace; font-size: 0.8em; }
         .rhythm-line { color: #777; }
         .potion-btn { margin-top: 8px; }
@@ -1069,6 +1091,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" onclick="openGuide()">📖 Care guide</button>
                 <button class="save-btn" onclick="openCloud()">☁️ Cloud</button>
                 <button class="save-btn" onclick="openPrivacy()">🔒 Privacy</button>
+                <button class="save-btn" onclick="openStats()">📊 My stats</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
@@ -2558,6 +2581,56 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             }).catch(console.error);
         }
 
+        // The player's own statistics, kept on this computer only
+        function openStats() {
+            panelMode = 'stats';
+            fetch('/api/stats').then(r => r.json()).then(data => {
+                if (data.success) renderStats(data.data);
+            }).catch(console.error);
+        }
+
+        function statsTable(p, title, rows) {
+            cloudText(p, title, 'section-title');
+            if (!rows.length) {
+                cloudText(p, 'None yet.', 'panel-text cloud-note');
+                return;
+            }
+            const table = document.createElement('table');
+            table.className = 'stats-table';
+            for (const [name, value] of rows) {
+                const tr = table.insertRow();
+                tr.insertCell().textContent = name;
+                tr.insertCell().textContent = value;
+            }
+            p.append(table);
+        }
+
+        function renderStats(stats) {
+            const p = panel();
+            p.replaceChildren(panelHeader('My stats'));
+            cloudText(p, 'Your own record of every pet you have raised in this game. It is kept only on this ' +
+                'computer and is never sent anywhere.', 'panel-text cloud-note');
+            statsTable(p, 'Pets', [
+                ['Pets raised', stats.raised],
+                ['Adopted', stats.adopted],
+                ['Born to your pets', stats.bred],
+                ['Alive', stats.alive],
+                ['Died', stats.died],
+                ['Deleted', stats.deleted],
+                ['Times hibernated', stats.hibernations],
+            ]);
+            statsTable(p, 'How they died', stats.causes.map(c => [c.name, c.count]));
+            statsTable(p, 'Care given (' + stats.interactions + ' in all)', stats.care.map(c => [c.name, c.count]));
+            statsTable(p, 'Kinds of pet', stats.species.map(c => [c.name, c.count]));
+            statsTable(p, 'Each pet', stats.pets.map(pet => {
+                let state = pet.alive ? 'alive' : 'died' + (pet.cause_of_death ? ': ' + pet.cause_of_death.toLowerCase() : '');
+                if (pet.deleted) state += ', deleted';
+                return [speciesIcon(pet.species) + pet.name + ' (' + state + ')',
+                    Math.floor(pet.age) + ' days, ' + pet.interactions + ' care'];
+            }));
+            p.classList.remove('hidden');
+        }
+
         // Privacy: learning when the player plays, and the parent PIN
         function openPrivacy() {
             panelMode = 'privacy';
@@ -3085,6 +3158,11 @@ func (s *Server) autosaveLoop(ctx context.Context, interval time.Duration) {
 			if err := s.saveOwner(); err != nil {
 				log.Printf("Could not save the play schedule: %v", err)
 			}
+			if s.stats != nil {
+				if err := s.stats.save(); err != nil {
+					log.Printf("Could not save your statistics: %v", err)
+				}
+			}
 		}
 	}
 }
@@ -3142,6 +3220,7 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 	if err := s.saveActiveLocked(); err != nil {
 		return fmt.Errorf("could not save %s: %w", s.pet.Name, err)
 	}
+	s.observePet(s.pet, false) // Care since the last tick
 
 	pet, slot, err := next()
 	if err != nil {
@@ -3150,6 +3229,7 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 
 	now := time.Now()
 	s.pet, s.slot = pet, slot
+	s.observePet(pet, false)
 	s.clock.SetPaused(true, now) // The new pet's time starts from now
 	s.manualPause = false
 	s.markActiveLocked(now)
@@ -3471,7 +3551,14 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if active {
+		s.observePet(s.pet, false) // Care since the last tick
 		s.pet, s.slot = nil, ""
+	}
+	if s.stats != nil && petID != "" {
+		s.stats.deleted(types.PetID(petID))
+		if err := s.stats.save(); err != nil {
+			log.Printf("Could not save your statistics: %v", err)
+		}
 	}
 
 	log.Printf("Deleted %s (%s)", name, req.Slot)

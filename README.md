@@ -253,6 +253,9 @@ macOS and Linux; older saves are made private as they are saved again).
 - **Other devices need pairing**: the game answers only this computer unless started on the network,
   and then only paired devices.
 - **Parents can lock settings** with a PIN (see above).
+- **No analytics**: the game collects no statistics about how it is played, sends no crash reports
+  and runs no experiments. The only statistics are the player's own ([My Stats](#my-stats)), which
+  stay on their computer.
 
 Whoever runs a hub for children is responsible for meeting child-privacy laws such as COPPA; the game
 collects no personal information and lets parents control what is shared.
@@ -642,7 +645,30 @@ stay seniors.
 
 Press **Switch Pet**, then **Delete** next to the pet. Deleting asks twice: first to confirm, then
 to type the pet's name. Deleting removes the pet's save file and all of its backups, so it cannot
-be undone.
+be undone. The pet stays in [My Stats](#my-stats), marked as deleted.
+
+### My Stats
+
+Press **📊 My stats** to see your own record of every pet you have raised in the game:
+
+- **Pets**: how many you have raised, how many you adopted (started as new pets) and how many were
+  born to your pets, how many are alive, how many died, how many you deleted, and how many times
+  your pets went into hibernation.
+- **How they died**: each cause of death (such as dehydration, starvation, an untreated illness or
+  old age) and how many pets it took.
+- **Care given**: every interaction, counted by kind (feeding, petting, playing, training and so
+  on). Care given before this version counted it by kind is listed as "Other".
+- **Kinds of pet**, and **each pet**: its name, whether it is alive or how it died, its age and how
+  much care it had.
+
+Your stats are kept in `<data-dir>/stats.json`, apart from the pets' saves, so they last after a
+pet is deleted. Only your user account on this computer can read the file. They are never sent
+anywhere: not to a cloud hub (they are not part of cloud sync), not through the REST API, and not
+to the game's makers. (Each pet also counts the care it has had in its own save, alongside its
+history; that goes wherever the save goes, which for a cloud backup is sealed with your account key.)
+Each data directory has its own stats, so another computer synced to the same
+hub account keeps its own. The page shows them to this computer and to devices you have paired, like
+the rest of the game.
 
 ### Development
 
