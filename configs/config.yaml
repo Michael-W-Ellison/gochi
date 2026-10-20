@@ -20,6 +20,12 @@ server:
   # minute; 0 turns the limit off
   api_rate_limit: 120
 
+  # Serve HTTPS instead of HTTP with this certificate and private key (PEM
+  # files, such as from Let's Encrypt). Set both or neither. A relative
+  # path is relative to this file's directory.
+  tls_cert: ""
+  tls_key: ""
+
 hub:
   # Also run this server as a cloud hub at /hub/v1, which other Gochi
   # servers can connect to (from the Cloud panel) to back up and sync pets,

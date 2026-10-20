@@ -60,7 +60,7 @@ func (s *Server) saveOwner() error {
 		return err
 	}
 	tmp := s.ownerPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.ownerPath)

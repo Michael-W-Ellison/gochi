@@ -89,7 +89,7 @@ func (p *DigitalPet) planGoalsLocked(level float64) []Goal {
 
 	// The routine care given least, relative to how often it's due
 	counts := p.recentCareCountsLocked()
-	routine := dailyRoutines[p.speciesLocked()]
+	routine := p.defLocked().DailyRoutine
 	neglected := routine[0]
 	worst := 2.0
 	for _, item := range routine {

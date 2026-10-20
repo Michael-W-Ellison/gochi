@@ -1,6 +1,15 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,5 +78,60 @@ func TestLoadConfigRejectsBadSettings(t *testing.T) {
 	}
 	if _, err := loadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
 		t.Error("A missing file should be an error")
+	}
+}
+
+// writeCert writes a self-signed certificate and key for localhost to dir
+func writeCert(t *testing.T, dir string) (certFile, keyFile string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "localhost"},
+		DNSNames: []string{"localhost"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certFile, keyFile = filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600)
+	return certFile, keyFile
+}
+
+func TestTLSSettings(t *testing.T) {
+	dir := t.TempDir()
+	writeCert(t, dir)
+	path := filepath.Join(dir, "config.yaml")
+	os.WriteFile(path, []byte("server:\n  tls_cert: cert.pem\n  tls_key: key.pem\n"), 0o644)
+	config, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.usesTLS() || config.Server.TLSCert != filepath.Join(dir, "cert.pem") {
+		t.Errorf("Relative certificate paths are relative to the config file: %+v", config.Server)
+	}
+
+	if _, err := loadConfig(writeConfig(t, "server:\n  tls_cert: cert.pem\n")); err == nil || !strings.Contains(err.Error(), "both") {
+		t.Errorf("A certificate without a key: %v", err)
+	}
+	if _, err := loadConfig(writeConfig(t, "server:\n  tls_cert: missing.pem\n  tls_key: missing.pem\n")); err == nil {
+		t.Error("A missing certificate should be an error")
+	}
+	if defaultConfig().usesTLS() {
+		t.Error("HTTPS is off by default")
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	rec := httptest.NewRecorder()
+	securityHeaders(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" || rec.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
+		t.Errorf("Headers: %v", rec.Header())
 	}
 }

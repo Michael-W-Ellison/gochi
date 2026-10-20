@@ -163,7 +163,7 @@ func TestCloudSocialThroughServer(t *testing.T) {
 		if rec := post(t, p.s.handleCloudConnect, body); rec.Code != http.StatusOK {
 			t.Fatalf("Connect %s: %d %s", p.name, rec.Code, rec.Body.String())
 		}
-		if rec := post(t, p.s.handleCloudProfile, `{"area":"Leeds","sharing":true}`); rec.Code != http.StatusOK {
+		if rec := post(t, p.s.handleCloudProfile, `{"area":"Leeds","show_nearby":true,"share_achievements":true}`); rec.Code != http.StatusOK {
 			t.Fatalf("Profile: %d %s", rec.Code, rec.Body.String())
 		}
 	}

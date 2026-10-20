@@ -66,14 +66,6 @@ type Illness struct {
 	SinceAge float64 `json:"since_age"` // Pet's age when it fell ill
 }
 
-// illnessNames name each illness for each species
-var illnessNames = map[string]map[Species]string{
-	IllnessUrinary:     {SpeciesCat: "Urinary tract infection", SpeciesDog: "Urinary tract infection"},
-	IllnessParasites:   {SpeciesCat: "Intestinal parasites", SpeciesDog: "Intestinal parasites"},
-	IllnessRespiratory: {SpeciesCat: "Upper respiratory infection", SpeciesDog: "Respiratory infection"},
-	IllnessPoisoning:   {SpeciesCat: "Poisoning", SpeciesDog: "Chocolate poisoning"},
-}
-
 // HealthEvent is something that happened to the pet's health, shown among
 // its warning signs for a while
 type HealthEvent struct {
@@ -89,7 +81,7 @@ func (p *DigitalPet) illnessNameLocked() string {
 	if p.Illness == nil {
 		return ""
 	}
-	return illnessNames[p.Illness.Kind][p.speciesLocked()]
+	return p.defLocked().IllnessNames[p.Illness.Kind]
 }
 
 // IllnessName names the pet's illness, or returns "" if it is well
@@ -130,7 +122,7 @@ func (p *DigitalPet) updateHealthLocked(deltaTime float64) {
 // hold p.mu.
 func (p *DigitalPet) relieveLocked() {
 	ph := p.Biology.Physiology
-	if p.speciesLocked() == SpeciesDog {
+	if def := p.defLocked(); def.Toilet == ToiletOutside {
 		// Dogs relieve themselves outside on walks; held too long, they
 		// have an accident in the house
 		if ph.Bowel >= dogAccidentLevel || ph.Bladder >= dogAccidentLevel {
@@ -141,7 +133,7 @@ func (p *DigitalPet) relieveLocked() {
 			p.Biology.Vitals.Clamp()
 			p.evolveFromHardshipLocked(0.2)
 			p.recordHealthEventLocked("bathroom", "%s couldn't wait any longer and had an accident in the house. "+
-				"Dogs need to go outside several times a day.", p.Name)
+				"%s need to go outside several times a day.", p.Name, capitalize(def.Plural))
 		}
 		return
 	}
@@ -161,7 +153,7 @@ func (p *DigitalPet) relieveLocked() {
 			p.Biology.Vitals.Clamp()
 			p.evolveFromHardshipLocked(0.2)
 			p.recordHealthEventLocked("litter", "%s went outside the litter box because it was too dirty. "+
-				"Cats avoid a dirty box.", p.Name)
+				"%s avoid a dirty box.", p.Name, capitalize(p.defLocked().Plural))
 		}
 		p.LivingAreaWaste = min(p.LivingAreaWaste+use.waste, 1)
 	}
@@ -182,10 +174,7 @@ func (p *DigitalPet) catchIllnessLocked(deltaTime float64) {
 
 	kind, rate := "", 0.0
 	if p.LivingAreaWaste > illnessAreaLevel {
-		kind = IllnessUrinary
-		if p.speciesLocked() == SpeciesDog {
-			kind = IllnessParasites
-		}
+		kind = p.defLocked().DirtIllness
 		rate = 0.3 * (p.LivingAreaWaste - illnessAreaLevel) / (1 - illnessAreaLevel) * resistance
 	}
 	if lungs := p.Biology.Physiology.RespiratoryHealth; lungs < illnessLungLevel {
@@ -293,5 +282,5 @@ type LivingArea struct {
 func (p *DigitalPet) GetLivingArea() LivingArea {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return LivingArea{Name: livingAreaNames[p.speciesLocked()], Cleanliness: 1 - p.LivingAreaWaste}
+	return LivingArea{Name: p.defLocked().LivingArea, Cleanliness: 1 - p.LivingAreaWaste}
 }

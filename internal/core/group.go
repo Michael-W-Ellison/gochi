@@ -46,23 +46,15 @@ type groupActivity struct {
 	exercise float64 // Play sessions' worth of exercise
 	kind     biology.ExerciseType
 	bonus    func(a, b socialInfo) float64
-	lesson   map[Species]string
 }
 
 var groupActivities = map[string]groupActivity{
 	GroupPlay: {name: "played together", icon: "🎾", energy: 0.1, exercise: 1,
 		bonus: func(a, b socialInfo) float64 {
 			return 0.1 * ((a.traits.Playfulness+b.traits.Playfulness)/2 - 0.5)
-		},
-		lesson: map[Species]string{
-			SpeciesCat: "Cats play best with cats they know. Give each cat its own toy, and stop the game if ears go flat or tails lash.",
-			SpeciesDog: "Watch dogs at play: play bows, loose bodies and taking turns chasing are good signs; stiff bodies and pinning mean it's time for a break.",
 		}},
 	GroupWalk: {name: "went for a walk together", icon: "🦮", energy: 0.15, exercise: 1.2, kind: biology.ExerciseWalk,
-		bonus: func(a, b socialInfo) float64 { return 0.1 }, // Dogs are pack animals
-		lesson: map[Species]string{
-			SpeciesDog: "Walking dogs together is good exercise and builds their bond; walk them side by side and keep leashes from tangling.",
-		}},
+		bonus: func(a, b socialInfo) float64 { return 0.1 }},
 	GroupNap: {name: "napped together", icon: "💤", fatigue: 0.15,
 		bonus: func(a, b socialInfo) float64 {
 			// Only close companions share a sleeping spot
@@ -70,10 +62,6 @@ var groupActivities = map[string]groupActivity{
 				return 0.1
 			}
 			return -0.15
-		},
-		lesson: map[Species]string{
-			SpeciesCat: "Cats that sleep curled up together are bonded; cats that don't get along need separate beds and resting places.",
-			SpeciesDog: "Dogs that rest together trust each other. Give each dog its own bed too, so it can choose.",
 		}},
 }
 
@@ -114,7 +102,7 @@ func pairHarmony(a, b socialInfo, activity groupActivity, groupSize int) float64
 	h += activity.bonus(a, b)
 	h += 0.1 * ((a.traits.Agreeableness+b.traits.Agreeableness)/2 - 0.5) // Cooperation
 	for _, pet := range []socialInfo{a, b} {
-		if pet.species == SpeciesCat && groupSize > 2 {
+		if pet.species.Def().CrowdSensitive && groupSize > 2 {
 			h -= 0.05 * float64(groupSize-2) * pet.traits.Territoriality
 		}
 	}
@@ -129,12 +117,6 @@ type ConflictResult struct {
 	Lesson  string    `json:"lesson"`
 }
 
-// conflictLessons explain how to handle conflict between pets
-var conflictLessons = map[Species]string{
-	SpeciesCat: "Cats that clash need space: separate them, give each its own food, litter box and high places, and reintroduce them slowly. Never punish hissing; it's a warning.",
-	SpeciesDog: "Interrupt a scuffle calmly with a noise or a distraction, never with your hands. Separate the dogs to calm down, and keep later meetings short and positive.",
-}
-
 // Who backed down in a clash
 const (
 	neitherBackedDown = -1
@@ -146,7 +128,7 @@ const (
 // pet backs down if their ranks are clearly apart, otherwise they scuffle.
 // It returns the result, the bond change for both, and who backed down.
 func conflict(a, b socialInfo, harmony float64) (ConflictResult, float64, int) {
-	result := ConflictResult{Pets: [2]string{a.name, b.name}, Lesson: conflictLessons[a.species]}
+	result := ConflictResult{Pets: [2]string{a.name, b.name}, Lesson: a.species.Def().ConflictLesson}
 	if a.species != b.species {
 		result.Lesson = "A cat and a dog that clash need to be kept apart for a while: give the cat high places and a way out, and keep the dog on a leash for the next few meetings."
 	}
@@ -167,30 +149,17 @@ func conflict(a, b socialInfo, harmony float64) (ConflictResult, float64, int) {
 
 // threatSignal is how a species warns another pet off
 func threatSignal(s Species) string {
-	if s == SpeciesDog {
-		return "growled at"
-	}
-	return "hissed at"
-}
-
-// Signals are how pets talk to each other, by species and how they feel
-var friendlySignals = map[Species][]string{
-	SpeciesCat: {"slow-blinked at", "rubbed against", "touched noses with"},
-	SpeciesDog: {"play-bowed to", "wagged its tail at", "licked"},
-}
-var warySignals = map[Species][]string{
-	SpeciesCat: {"watched", "kept its distance from"},
-	SpeciesDog: {"sniffed", "circled"},
+	return s.Def().ThreatSignal
 }
 
 // signal describes how a pet communicated with another, from their harmony
 func signal(from, to socialInfo, harmony float64, n int) string {
 	switch {
 	case harmony >= goodMeeting:
-		options := friendlySignals[from.species]
+		options := from.species.Def().FriendlySignals
 		return fmt.Sprintf("%s %s %s.", from.name, options[n%len(options)], to.name)
 	case harmony >= conflictLevel:
-		options := warySignals[from.species]
+		options := from.species.Def().WarySignals
 		return fmt.Sprintf("%s %s %s.", from.name, options[n%len(options)], to.name)
 	}
 	return fmt.Sprintf("%s %s %s.", from.name, threatSignal(from.species), to.name)
@@ -232,7 +201,7 @@ func ProcessGroupActivity(activityID string, pets ...*DigitalPet) (GroupResult, 
 		if reason := infos[i].unavailable(); reason != "" {
 			return GroupResult{}, RefusedError{reason + "."}
 		}
-		if activityID == GroupWalk && infos[i].species != SpeciesDog {
+		if activityID == GroupWalk && !infos[i].species.Def().Walks {
 			return GroupResult{}, ErrDogsOnlyWalk
 		}
 		if infos[i].energy < activity.energy+0.1 {
@@ -290,7 +259,7 @@ func ProcessGroupActivity(activityID string, pets ...*DigitalPet) (GroupResult, 
 	result.Leader = order[0].name
 
 	// Each pet takes part; the active pet as care
-	lesson := activity.lesson[infos[0].species]
+	lesson := infos[0].species.Def().GroupLessons[activityID]
 	if len(result.Conflicts) > 0 {
 		lesson = result.Conflicts[0].Lesson
 	}
@@ -366,11 +335,7 @@ func groupText(infos []socialInfo, activity groupActivity, result GroupResult) s
 		text += ", a little warily."
 	}
 	if len(infos) > 2 || len(result.Conflicts) > 0 {
-		if infos[0].species == SpeciesDog {
-			text += fmt.Sprintf(" %s leads the pack.", result.Leader)
-		} else {
-			text += fmt.Sprintf(" %s is top cat.", result.Leader)
-		}
+		text += " " + fmt.Sprintf(infos[0].species.Def().LeaderText, result.Leader)
 	}
 	return text
 }

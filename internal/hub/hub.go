@@ -78,11 +78,13 @@ type storedPet struct {
 	Save json.RawMessage `json:"save,omitempty"`
 }
 
-// Profile is a player's social settings
+// Profile is a player's social settings. Each kind of sharing is chosen
+// separately, and all are off for a new account.
 type Profile struct {
-	Username string `json:"username"`
-	Area     string `json:"area"`    // Town or area, typed by the player
-	Sharing  bool   `json:"sharing"` // Pets appear to nearby players and achievements can be shared
+	Username          string `json:"username"`
+	Area              string `json:"area"`               // Town or area, typed by the player
+	ShowNearby        bool   `json:"show_nearby"`        // Their pets appear to nearby players, and they see nearby pets
+	ShareAchievements bool   `json:"share_achievements"` // Their pets' achievements go to the feed
 }
 
 // account is a registered player
@@ -90,6 +92,10 @@ type account struct {
 	Profile
 	TokenHash string    `json:"token_hash"`
 	Created   time.Time `json:"created"`
+
+	// Sharing is the single sharing setting of older hubs, which turned
+	// on both kinds of sharing; it is read once and not saved again
+	Sharing bool `json:"sharing,omitempty"`
 }
 
 // NearbyPet is another player's pet in the same area
@@ -124,6 +130,11 @@ type Hub struct {
 	feed     []SharedAchievement
 
 	playdates map[string]*playdate // By code; kept in memory only
+
+	// Indexes, so listing pets and finding nearby ones don't read saves:
+	// each account's pets' information, and the accounts in each area
+	pets   map[string]map[string]PetInfo // By lowercase username, then key
+	byArea map[string]map[string]bool    // By normalized area: lowercase usernames
 }
 
 // New opens (or creates) a hub keeping its files in dir. Players need
@@ -134,15 +145,24 @@ func New(dir, joinCode string) (*Hub, error) {
 	}
 	h := &Hub{dir: dir, joinCode: joinCode, now: time.Now,
 		accounts: make(map[string]*account), byToken: make(map[string]string),
-		playdates: make(map[string]*playdate)}
+		playdates: make(map[string]*playdate), pets: make(map[string]map[string]PetInfo),
+		byArea: make(map[string]map[string]bool)}
 
 	var accounts []*account
 	if err := readJSON(filepath.Join(dir, "accounts.json"), &accounts); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	for _, a := range accounts {
-		h.accounts[strings.ToLower(a.Username)] = a
-		h.byToken[a.TokenHash] = strings.ToLower(a.Username)
+		if a.Sharing {
+			a.ShowNearby, a.ShareAchievements, a.Sharing = true, true, false
+		}
+		lower := strings.ToLower(a.Username)
+		h.accounts[lower] = a
+		h.byToken[a.TokenHash] = lower
+		h.indexAreaLocked(lower, "", a.Area)
+		if err := h.loadPetIndexLocked(lower); err != nil {
+			return nil, err
+		}
 	}
 	if err := readJSON(filepath.Join(dir, "feed.json"), &h.feed); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -222,24 +242,61 @@ func (h *Hub) ListPets(username string) ([]PetInfo, error) {
 }
 
 func (h *Hub) listPetsLocked(lower string) ([]PetInfo, error) {
+	pets := make([]PetInfo, 0, len(h.pets[lower]))
+	for _, info := range h.pets[lower] {
+		pets = append(pets, info)
+	}
+	sort.Slice(pets, func(i, j int) bool { return pets[i].Key < pets[j].Key })
+	return pets, nil
+}
+
+// loadPetIndexLocked reads an account's pets' information into the index.
+// Caller must hold h.mu.
+func (h *Hub) loadPetIndexLocked(lower string) error {
 	entries, err := os.ReadDir(h.petDir(lower))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+		return err
 	}
-	pets := []PetInfo{}
+	index := make(map[string]PetInfo)
 	for _, e := range entries {
 		key, ok := strings.CutSuffix(e.Name(), ".json")
 		if !ok || !keyPattern.MatchString(key) {
 			continue
 		}
-		var pet storedPet
-		if err := readJSON(filepath.Join(h.petDir(lower), e.Name()), &pet); err != nil {
+		var info PetInfo // Decoding only the information skips the save
+		if err := readJSON(filepath.Join(h.petDir(lower), e.Name()), &info); err != nil {
 			continue
 		}
-		pets = append(pets, pet.PetInfo)
+		index[key] = info
 	}
-	sort.Slice(pets, func(i, j int) bool { return pets[i].Key < pets[j].Key })
-	return pets, nil
+	h.pets[lower] = index
+	return nil
+}
+
+// indexPetLocked records a pet's information in the index. Caller must
+// hold h.mu.
+func (h *Hub) indexPetLocked(lower string, info PetInfo) {
+	if h.pets[lower] == nil {
+		h.pets[lower] = make(map[string]PetInfo)
+	}
+	h.pets[lower][info.Key] = info
+}
+
+// indexAreaLocked moves an account between areas in the index. Caller
+// must hold h.mu.
+func (h *Hub) indexAreaLocked(lower, from, to string) {
+	if old := normalizeArea(from); old != "" {
+		delete(h.byArea[old], lower)
+		if len(h.byArea[old]) == 0 {
+			delete(h.byArea, old)
+		}
+	}
+	if area := normalizeArea(to); area != "" {
+		if h.byArea[area] == nil {
+			h.byArea[area] = make(map[string]bool)
+		}
+		h.byArea[area][lower] = true
+	}
 }
 
 // GetPet returns a pet's information and save
@@ -277,18 +334,9 @@ func (h *Hub) PutPet(username string, info PetInfo, save json.RawMessage, baseVe
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	lower := strings.ToLower(username)
-	current, err := h.readPetLocked(lower, info.Key)
-	switch {
-	case errors.Is(err, ErrNotFound):
-		pets, err := h.listPetsLocked(lower)
-		if err != nil {
-			return 0, err
-		}
-		if len(pets) >= MaxPetsPerAccount {
-			return 0, ErrTooManyPets
-		}
-	case err != nil:
-		return 0, err
+	current, exists := h.pets[lower][info.Key]
+	if !exists && len(h.pets[lower]) >= MaxPetsPerAccount {
+		return 0, ErrTooManyPets
 	}
 	if current.Version != baseVersion {
 		return current.Version, ErrVersionConflict
@@ -305,6 +353,7 @@ func (h *Hub) PutPet(username string, info PetInfo, save json.RawMessage, baseVe
 	if err := writeJSON(path, storedPet{PetInfo: info, Save: save}); err != nil {
 		return 0, err
 	}
+	h.indexPetLocked(lower, info)
 	return info.Version, nil
 }
 
@@ -317,18 +366,21 @@ func (h *Hub) DeletePet(username, key string, baseVersion int) (int, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	lower := strings.ToLower(username)
-	current, err := h.readPetLocked(lower, key)
-	if err != nil {
-		return 0, err
+	info, ok := h.pets[lower][key]
+	if !ok {
+		return 0, ErrNotFound
 	}
-	if current.Version != baseVersion {
-		return current.Version, ErrVersionConflict
+	if info.Version != baseVersion {
+		return info.Version, ErrVersionConflict
 	}
-	info := current.PetInfo
 	info.Version++
 	info.Deleted = true
 	os.Remove(filepath.Join(h.petDir(lower), key+".prev"))
-	return info.Version, writeJSON(filepath.Join(h.petDir(lower), key+".json"), storedPet{PetInfo: info})
+	if err := writeJSON(filepath.Join(h.petDir(lower), key+".json"), storedPet{PetInfo: info}); err != nil {
+		return 0, err
+	}
+	h.indexPetLocked(lower, info)
+	return info.Version, nil
 }
 
 // normalizeArea makes area names comparable: trimmed, single-spaced and
@@ -348,8 +400,8 @@ func (h *Hub) GetProfile(username string) (Profile, error) {
 	return a.Profile, nil
 }
 
-// SetProfile changes a player's area and whether they share
-func (h *Hub) SetProfile(username, area string, sharing bool) (Profile, error) {
+// SetProfile changes a player's area and what they share
+func (h *Hub) SetProfile(username, area string, showNearby, shareAchievements bool) (Profile, error) {
 	area = strings.Join(strings.Fields(area), " ")
 	if len([]rune(area)) > maxAreaLength {
 		return Profile{}, fmt.Errorf("the area name can be at most %d characters", maxAreaLength)
@@ -361,16 +413,17 @@ func (h *Hub) SetProfile(username, area string, sharing bool) (Profile, error) {
 		return Profile{}, ErrUnauthorized
 	}
 	before := a.Profile
-	a.Area, a.Sharing = area, sharing
+	a.Area, a.ShowNearby, a.ShareAchievements = area, showNearby, shareAchievements
 	if err := h.saveAccountsLocked(); err != nil {
 		a.Profile = before
 		return Profile{}, err
 	}
+	h.indexAreaLocked(strings.ToLower(username), before.Area, a.Area)
 	return a.Profile, nil
 }
 
-// Nearby returns living pets of other players in the player's area, for
-// players who share. A player who doesn't share sees no one.
+// Nearby returns living pets of other players in the player's area who
+// show their pets nearby. A player who doesn't show theirs sees no one.
 func (h *Hub) Nearby(username string) ([]NearbyPet, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -380,11 +433,12 @@ func (h *Hub) Nearby(username string) ([]NearbyPet, error) {
 	}
 	nearby := []NearbyPet{}
 	area := normalizeArea(me.Area)
-	if !me.Sharing || area == "" {
+	if !me.ShowNearby || area == "" {
 		return nearby, nil
 	}
-	for lower, other := range h.accounts {
-		if other == me || !other.Sharing || normalizeArea(other.Area) != area {
+	for lower := range h.byArea[area] {
+		other := h.accounts[lower]
+		if other == nil || other == me || !other.ShowNearby {
 			continue
 		}
 		pets, err := h.listPetsLocked(lower)
@@ -402,8 +456,8 @@ func (h *Hub) Nearby(username string) ([]NearbyPet, error) {
 	return nearby, nil
 }
 
-// ShareAchievement adds an achievement to the feed. Only players who share
-// can post.
+// ShareAchievement adds an achievement to the feed. Only players who
+// share achievements can post.
 func (h *Hub) ShareAchievement(username string, a SharedAchievement) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -411,8 +465,8 @@ func (h *Hub) ShareAchievement(username string, a SharedAchievement) error {
 	if !ok {
 		return ErrUnauthorized
 	}
-	if !me.Sharing {
-		return errors.New("turn on sharing to share achievements")
+	if !me.ShareAchievements {
+		return errors.New("turn on sharing achievements to share them")
 	}
 	a.Owner, a.SharedAt = me.Username, h.now()
 	a.PetName, a.Name, a.Icon, a.Description = clip(a.PetName, 40), clip(a.Name, 60), clip(a.Icon, 8), clip(a.Description, 200)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -41,7 +42,9 @@ type cloudState struct {
 	Username   string               `json:"username"`
 	Token      string               `json:"token"`
 	Area       string               `json:"area"`
-	Sharing    bool                 `json:"sharing"`
+	ShowNearby bool                 `json:"show_nearby"`
+	ShareFeats bool                 `json:"share_achievements"`
+	Sharing    bool                 `json:"sharing,omitempty"` // Both, from older versions; read once
 	LastSync   time.Time            `json:"last_sync"`
 	LastReport syncReport           `json:"last_report"`
 	Pets       map[string]*cloudPet `json:"pets"` // By hub key
@@ -105,6 +108,9 @@ func newCloud(dir string) (*cloud, error) {
 	}
 	if c.state.Pets == nil {
 		c.state.Pets = make(map[string]*cloudPet)
+	}
+	if c.state.Sharing {
+		c.state.ShowNearby, c.state.ShareFeats, c.state.Sharing = true, true, false
 	}
 	return c, nil
 }
@@ -177,7 +183,7 @@ func (s *Server) cloudConnect(ctx context.Context, address, username, joinCode, 
 	c.state = cloudState{HubURL: baseURL, Username: username, Token: token, Pets: make(map[string]*cloudPet)}
 	if token := client.Token; token != "" {
 		if profile, err := client.GetProfile(ctx); err == nil {
-			c.state.Area, c.state.Sharing = profile.Area, profile.Sharing
+			c.state.Area, c.state.ShowNearby, c.state.ShareFeats = profile.Area, profile.ShowNearby, profile.ShareAchievements
 		}
 	}
 	return c.saveLocked()
@@ -201,7 +207,8 @@ type cloudStatus struct {
 	HubURL     string     `json:"hub_url"`
 	Username   string     `json:"username"`
 	Area       string     `json:"area"`
-	Sharing    bool       `json:"sharing"`
+	ShowNearby bool       `json:"show_nearby"`        // Pets appear to nearby players
+	ShareFeats bool       `json:"share_achievements"` // Achievements are posted to the hub
 	LastSync   *time.Time `json:"last_sync"`
 	LastReport string     `json:"last_report"`
 	Hosting    bool       `json:"hosting"`     // This server is a hub too
@@ -216,7 +223,8 @@ func (s *Server) cloudStatus() cloudStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	status := cloudStatus{Connected: c.connectedLocked(), HubURL: c.state.HubURL, Username: c.state.Username,
-		Area: c.state.Area, Sharing: c.state.Sharing, Hosting: s.hub != nil, AccountKey: c.state.Token}
+		Area: c.state.Area, ShowNearby: c.state.ShowNearby, ShareFeats: c.state.ShareFeats, Hosting: s.hub != nil,
+		AccountKey: c.state.Token}
 	if !c.state.LastSync.IsZero() {
 		at := c.state.LastSync
 		status.LastSync = &at
@@ -225,9 +233,9 @@ func (s *Server) cloudStatus() cloudStatus {
 	return status
 }
 
-// cloudSetProfile sets the player's area and whether they share
+// cloudSetProfile sets the player's area and what they share
 // (enableSocialFeatures)
-func (s *Server) cloudSetProfile(ctx context.Context, area string, sharing bool) error {
+func (s *Server) cloudSetProfile(ctx context.Context, area string, showNearby, shareAchievements bool) error {
 	c := s.cloud
 	if c == nil {
 		return errNotConnected
@@ -237,11 +245,11 @@ func (s *Server) cloudSetProfile(ctx context.Context, area string, sharing bool)
 	if !c.connectedLocked() {
 		return errNotConnected
 	}
-	profile, err := c.clientLocked().EnableSocialFeatures(ctx, area, sharing)
+	profile, err := c.clientLocked().EnableSocialFeatures(ctx, area, showNearby, shareAchievements)
 	if err != nil {
 		return err
 	}
-	c.state.Area, c.state.Sharing = profile.Area, profile.Sharing
+	c.state.Area, c.state.ShowNearby, c.state.ShareFeats = profile.Area, profile.ShowNearby, profile.ShareAchievements
 	return c.saveLocked()
 }
 
@@ -287,7 +295,7 @@ func (s *Server) shareAchievementLocked(a core.Achievement) {
 }
 
 // shareLoop shares queued achievements while the player is connected and
-// sharing
+// sharing achievements
 func (s *Server) shareLoop(ctx context.Context) {
 	for {
 		select {
@@ -296,7 +304,7 @@ func (s *Server) shareLoop(ctx context.Context) {
 		case shared := <-s.cloud.shares:
 			c := s.cloud
 			c.mu.Lock()
-			if c.connectedLocked() && c.state.Sharing {
+			if c.connectedLocked() && c.state.ShareFeats {
 				a := shared.achievement
 				err := c.clientLocked().ShareAchievement(ctx, hub.SharedAchievement{PetName: shared.petName, ID: a.ID,
 					Name: a.Name, Icon: a.Icon, Description: a.Description})
@@ -574,8 +582,9 @@ func (s *Server) handleCloudConnect(w http.ResponseWriter, r *http.Request) {
 		Username   string `json:"username"`
 		JoinCode   string `json:"join_code"`
 		AccountKey string `json:"account_key"`
+		ParentPIN  string `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) {
+	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
@@ -597,6 +606,16 @@ func (s *Server) handleCloudConnect(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCloudDisconnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	var req struct {
+		ParentPIN string `json:"parent_pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) { // The body is optional
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+	if !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	if err := s.cloudDisconnect(); err != nil {
@@ -624,18 +643,20 @@ func (s *Server) handleCloudSync(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCloudProfile handles POST /api/cloud/profile with {"area",
-// "sharing"}
+// "show_nearby", "share_achievements"}
 func (s *Server) handleCloudProfile(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Area    string `json:"area"`
-		Sharing bool   `json:"sharing"`
+		Area              string `json:"area"`
+		ShowNearby        bool   `json:"show_nearby"`
+		ShareAchievements bool   `json:"share_achievements"`
+		ParentPIN         string `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) {
+	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
 	defer cancel()
-	if err := s.cloudSetProfile(ctx, req.Area, req.Sharing); err != nil {
+	if err := s.cloudSetProfile(ctx, req.Area, req.ShowNearby, req.ShareAchievements); err != nil {
 		writeCloudError(w, err)
 		return
 	}

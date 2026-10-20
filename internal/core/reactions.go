@@ -156,7 +156,7 @@ func (p *DigitalPet) innateReactionLocked(interactionType types.InteractionType)
 	case types.InteractionPlaying:
 		score += (traits.Playfulness - 0.5) * 0.6
 		score += (v.Energy - 0.5) * 0.6
-		score += speciesLiking[p.speciesLocked()][interactionType]
+		score += p.defLocked().Liking[interactionType]
 	case types.InteractionGrooming:
 		score += (traits.Conscientiousness - 0.5) * 0.4
 		score += (0.5 - v.Cleanliness) * 0.6
@@ -184,21 +184,11 @@ func (p *DigitalPet) innateReactionLocked(interactionType types.InteractionType)
 		if suitability := p.outdoorSuitabilityLocked(); suitability < goodOutdoorLevel {
 			score -= (goodOutdoorLevel - suitability) * 0.5 // Rain, storms and darkness spoil a walk
 		}
-		score += speciesLiking[p.speciesLocked()][interactionType]
+		score += p.defLocked().Liking[interactionType]
 	case types.InteractionDiscipline:
 		score -= 0.5
 	}
 	return score
-}
-
-// speciesLiking is how much more each species enjoys some kinds of care:
-// dogs are, on the whole, more eager for company and activity
-var speciesLiking = map[Species]map[types.InteractionType]float64{
-	SpeciesDog: {
-		types.InteractionPetting: 0.1,
-		types.InteractionPlaying: 0.05,
-		types.InteractionWalking: 0.1,
-	},
 }
 
 // attentionLikingLocked is how much the pet enjoys being handled and given
@@ -209,7 +199,7 @@ func (p *DigitalPet) attentionLikingLocked() float64 {
 	traits := p.Personality.Traits
 	return (traits.Affectionate-0.5)*0.6 - (traits.Independence-0.5)*0.4 +
 		(traits.Extraversion-0.5)*0.2 - (traits.Neuroticism-0.5)*0.2 - 0.05 +
-		speciesLiking[p.speciesLocked()][types.InteractionPetting]
+		p.defLocked().Liking[types.InteractionPetting]
 }
 
 // experiencedValence is how the pet took an interaction (-1.0 to 1.0),
@@ -252,29 +242,10 @@ var attentionCare = map[types.InteractionType]bool{
 	types.InteractionWalking:  true,
 }
 
-// unwantedAttentionLessons explain the signs that a pet has had enough
-var unwantedAttentionLessons = map[Species]string{
-	SpeciesCat: "Cats show they've had enough with a twitching tail, flattened ears or rippling skin. " +
-		"Stop before they have to swat; let your cat come to you.",
-	SpeciesDog: "Dogs show they want a break by turning away, licking their lips, yawning or showing the " +
-		"whites of their eyes. Give them space and let them come to you.",
-}
-
-// speciesReactionTexts replace reactionTexts where a species reacts
-// differently
-var speciesReactionTexts = map[Species]map[types.InteractionType]map[ReactionLevel]string{
-	SpeciesDog: {
-		types.InteractionPetting: {
-			ReactionDelighted: "%s leans into your hand, tail wagging!",
-			ReactionReluctant: "%s turns away and licks its lips. It wants some space.",
-		},
-	},
-}
-
 // reactionText describes a species' reaction, or returns "" for
 // interactions without reaction texts
 func reactionText(species Species, interactionType types.InteractionType, level ReactionLevel, name string) string {
-	if text, ok := speciesReactionTexts[species][interactionType][level]; ok {
+	if text, ok := species.Def().ReactionTexts[interactionType][level]; ok {
 		return fmt.Sprintf(text, name)
 	}
 	texts, ok := reactionTexts[interactionType]

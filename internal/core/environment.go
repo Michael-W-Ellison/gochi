@@ -192,7 +192,7 @@ func (p *DigitalPet) activityDriveLocked() float64 {
 	}
 	phase := env.GetDayPhase()
 	switch {
-	case p.speciesLocked() == SpeciesCat && (phase == "Dawn" || phase == "Dusk"):
+	case p.defLocked().TwilightActive && (phase == "Dawn" || phase == "Dusk"):
 		drive *= 1.1
 	case !env.IsDaytime():
 		drive *= 0.9

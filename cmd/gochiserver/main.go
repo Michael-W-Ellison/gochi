@@ -46,6 +46,13 @@ type Server struct {
 	// The AR playdate the player is at, through the cloud hub
 	playdates playdateState
 
+	// The parent PIN, if one is set; nil means none
+	parental *parentalControls
+
+	// A hash of the static files, added to their URLs so they can be
+	// cached until they change
+	staticVersion string
+
 	// Time stops while the game is paused, so the pet cannot decline
 	manualPause  bool          // Paused with the Pause button
 	lastActivity time.Time     // Last time the player was present
@@ -151,6 +158,8 @@ func main() {
 	scaleName := flag.String("time-scale", defaults.Simulation.TimeScale, "game speed: game (1 game day per real minute), 24x, 4x or realtime")
 	hubEnabled := flag.Bool("hub", defaults.Hub.Enabled, "also run as a cloud hub other Gochi servers can connect to")
 	hubJoinCode := flag.String("hub-join-code", defaults.Hub.JoinCode, "the code players need to register with this hub")
+	tlsCert := flag.String("tls-cert", defaults.Server.TLSCert, "serve HTTPS with this certificate (PEM; needs -tls-key)")
+	tlsKey := flag.String("tls-key", defaults.Server.TLSKey, "the HTTPS certificate's private key (PEM)")
 	flag.Parse()
 
 	// Find web directory
@@ -190,6 +199,10 @@ func main() {
 			config.Hub.Enabled = *hubEnabled
 		case "hub-join-code":
 			config.Hub.JoinCode = *hubJoinCode
+		case "tls-cert":
+			config.Server.TLSCert = *tlsCert
+		case "tls-key":
+			config.Server.TLSKey = *tlsKey
 		}
 	})
 	if err := config.validate(); err != nil {
@@ -207,6 +220,10 @@ func main() {
 	cloudConn, err := newCloud(dataPath)
 	if err != nil {
 		log.Fatalf("Could not read the cloud settings: %v", err)
+	}
+	parental, err := loadParentalControls(dataPath)
+	if err != nil {
+		log.Fatalf("Could not read the parental controls: %v", err)
 	}
 	owner, ownerPath, err := loadOwnerSchedule(dataPath)
 	if err != nil {
@@ -232,13 +249,15 @@ func main() {
 		hub:          hubServer,
 		owner:        owner,
 		ownerPath:    ownerPath,
+		parental:     parental,
 	}
 
 	// Sync with the cloud hub first, so the newest saves are restored
 	if server.cloudStatus().Connected {
-		syncCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		// Offline, the game starts after a short wait and syncs later
+		syncCtx, cancel := context.WithTimeout(context.Background(), startupSyncTimeout)
 		if report, err := server.cloudSync(syncCtx); err != nil {
-			log.Printf("Cloud sync failed: %v", err)
+			log.Printf("Cloud sync failed; playing with the saves on this device: %v", err)
 		} else {
 			log.Printf("Cloud sync: %s", report.summary())
 		}
@@ -334,6 +353,8 @@ func main() {
 	mux.HandleFunc("/api/explore/places", server.handlePlaces)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 	mux.HandleFunc("/api/guide", server.handleGuide)
+	mux.HandleFunc("/api/species", server.handleSpecies)
+	mux.HandleFunc("/api/privacy", server.handlePrivacy)
 	mux.HandleFunc("/api/potion", server.handlePotion)
 	mux.HandleFunc("/api/events", server.handleEvents)
 	mux.HandleFunc("/api/care/options", server.handleCareOptions)
@@ -354,26 +375,33 @@ func main() {
 	mux.HandleFunc("/api/playdate/update", server.handlePlaydateUpdate)
 	mux.HandleFunc("/api/playdate/play", server.handlePlaydatePlay)
 
-	// Static files with no-cache headers for development
-	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
-	mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		staticHandler.ServeHTTP(w, r)
-	})
+	// Static files, cacheable by browsers and proxies (see staticHandler)
+	if server.staticVersion, err = staticVersion(filepath.Join(webDir, "static")); err != nil {
+		log.Printf("Warning: could not read the static files: %v", err)
+	}
+	mux.Handle("/static/", server.staticHandler(filepath.Join(webDir, "static")))
 
 	// Templates/pages
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	httpServer := &http.Server{Addr: config.Server.Addr, Handler: mux}
+	httpServer := &http.Server{Addr: config.Server.Addr, Handler: securityHeaders(mux), TLSConfig: tlsConfig(),
+		ReadHeaderTimeout: 10 * time.Second}
 	serverErr := make(chan error, 1)
+	scheme := "http"
 	go func() {
-		serverErr <- httpServer.ListenAndServe()
+		if config.usesTLS() {
+			serverErr <- httpServer.ListenAndServeTLS(config.Server.TLSCert, config.Server.TLSKey)
+		} else {
+			serverErr <- httpServer.ListenAndServe()
+		}
 	}()
-	log.Printf("Starting Gochi server at http://localhost%s", config.Server.Addr)
-	log.Printf("Open your browser to http://localhost%s to play! Press Ctrl+C to save and exit.", config.Server.Addr)
+	if config.usesTLS() {
+		scheme = "https"
+		log.Printf("Serving HTTPS with %s", config.Server.TLSCert)
+	}
+	log.Printf("Starting Gochi server at %s://localhost%s", scheme, config.Server.Addr)
+	log.Printf("Open your browser to %s://localhost%s to play! Press Ctrl+C to save and exit.", scheme, config.Server.Addr)
 
 	select {
 	case err := <-serverErr:
@@ -540,6 +568,10 @@ var timeScales = map[string]types.TimeScale{
 	"realtime": types.TimeScaleRealTime,
 }
 
+// startupSyncTimeout is how long the program waits for a cloud sync
+// before restoring the last pet
+const startupSyncTimeout = 15 * time.Second
+
 // pauseReasonLocked returns why time is paused, or "" if it is running.
 // Caller must hold s.mu.
 func (s *Server) pauseReasonLocked(now time.Time) string {
@@ -580,7 +612,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gochi - Virtual Pet</title>
-    <link rel="stylesheet" href="/static/css/ar.css">
+    <link rel="stylesheet" href="/static/css/ar.css?v={{static}}">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -608,6 +640,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             font-size: 80px;
             margin: 20px 0;
             animation: bounce 1s ease infinite;
+        }
+        /* Animations stop on low battery and for players who prefer less motion */
+        body.power-saving *, body.power-saving *::before, body.power-saving *::after { animation: none !important; transition: none !important; }
+        @media (prefers-reduced-motion: reduce) {
+            .pet-display { animation: none; }
         }
         @keyframes bounce {
             0%, 100% { transform: translateY(0); }
@@ -880,9 +917,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="form-group">
                 <label for="petNameInput">What will you name your pet?</label>
                 <input type="text" id="petNameInput" placeholder="Enter a name..." maxlength="20" autofocus>
-                <div class="species-choice" role="radiogroup" aria-label="Kind of pet">
+                <div class="species-choice" id="speciesChoice" role="radiogroup" aria-label="Kind of pet">
                     <label><input type="radio" name="species" value="cat" checked><span>🐱 Cat</span></label>
-                    <label><input type="radio" name="species" value="dog"><span>🐶 Dog</span></label>
                 </div>
                 <label class="setting">
                     <input type="checkbox" id="hibernationInput">
@@ -994,6 +1030,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" onclick="openShop()">Shop</button>
                 <button class="save-btn" onclick="openGuide()">📖 Care guide</button>
                 <button class="save-btn" onclick="openCloud()">☁️ Cloud</button>
+                <button class="save-btn" onclick="openPrivacy()">🔒 Privacy</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
@@ -1057,24 +1094,54 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         </div>
     </div>
 
-    <script src="/static/js/ar.js"></script>
-    <script src="/static/js/ar-link.js"></script>
+    <script src="/static/js/ar.js?v={{static}}"></script>
+    <script src="/static/js/ar-link.js?v={{static}}"></script>
     <script>
-        const sprites = {
-            cat: {
+        // The kinds of pet the game has (from /api/species): how each looks
+        // and which care buttons it uses. The cat, the default species, is
+        // known before they load.
+        let speciesList = [{
+            id: 'cat', name: 'Cat', icon: '🐱', clean_label: '🧹 Scoop litter', walks: false,
+            sprites: {
                 idle: '🐱', happy: '😺', eating: '😋', playing: '😸', sleeping: '😴', sick: '🤒',
                 exploring: '🐈', social: '😻', hibernating: '💤', dead: '😿'
-            },
-            dog: {
-                idle: '🐶', happy: '🐕', eating: '😋', playing: '🐕', sleeping: '😴', sick: '🤒',
-                exploring: '🦮', social: '🐶', hibernating: '💤', dead: '🐶'
             }
-        };
+        }];
+
+        function speciesInfo(id) {
+            return speciesList.find(s => s.id === id) || speciesList[0];
+        }
+
+        // An icon and a space, to put before a pet's name
+        function speciesIcon(id) {
+            return speciesInfo(id).icon + ' ';
+        }
 
         // The sprites for the active pet's species
         function spriteSet(status) {
-            const species = (status || lastStatus || {}).species;
-            return sprites[species] || sprites.cat;
+            return speciesInfo((status || lastStatus || {}).species).sprites;
+        }
+
+        // Load the species and offer each in the new pet form
+        function loadSpecies() {
+            return fetch('/api/species').then(r => r.json()).then(data => {
+                if (!data.success || data.data.length === 0) return;
+                speciesList = data.data;
+                const choice = document.getElementById('speciesChoice');
+                choice.replaceChildren();
+                speciesList.forEach((s, i) => {
+                    const label = document.createElement('label');
+                    const input = document.createElement('input');
+                    input.type = 'radio';
+                    input.name = 'species';
+                    input.value = s.id;
+                    input.checked = i === 0;
+                    const span = document.createElement('span');
+                    span.textContent = s.icon + ' ' + s.name;
+                    label.append(input, span);
+                    choice.append(label);
+                });
+            }).catch(console.error);
         }
 
         let hasPet = false;
@@ -1094,8 +1161,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             return !document.hidden && Date.now() - lastInput < 60000;
         }
 
+        // Hidden pages don't update; a page coming back updates at once
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) fetchStatus();
+            startUpdates();
         });
 
         function showCreateView() {
@@ -1139,7 +1208,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         info.className = 'saved-pet-info';
                         const name = document.createElement('div');
                         name.className = 'saved-pet-name';
-                        name.textContent = (pet.species === 'dog' ? '🐶 ' : '🐱 ') + pet.name;
+                        name.textContent = speciesIcon(pet.species) + pet.name;
                         const meta = document.createElement('div');
                         meta.className = 'saved-pet-meta';
                         const state = !pet.is_alive ? 'Passed away' :
@@ -1716,9 +1785,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // warning signs and today's checklist
         const bodyLabels = {Digestion: 'Digestion', Heart: 'Heart', Lungs: 'Lungs', Nerves: 'Nerves'};
         function updateHealth(status) {
-            const dog = status.species === 'dog';
-            document.getElementById('cleanBtn').textContent = dog ? '🧹 Clean up' : '🧹 Scoop litter';
-            document.getElementById('walkBtn').classList.toggle('hidden', !dog);
+            const kind = speciesInfo(status.species);
+            document.getElementById('cleanBtn').textContent = kind.clean_label;
+            document.getElementById('walkBtn').classList.toggle('hidden', !kind.walks);
 
             const body = document.getElementById('bodySystems');
             body.replaceChildren();
@@ -1965,9 +2034,32 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 });
         }
 
+        // How often the page updates (ms). The game runs on the server, so
+        // updating less often only makes the page a little less current.
+        // On battery the page updates less often, and on low battery less
+        // still and without animations (where the browser reports the
+        // battery); a hidden page doesn't update at all.
+        const updatePaces = {charging: 2000, battery: 5000, lowBattery: 15000};
+        let updatePace = updatePaces.charging;
+
         function startUpdates() {
             if (updateInterval) clearInterval(updateInterval);
-            updateInterval = setInterval(fetchStatus, 2000);
+            updateInterval = document.hidden ? null : setInterval(fetchStatus, updatePace);
+        }
+
+        function watchBattery() {
+            if (!navigator.getBattery) return;
+            navigator.getBattery().then(battery => {
+                const adapt = () => {
+                    const low = !battery.charging && battery.level <= 0.2;
+                    updatePace = battery.charging ? updatePaces.charging : low ? updatePaces.lowBattery : updatePaces.battery;
+                    document.body.classList.toggle('power-saving', low);
+                    startUpdates();
+                };
+                battery.addEventListener('chargingchange', adapt);
+                battery.addEventListener('levelchange', adapt);
+                adapt();
+            }).catch(() => {});
         }
 
         function interact(action) {
@@ -2029,12 +2121,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         let dismissedAdventure = null;
         try { dismissedAdventure = localStorage.getItem('gochiDismissedAdventure'); } catch (e) {}
 
+        // POST JSON. When a parent PIN is set, protected requests ask for it
+        // and are sent again with it.
         function postJSON(url, body) {
+            body = body || {};
             return fetch(url, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body || {})
-            }).then(r => r.json());
+                body: JSON.stringify(body)
+            }).then(r => r.json()).then(data => {
+                if (data.success || !data.data || !data.data.parent_pin_needed || 'parent_pin' in body) return data;
+                const pin = prompt(data.error + ' Ask a parent to enter it.');
+                if (pin === null) return data;
+                return postJSON(url, Object.assign({}, body, {parent_pin: pin}));
+            });
         }
 
         function panel() {
@@ -2188,7 +2288,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         p.append(none);
                     }
                     data.data.forEach(partner => p.append(choiceRow(
-                        (partner.species === 'dog' ? '🐶 ' : '🐱 ') + partner.name,
+                        speciesIcon(partner.species) + partner.name,
                         partner.relationship || "Haven't met yet", 'Meet', () => {
                             postJSON('/api/introduce', {partner_slot: partner.slot})
                                 .then(data => {
@@ -2209,7 +2309,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         // Group activities: the active pet and up to three others play, nap
-        // or (dogs) go for a walk together
+        // or (species that go for walks) go for a walk together
         const maxGroupPartners = 3;
         function renderGroup(p, partners) {
             const title = document.createElement('div');
@@ -2236,14 +2336,14 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     }
                     box.checked ? chosen.add(partner.slot) : chosen.delete(partner.slot);
                 };
-                row.append(box, ' ' + (partner.species === 'dog' ? '🐶 ' : '🐱 ') + partner.name);
+                row.append(box, ' ' + speciesIcon(partner.species) + partner.name);
                 p.append(row);
             });
 
             const buttons = document.createElement('div');
             buttons.className = 'save-row';
             const activities = [['play', '🎾 Play'], ['nap', '💤 Nap']];
-            if (lastStatus.species === 'dog') activities.push(['walk', '🦮 Walk']);
+            if (speciesInfo(lastStatus.species).walks) activities.push(['walk', '🦮 Walk']);
             activities.forEach(([activity, label]) => {
                 const btn = document.createElement('button');
                 btn.className = 'save-btn';
@@ -2367,32 +2467,39 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             const title = cloudText(p, 'Nearby pets and sharing', 'section-title');
             title.style.marginTop = '14px';
-            cloudText(p, 'Type your town or area. When sharing is on, players who chose the same area see your pets ' +
-                '(name, species and age group) and your pets\' achievements are posted to the hub. Nothing more precise ' +
-                'than the area name is shared.', 'panel-text cloud-note');
+            cloudText(p, 'Type your town or area, and choose what to share. Players who chose the same area and show ' +
+                'their pets see yours (name, species and age group), and you see theirs. Shared achievements are ' +
+                'posted to the hub for everyone on it. Nothing more precise than the area name is shared, and both ' +
+                'are off until you turn them on.', 'panel-text cloud-note');
             const area = cloudField(p, 'Area', 'cloudArea', cloud.area, 'for example Leeds');
-            const share = document.createElement('label');
-            share.className = 'method-row';
-            const box = document.createElement('input');
-            box.type = 'checkbox';
-            box.checked = cloud.sharing;
-            share.append(box, ' Share my pets and achievements');
-            p.append(share);
+            const checkbox = (label, checked) => {
+                const row = document.createElement('label');
+                row.className = 'method-row';
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.checked = checked;
+                row.append(box, ' ' + label);
+                p.append(row);
+                return box;
+            };
+            const nearbyBox = checkbox('Show my pets to players nearby (and see theirs)', cloud.show_nearby);
+            const feedBox = checkbox('Share my pets\' achievements', cloud.share_achievements);
             const saveRow = document.createElement('div');
             saveRow.className = 'save-row';
-            cloudButton(saveRow, 'Save', () => cloudPost('/api/cloud/profile', {area: area.value, sharing: box.checked},
-                () => showPointsToast(box.checked ? 'Sharing with players in ' + area.value + '.' : 'Sharing is off.')));
+            cloudButton(saveRow, 'Save', () => cloudPost('/api/cloud/profile',
+                {area: area.value, show_nearby: nearbyBox.checked, share_achievements: feedBox.checked},
+                () => showPointsToast('Sharing settings saved.')));
             p.append(saveRow);
 
-            const nearby = cloudText(p, cloud.sharing ? 'Looking for pets nearby…' : 'Turn on sharing to see pets nearby.', 'panel-text');
+            const nearby = cloudText(p, cloud.show_nearby ? 'Looking for pets nearby…' : 'Show your pets nearby to see pets nearby.', 'panel-text');
             const feed = cloudText(p, '', 'panel-text');
             p.classList.remove('hidden');
 
-            if (cloud.sharing) {
+            if (cloud.show_nearby) {
                 fetch('/api/cloud/nearby').then(r => r.json()).then(data => {
                     if (!data.success) { nearby.textContent = data.error; return; }
                     nearby.textContent = data.data.length === 0 ? 'No pets nearby yet.' :
-                        'Nearby: ' + data.data.map(n => (n.species === 'dog' ? '🐶 ' : '🐱 ') + n.name + ' (' +
+                        'Nearby: ' + data.data.map(n => speciesIcon(n.species) + n.name + ' (' +
                             n.stage.toLowerCase() + ', ' + n.owner + ')').join(' · ');
                 }).catch(console.error);
             }
@@ -2432,6 +2539,62 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     data.data.code + '.');
                 openAR({playdate: true});
             }).catch(console.error);
+        }
+
+        // Privacy: learning when the player plays, and the parent PIN
+        function openPrivacy() {
+            panelMode = 'privacy';
+            fetch('/api/privacy').then(r => r.json()).then(data => {
+                if (data.success) renderPrivacy(data.data);
+            }).catch(console.error);
+        }
+
+        function privacyPost(body, done) {
+            postJSON('/api/privacy', body).then(data => {
+                showPointsToast(data.success ? done : (data.error || 'Something went wrong'));
+                openPrivacy();
+            }).catch(console.error);
+        }
+
+        function renderPrivacy(privacy) {
+            const p = panel();
+            p.replaceChildren(panelHeader('Privacy'));
+
+            cloudText(p, 'When you play', 'section-title');
+            cloudText(p, 'The game learns when you usually play, so it can warn you about what your pet will need ' +
+                'before you stop. This stays on this computer.', 'panel-text cloud-note');
+            cloudText(p, privacy.play_schedule ? 'You usually play on ' + privacy.play_schedule + '.' :
+                'Nothing learned yet.', 'panel-text');
+            const learnRow = document.createElement('label');
+            learnRow.className = 'method-row';
+            const learn = document.createElement('input');
+            learn.type = 'checkbox';
+            learn.checked = privacy.learn_schedule;
+            learn.onchange = () => privacyPost({learn_schedule: learn.checked},
+                learn.checked ? 'Learning when you play.' : 'No longer learning when you play.');
+            learnRow.append(learn, ' Learn when I usually play');
+            p.append(learnRow);
+            const eraseRow = document.createElement('div');
+            eraseRow.className = 'save-row';
+            cloudButton(eraseRow, 'Erase what was learned', () => privacyPost({erase_schedule: true}, 'Erased.'));
+            p.append(eraseRow);
+
+            const title = cloudText(p, 'Parent PIN', 'section-title');
+            title.style.marginTop = '14px';
+            cloudText(p, 'With a parent PIN, the PIN is needed to connect to a cloud hub, change what is shared, ' +
+                'start or join a playdate, and change these settings.', 'panel-text cloud-note');
+            cloudText(p, privacy.parent_lock ? '🔒 A parent PIN is set.' : 'No parent PIN is set.', 'panel-text');
+            const pin = cloudField(p, privacy.parent_lock ? 'New PIN' : 'PIN (4 to 8 digits)', 'newPin', '', '', 'password');
+            pin.inputMode = 'numeric';
+            const pinRow = document.createElement('div');
+            pinRow.className = 'save-row';
+            cloudButton(pinRow, privacy.parent_lock ? 'Change PIN' : 'Set PIN',
+                () => privacyPost({new_pin: pin.value}, 'Parent PIN saved.'));
+            if (privacy.parent_lock) {
+                cloudButton(pinRow, 'Remove PIN', () => privacyPost({remove_pin: true}, 'Parent PIN removed.'));
+            }
+            p.append(pinRow);
+            p.classList.remove('hidden');
         }
 
         function openTricks() {
@@ -2852,12 +3015,13 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         // Initial check for existing pet; keep polling so the server knows
         // whether the player is present
-        fetchStatus();
+        loadSpecies().then(fetchStatus);
         startUpdates();
+        watchBattery();
     </script>
 </body>
 </html>`
-	w.Write([]byte(html))
+	w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion)))
 }
 
 // autosaveLoop saves the pet every interval until ctx is done
@@ -3512,7 +3676,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Randomize bool   `json:"randomize"`
 		// Hibernate instead of dying from neglect (off by default)
 		Hibernation bool   `json:"hibernation"`
-		Species     string `json:"species"` // cat (default) or dog
+		Species     string `json:"species"` // See /api/species; "" for the default (cat)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
@@ -3520,7 +3684,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	species, ok := core.ParseSpecies(req.Species)
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose a cat or a dog"})
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown kind of pet"})
 		return
 	}
 

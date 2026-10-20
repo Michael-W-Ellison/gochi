@@ -201,11 +201,15 @@ func (s *Server) handlePlaydate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Action string `json:"action"`
-		Code   string `json:"code"`
-		Sprite string `json:"sprite"`
+		Action    string `json:"action"`
+		Code      string `json:"code"`
+		Sprite    string `json:"sprite"`
+		ParentPIN string `json:"parent_pin"`
 	}
 	if !decodePost(w, r, &req) {
+		return
+	}
+	if req.Action != "leave" && !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
 	client, err := s.hubClient()

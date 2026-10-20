@@ -1,4 +1,4 @@
-.PHONY: build run test clean install lint fmt vet help
+.PHONY: build run test clean install lint fmt vet help release
 
 # Build variables
 BINARY_NAME=gochi
@@ -20,11 +20,31 @@ help: ## Display this help message
 	@echo "Available targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build the application
+build: ## Build the game and the standalone hub
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
-	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/gochihub ./cmd/gochihub
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME) and $(BUILD_DIR)/gochihub"
+
+# Platforms for release builds. Phones and tablets play in their browser,
+# connected to a computer running the game.
+RELEASE_PLATFORMS=windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
+DIST_DIR=./dist
+
+release: ## Build the game and hub for Windows, macOS and Linux into dist/
+	@rm -rf $(DIST_DIR)
+	@for platform in $(RELEASE_PLATFORMS); do \
+		os=$${platform%/*}; arch=$${platform#*/}; ext=""; \
+		if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
+		out=$(DIST_DIR)/gochi-$(VERSION)-$$os-$$arch; \
+		echo "Building $$out"; \
+		mkdir -p $$out || exit 1; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build $(LDFLAGS) -o $$out/$(BINARY_NAME)$$ext $(MAIN_PATH) || exit 1; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -o $$out/gochihub$$ext ./cmd/gochihub || exit 1; \
+		cp -R web configs README.md $$out/ || exit 1; \
+	done
+	@echo "Release builds are in $(DIST_DIR)/"
 
 run: build ## Build and run the application
 	@echo "Running $(BINARY_NAME)..."

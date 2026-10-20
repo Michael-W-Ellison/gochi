@@ -66,15 +66,12 @@ func (p *DigitalPet) sleepQualityLocked() float64 {
 func (p *DigitalPet) careRefusalLocked(interactionType types.InteractionType) string {
 	switch interactionType {
 	case types.InteractionWalking:
-		if p.speciesLocked() != SpeciesDog {
-			return "Cats don't go for walks; play with " + p.Name + " indoors instead."
+		if def := p.defLocked(); !def.Walks {
+			return withName(def.NoWalks, p.Name)
 		}
 	case types.InteractionCleaning:
 		if p.LivingAreaWaste < 0.05 {
-			if p.speciesLocked() == SpeciesDog {
-				return "There's nothing to clean up."
-			}
-			return "The litter box is already clean."
+			return p.defLocked().CleanRefusal
 		}
 	}
 	return ""

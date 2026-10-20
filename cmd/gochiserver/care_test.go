@@ -161,3 +161,24 @@ func TestGroupActivityThroughServer(t *testing.T) {
 		}
 	}
 }
+
+func TestSpeciesList(t *testing.T) {
+	server := newTestServer(t)
+	list, _ := getJSON(t, server.handleSpecies, "/api/species")["list"].([]interface{})
+	if len(list) < 2 {
+		t.Fatalf("Species: %v", list)
+	}
+	first := list[0].(map[string]interface{})
+	if first["id"] != "cat" || first["icon"] == "" || first["walks"] != false {
+		t.Errorf("The default species should be first: %v", first)
+	}
+	for _, item := range list {
+		s := item.(map[string]interface{})
+		if sprites, _ := s["sprites"].(map[string]interface{}); sprites["idle"] == "" || sprites["dead"] == "" {
+			t.Errorf("%v has no sprites", s["id"])
+		}
+	}
+	if rec := post(t, server.handleCreate, `{"name":"Nemo","species":"fish"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Creating an unknown species: %d %s", rec.Code, rec.Body)
+	}
+}

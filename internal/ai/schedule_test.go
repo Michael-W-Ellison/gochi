@@ -87,3 +87,26 @@ func TestOwnerScheduleCountsTimeNotClicks(t *testing.T) {
 		t.Errorf("Save and load: %v", err)
 	}
 }
+
+func TestScheduleLearningCanStopAndBeErased(t *testing.T) {
+	var s OwnerSchedule
+	start := time.Date(2026, 3, 2, 19, 0, 0, 0, time.UTC)
+	s.RecordPresence(start)
+	s.SetLearning(false)
+	if s.Learning() {
+		t.Error("Learning should be off")
+	}
+	s.RecordPresence(start.Add(2 * time.Hour))
+	if s.Visits != 1 {
+		t.Errorf("Nothing should be recorded while learning is off: %d visits", s.Visits)
+	}
+	s.Clear()
+	if s.Visits != 0 || s.Weights != [hoursPerWeek]float64{} || !s.LastSeen.IsZero() || s.Learning() {
+		t.Errorf("Clear should forget everything but the setting: %d visits, last seen %v", s.Visits, s.LastSeen)
+	}
+	data, _ := json.Marshal(&s)
+	var loaded OwnerSchedule
+	if err := json.Unmarshal(data, &loaded); err != nil || loaded.Learning() {
+		t.Errorf("The setting should be saved: %s", data)
+	}
+}

@@ -136,21 +136,39 @@ func (c *Client) ListPets(ctx context.Context) ([]PetInfo, error) {
 	return pets, err
 }
 
-// DownloadPetData returns a pet's information and save
+// DownloadPetData returns a pet's information and save, decrypted (see
+// SealSave)
 func (c *Client) DownloadPetData(ctx context.Context, key string) (PetInfo, json.RawMessage, error) {
 	var reply petReply
-	err := c.do(ctx, http.MethodGet, "/hub/v1/pets/"+url.PathEscape(key), nil, &reply)
-	return reply.Info, reply.Save, err
+	if err := c.do(ctx, http.MethodGet, "/hub/v1/pets/"+url.PathEscape(key), nil, &reply); err != nil {
+		return reply.Info, nil, err
+	}
+	if reply.Save == nil {
+		return reply.Info, nil, nil // Deleted
+	}
+	save, err := OpenSave(c.Token, key, reply.Save)
+	return reply.Info, save, err
 }
 
-// UploadPetData stores a new version of a pet and returns its version. If
-// the hub's version isn't baseVersion, it returns a ConflictError.
+// UploadPetData encrypts a pet's save (see SealSave) and stores it as a
+// new version, returning its version. If the hub's version isn't
+// baseVersion, it returns a ConflictError.
 func (c *Client) UploadPetData(ctx context.Context, info PetInfo, save json.RawMessage, baseVersion int) (int, error) {
+	if !json.Valid(save) {
+		return 0, errors.New("the save must be valid JSON")
+	}
+	sealed, err := SealSave(c.Token, info.Key, save)
+	if err != nil {
+		return 0, err
+	}
+	if len(sealed) > MaxSaveBytes {
+		return 0, fmt.Errorf("the pet's save is too large to upload (%d MB at most, encrypted)", MaxSaveBytes>>20)
+	}
 	var reply struct {
 		Version int `json:"version"`
 	}
-	err := c.do(ctx, http.MethodPut, "/hub/v1/pets/"+url.PathEscape(info.Key),
-		putRequest{BaseVersion: baseVersion, Info: info, Save: save}, &reply)
+	err = c.do(ctx, http.MethodPut, "/hub/v1/pets/"+url.PathEscape(info.Key),
+		putRequest{BaseVersion: baseVersion, Info: info, Save: sealed}, &reply)
 	return reply.Version, err
 }
 
@@ -172,9 +190,10 @@ func (c *Client) GetProfile(ctx context.Context) (Profile, error) {
 
 // EnableSocialFeatures sets the player's area and whether their pets appear
 // to nearby players and they can share achievements
-func (c *Client) EnableSocialFeatures(ctx context.Context, area string, sharing bool) (Profile, error) {
+func (c *Client) EnableSocialFeatures(ctx context.Context, area string, showNearby, shareAchievements bool) (Profile, error) {
 	var profile Profile
-	err := c.do(ctx, http.MethodPut, "/hub/v1/profile", map[string]interface{}{"area": area, "sharing": sharing}, &profile)
+	err := c.do(ctx, http.MethodPut, "/hub/v1/profile",
+		map[string]interface{}{"area": area, "show_nearby": showNearby, "share_achievements": shareAchievements}, &profile)
 	return profile, err
 }
 

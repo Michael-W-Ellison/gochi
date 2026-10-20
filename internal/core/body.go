@@ -14,13 +14,6 @@ import (
 // darkness set its sleep hormone, company and exercise its mood hormone,
 // and its age, genes and care how long it lives. See the biology package.
 
-// speciesLifespans are how long each species lives relative to
-// biology.BaseLifespan: cats tend to live a little longer than dogs
-var speciesLifespans = map[Species]float64{
-	SpeciesCat: 1.05,
-	SpeciesDog: 0.95,
-}
-
 // EnvironmentData is what the pet senses of its surroundings
 type EnvironmentData struct {
 	TimeOfDay  float64 // Hour, 0-24
@@ -88,24 +81,17 @@ func (p *DigitalPet) prepareBodyLocked() {
 	b.Inputs.Exercise = p.Needs.GetNeedLevel(types.NeedExercise)
 	b.Inputs.Company = (p.Needs.GetNeedLevel(types.NeedSocial) + p.Needs.GetNeedLevel(types.NeedAffection)) / 2
 
-	b.SpeciesLifespan = speciesLifespans[p.speciesLocked()]
+	b.SpeciesLifespan = p.defLocked().LifespanFactor
 	p.ensureGenomeLocked()
 	b.Longevity = geneValue(p.Genome, genetics.TraitLongevity)
 	b.OldAgeDeath = !p.HibernationEnabled
 	p.setSleepWindowLocked()
 }
 
-// sleepWindows are when each species prefers to sleep (hours): cats are
-// most active at dawn and dusk, dogs keep closer to their owners' hours
-var sleepWindows = map[Species][2]float64{
-	SpeciesCat: {23, 5},
-	SpeciesDog: {22, 6},
-}
-
 // setSleepWindowLocked sets the sleep cycle's preferred hours for the
 // pet's species. Caller must hold p.mu.
 func (p *DigitalPet) setSleepWindowLocked() {
-	window := sleepWindows[p.speciesLocked()]
+	window := p.defLocked().SleepWindow
 	c := p.Biology.Circadian
 	if c.OptimalSleepStart != window[0] || c.OptimalSleepEnd != window[1] {
 		c.SetOptimalSleepWindow(window[0], window[1])
@@ -243,10 +229,7 @@ const (
 // more for tidy (conscientious) pets. Caller must hold p.mu.
 func (p *DigitalPet) selfGroomingScoreLocked() float64 {
 	score := 0.6*(1-p.Biology.Vitals.Cleanliness) + 0.3*p.Personality.Traits.Conscientiousness
-	if p.speciesLocked() == SpeciesCat {
-		score += 0.3
-	}
-	return score
+	return score + p.defLocked().SelfGrooming
 }
 
 // selfExerciseScoreLocked is how strongly the pet wants to run around on
@@ -267,10 +250,7 @@ func (p *DigitalPet) selfCareLocked(deltaTime float64) {
 	v := p.Biology.Vitals
 	switch p.CurrentBehavior {
 	case types.BehaviorGrooming:
-		rate := selfGroomingRate
-		if p.speciesLocked() == SpeciesDog {
-			rate /= 2
-		}
+		rate := selfGroomingRate * p.defLocked().GroomingRate
 		v.Cleanliness += rate * deltaTime
 		v.Stress -= 0.02 * deltaTime // Grooming is soothing
 	case types.BehaviorExercising:

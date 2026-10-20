@@ -138,6 +138,7 @@ func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 		TotalInteractions: 0,
 		TotalPlayTime:     0,
 	}
+	pet.Memory.SetLongTermCapacity(maxLongTermMemories)
 	pet.ensureGenomeLocked()
 	return pet
 }
@@ -426,7 +427,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	case choiceLesson != "":
 		result.Lesson = choiceLesson
 	case unwanted:
-		result.Lesson = unwantedAttentionLessons[p.speciesLocked()]
+		result.Lesson = p.defLocked().UnwantedAttentionLesson
 	}
 
 	// Update behavior
@@ -671,8 +672,16 @@ func Load(data []byte) (*DigitalPet, error) {
 	if err != nil {
 		return nil, err
 	}
+	if pet.Memory != nil {
+		pet.Memory.SetLongTermCapacity(maxLongTermMemories) // Older saves kept more
+	}
 	return &pet, nil
 }
+
+// maxLongTermMemories is how many long-term memories a pet keeps: the
+// strongest, which is enough for its behavior and keeps its save under
+// about a megabyte however long it is played
+const maxLongTermMemories = 1000
 
 // GetPersonalityDescription returns a description of the pet's personality
 func (p *DigitalPet) GetPersonalityDescription() string {

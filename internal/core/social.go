@@ -84,31 +84,6 @@ func sociability(t ai.Traits) float64 {
 	return (t.Extraversion + t.Agreeableness + (1 - t.Territoriality) + (1 - t.Neuroticism)) / 4
 }
 
-// speciesMeeting is how well each pairing of species tends to get along
-// at first: dogs are social animals; cats are territorial; a cat and a dog
-// need the most care
-func speciesMeeting(a, b Species) float64 {
-	switch {
-	case a == SpeciesDog && b == SpeciesDog:
-		return 0.1
-	case a == SpeciesCat && b == SpeciesCat:
-		return -0.1
-	}
-	return -0.15
-}
-
-// introductionLessons teach how to introduce each pairing of species
-func introductionLesson(a, b Species) string {
-	switch {
-	case a == SpeciesCat && b == SpeciesCat:
-		return "Introduce cats slowly: keep them apart at first, swap bedding so they learn each other's scent, " +
-			"then let them see each other before short, supervised meetings."
-	case a == SpeciesDog && b == SpeciesDog:
-		return "Introduce dogs on neutral ground, on loose leashes, with a walk side by side before they meet face to face."
-	}
-	return "Keep the dog on a leash for early meetings and give the cat high places and a way out; never let the dog chase the cat."
-}
-
 // Introduce introduces pet a to pet b. Both pets' relationships record the
 // meeting; a also receives it as care (with its reaction, learning and
 // points).
@@ -167,10 +142,7 @@ func (a *DigitalPet) meet(infoA, infoB socialInfo, what string) (Meeting, float6
 	a.mu.Unlock()
 
 	meeting := Meeting{InteractionResult: result, Quality: quality, Relationship: description}
-	verb := "growled at"
-	if infoA.species == SpeciesCat {
-		verb = "hissed at"
-	}
+	verb := threatSignal(infoA.species)
 	switch {
 	case quality >= goodMeeting:
 		meeting.Text = fmt.Sprintf("%s and %s played together happily!", infoA.name, infoB.name)

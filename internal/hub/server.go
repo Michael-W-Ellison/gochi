@@ -22,8 +22,8 @@ import (
 //	GET    /hub/v1/pets/{key}          A pet's information and save
 //	PUT    /hub/v1/pets/{key}          {"base_version", "info", "save"} -> {"version"}; 409 on a conflict
 //	DELETE /hub/v1/pets/{key}?base_version=n
-//	GET    /hub/v1/profile             The player's area and sharing
-//	PUT    /hub/v1/profile             {"area", "sharing"}
+//	GET    /hub/v1/profile             The player's area and what they share
+//	PUT    /hub/v1/profile             {"area", "show_nearby", "share_achievements"} (or "sharing" for both)
 //	GET    /hub/v1/nearby              Other players' pets in the same area
 //	GET    /hub/v1/achievements        Shared achievements, newest first
 //	POST   /hub/v1/achievements        Share an achievement
@@ -233,13 +233,18 @@ func (h *Hub) handleGetProfile(w http.ResponseWriter, r *http.Request, username 
 
 func (h *Hub) handlePutProfile(w http.ResponseWriter, r *http.Request, username string) {
 	var req struct {
-		Area    string `json:"area"`
-		Sharing bool   `json:"sharing"`
+		Area              string `json:"area"`
+		ShowNearby        bool   `json:"show_nearby"`
+		ShareAchievements bool   `json:"share_achievements"`
+		Sharing           *bool  `json:"sharing"` // From older games: both kinds
 	}
 	if !decode(w, r, 4096, &req) {
 		return
 	}
-	profile, err := h.SetProfile(username, req.Area, req.Sharing)
+	if req.Sharing != nil {
+		req.ShowNearby, req.ShareAchievements = *req.Sharing, *req.Sharing
+	}
+	profile, err := h.SetProfile(username, req.Area, req.ShowNearby, req.ShareAchievements)
 	if err != nil {
 		fail(w, err)
 		return

@@ -291,8 +291,8 @@ func sortedKeys(set map[string]bool) []string {
 // illnessSign reports whether a warning sign is an illness's, which
 // EventPetSick already reports
 func illnessSign(sign string) bool {
-	for _, bySpecies := range illnessSigns {
-		for _, symptom := range bySpecies {
+	for _, def := range SpeciesList() {
+		for _, symptom := range def.IllnessSigns {
 			if symptom.Sign == sign {
 				return true
 			}

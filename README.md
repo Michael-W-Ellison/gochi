@@ -44,7 +44,8 @@ Gochi is a sophisticated digital organism simulator featuring:
 ```
 gochi/
 ├── cmd/
-│   └── gochiserver/    # Web server and game (main application)
+│   ├── gochiserver/    # Web server and game (main application)
+│   └── gochihub/       # The cloud hub on its own, without the game
 ├── internal/           # Private application code
 │   ├── core/           # Core pet logic
 │   ├── biology/        # Biological simulation systems
@@ -82,7 +83,7 @@ cd gochi
 # Install dependencies
 make install
 
-# Build the application (creates ./bin/gochi)
+# Build the game and the standalone hub (creates ./bin/gochi and ./bin/gochihub)
 make build
 
 # Run the application
@@ -90,6 +91,11 @@ make run
 ```
 
 Then open http://localhost:8080 in a browser.
+
+**Platforms**: the game runs on Windows, macOS and Linux. `make release` builds the game and the hub
+for each (64-bit Intel/AMD and ARM) into `dist/`, one folder per platform with the `web/` and
+`configs/` folders the program needs beside it. Phones and tablets (iOS and Android) play in their
+browser, connected to a computer running the game on the same network; AR uses the phone's camera.
 
 ### Command-Line Options
 
@@ -105,6 +111,9 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | `-away-pause` | `2m` | Pause time once the player has been away this long; `0` turns the away pause off |
 | `-api-token` | (none) | Turn on the REST API at `/api/v1` for requests carrying this token (see [REST API](#rest-api)) |
 | `-time-scale` | `game` | Game speed: `game` (one game day per real minute), `24x` (one game day per real hour), `4x` (one game day per six real hours) or `realtime` |
+| `-hub` | off | Also run as a cloud hub (see [Cloud](#cloud-backup-sync-and-sharing)) |
+| `-hub-join-code` | (none) | The code players need to register with the hub |
+| `-tls-cert`, `-tls-key` | (none) | Serve HTTPS with this certificate and private key (PEM files); set both |
 
 Durations use Go syntax, such as `30s`, `5m` or `1h`.
 
@@ -149,8 +158,21 @@ answers at `/hub/v1` on the same address as the game; its data is kept in `<data
 (accounts, with account keys stored only as hashes, each player's pets, and the shared achievements).
 With no join code, nobody new can register. The hub allows each player 120 requests a minute (and
 requests without an account, such as registering, 120 a minute from each address) and each player
-50 pets. The hub speaks plain HTTP: to use it over the internet, put it behind an HTTPS
-reverse proxy so account keys and saves aren't sent in the clear.
+50 pets. To use a hub over the internet, serve it over HTTPS, with `-tls-cert` and `-tls-key` (for
+example a certificate from Let's Encrypt) or behind an HTTPS reverse proxy, so account keys aren't
+sent in the clear; the hub accepts TLS 1.2 and later. The hub keeps an index of pets in memory, so
+listing pets and finding nearby ones don't read saves from disk.
+
+To run a hub as its own service, without the game, use `gochihub` (`make build` puts it in `bin/`):
+`gochihub -join-code SOMECODE -dir /var/lib/gochi-hub -addr :8090 -tls-cert cert.pem -tls-key key.pem`.
+It serves only `/hub/v1` and keeps its data in `-dir` (default `~/.gochi-hub`).
+
+**Encryption**: your game encrypts each pet's save (AES-256-GCM, with a key made from your account
+key) before uploading it, and decrypts it after downloading. The hub stores only a hash of your
+account key, so its files alone, or a copy of them, can't be read. Whoever runs the hub could still
+change it to record account keys as they arrive, so use a hub run by someone you trust. Pets'
+names, species and age groups stay readable on the hub, since nearby pets need them. Saves uploaded
+by older versions are read as before and are encrypted when next uploaded.
 
 **Connecting**: press **☁️ Cloud**, enter the hub's address, a username and the join code, and press
 **Connect**. Your pets are uploaded straight away. To connect another device to the same account, press
@@ -158,8 +180,10 @@ reverse proxy so account keys and saves aren't sent in the clear.
 device instead of the join code. The connection is kept in `<data-dir>/cloud.json`, readable only by
 you.
 
-**Syncing** happens when the program starts (before your last pet is restored), every 5 minutes, when
-you press **Sync now**, and when you exit. For each pet:
+**Syncing** happens when the program starts (before your last pet is restored; if the hub can't be
+reached within 15 seconds, the game starts with the saves on this device), every 5 minutes, when
+you press **Sync now**, and when you exit. Everything but the cloud features works without a
+network connection. For each pet:
 
 - a pet that changed only on this device is uploaded, and one that changed only on the hub is
   downloaded (the previous local save is kept as a backup). Saving a pet that hasn't changed (for
@@ -171,12 +195,36 @@ you press **Sync now**, and when you exit. For each pet:
 - deleting a pet removes it from the hub. Your other devices then report that it was deleted on
   another device and stop syncing it, but keep their copy until you delete it there too.
 
-**Nearby pets and sharing**: in the Cloud panel, type your town or area and turn on **Share my pets
-and achievements**. Players on the same hub who chose the same area (ignoring capitals and extra
-spaces) then see your pets' names, species and age groups, and you see theirs. Your pets'
-achievements are posted to the hub's feed as they are earned, and the panel shows recent ones from
-everyone sharing on the hub. Nothing more precise than the area name is shared, and with sharing off
-you neither appear nor see anyone.
+**Nearby pets and sharing**: in the Cloud panel, type your town or area and choose what to share;
+both choices start off.
+
+- **Show my pets to players nearby (and see theirs)**: players on the same hub who chose the same
+  area (ignoring capitals and extra spaces) and show their pets see your pets' names, species and
+  age groups, and you see theirs. With it off you neither appear nor see anyone.
+- **Share my pets' achievements**: your pets' achievements are posted to the hub's feed as they are
+  earned, for everyone on the hub to see.
+
+The panel shows recent achievements from everyone sharing on the hub. Nothing more precise than the
+area name is shared.
+
+### Privacy and Parental Controls
+
+Press **🔒 Privacy**:
+
+- **Learn when I usually play**: the game learns when you play to look ahead for you (see
+  [Daily Goals and What's Coming Up](#daily-goals-and-whats-coming-up)). Turn it off to stop, and
+  press **Erase what was learned** to forget it. It never leaves your computer.
+- **Parent PIN**: a parent can set a PIN of 4 to 8 digits. Once it is set, the PIN is needed to
+  connect to or disconnect from a cloud hub, change what is shared, start or join a playdate, and
+  change these settings (the page asks for it). After 5 wrong PINs, no PIN is accepted for 5
+  minutes. The PIN is stored as a salted hash in `<data-dir>/parental.json`; it stops a child
+  changing settings in the game, not someone who can edit the computer's files.
+
+Your saves, backups and settings in the data directory can be read only by your user account (on
+macOS and Linux; older saves are made private as they are saved again). There is no chat, and other
+players see only usernames, pet names, species, age groups, area names and achievements. Whoever
+runs a hub for children is responsible for meeting child-privacy laws such as COPPA; the game keeps
+what it shares to the minimum above and lets parents control it.
 
 ### Pausing Time
 
@@ -568,7 +616,7 @@ be undone.
 ### Development
 
 ```bash
-# Run tests
+# Run tests (go test -short skips the twelve-hour play test)
 make test
 
 # Run benchmarks (pet creation, updates, saving and loading, server ticks)
@@ -585,7 +633,17 @@ make lint
 
 # Run in development mode with live reload
 make dev
+
+# Build release folders for Windows, macOS and Linux in dist/
+make release
 ```
+
+**Adding a species**: everything that differs between kinds of pet is in one definition per
+species: `internal/core/species_cat.go` and `species_dog.go`. A new kind of pet is a new file with a
+`SpeciesDef` (its names, sprites, body, toilet habits, care lessons and guide, daily routine,
+petting spots, supplies, reactions and social behavior) registered with `RegisterSpecies`. The game,
+its shop and the page (which reads `/api/species`) pick it up; registration checks that the
+definition is complete, and a test checks every registered species.
 
 ## REST API
 
@@ -696,6 +754,7 @@ options:
 | `simulation.time_scale` | `-time-scale` | `"game"` |
 | `simulation.autosave` | `-autosave` | `1m` |
 | `simulation.away_pause` | `-away-pause` | `2m` |
+| `server.tls_cert`, `server.tls_key` | `-tls-cert`, `-tls-key` | `""` (HTTP); relative paths are relative to the file |
 
 A command-line option overrides the file, and a setting the file leaves out keeps its default.
 The server stops with an error if the file has a setting it doesn't know or an invalid value, so
@@ -713,12 +772,23 @@ Detailed documentation can be found in the `docs/` directory:
 
 This project is in early development.
 
-## Performance Targets
+## Performance
 
-- **Frame Rate**: 60 FPS
-- **Memory Usage**: < 500 MB RAM
-- **Battery Optimization**: Adaptive processing based on battery level
-- **Cross-Platform**: iOS, Android, Windows, macOS
+The simulation runs in the server, so the page only shows its state and stays responsive.
+
+- **Memory**: the target is under 500 MB. A test plays twelve hours at the default speed (720 game
+  days, with care every half minute): the server's heap stays under 2 MB, and a pet's save stops
+  growing at under 1 MB, since a pet keeps its 1,000 strongest long-term memories and its last 500
+  history entries. A server tick takes about 12 µs.
+- **Battery**: the page updates every 2 seconds while charging, every 5 seconds on battery, and every
+  15 seconds with animations off on low battery (20% or less), where the browser reports the battery
+  (Chrome, Edge and other Chromium browsers). A hidden page doesn't update at all, and animations
+  stop for players who ask their system for reduced motion.
+- **Network**: scripts and styles are served with a version hash in their address and may be
+  cached for a year, by the browser or by a proxy or CDN in front of the server; a new version gets
+  a new address.
+- **Platforms**: Windows, macOS and Linux (see [Installation](#installation)); iOS and Android
+  through the browser.
 
 ## License
 

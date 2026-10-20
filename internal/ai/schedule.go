@@ -26,6 +26,8 @@ type OwnerSchedule struct {
 	LastSeen time.Time `json:"last_seen"`
 	// Visits counts the separate visits recorded
 	Visits int `json:"visits"`
+	// Off stops learning: presence isn't recorded while it is set
+	Off bool `json:"off"`
 }
 
 // Schedule settings
@@ -48,8 +50,9 @@ func (s *OwnerSchedule) MarshalJSON() ([]byte, error) {
 		Updated  time.Time             `json:"updated"`
 		LastSeen time.Time             `json:"last_seen"`
 		Visits   int                   `json:"visits"`
+		Off      bool                  `json:"off"`
 	}
-	return json.Marshal(plain{s.Weights, s.Updated, s.LastSeen, s.Visits})
+	return json.Marshal(plain{s.Weights, s.Updated, s.LastSeen, s.Visits, s.Off})
 }
 
 // hourOfWeek returns t's hour of the week
@@ -80,6 +83,9 @@ func (s *OwnerSchedule) decayLocked(now time.Time) {
 func (s *OwnerSchedule) RecordPresence(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.Off {
+		return
+	}
 	if !s.LastSeen.IsZero() && now.Sub(s.LastSeen) < presenceStep {
 		return
 	}
@@ -89,6 +95,28 @@ func (s *OwnerSchedule) RecordPresence(now time.Time) {
 	s.decayLocked(now)
 	s.Weights[hourOfWeek(now)] += presenceStep.Hours()
 	s.LastSeen = now
+}
+
+// SetLearning turns learning on or off. Turning it off keeps what was
+// learned until Clear.
+func (s *OwnerSchedule) SetLearning(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Off = !on
+}
+
+// Learning reports whether presence is being recorded
+func (s *OwnerSchedule) Learning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.Off
+}
+
+// Clear forgets everything learned (but not whether learning is on)
+func (s *OwnerSchedule) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Weights, s.Updated, s.LastSeen, s.Visits = [hoursPerWeek]float64{}, time.Time{}, time.Time{}, 0
 }
 
 // readyLocked reports whether there is enough to predict from. Caller

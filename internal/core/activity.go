@@ -180,7 +180,7 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 		return &PetRequest{"medic", "🤒", p.Name + " is ill and needs medical care."}
 	}
 	p.Biology.EnsurePhysiology()
-	if ph := p.Biology.Physiology; p.speciesLocked() == SpeciesDog && max(ph.Bowel, ph.Bladder) >= 0.5 {
+	if ph := p.Biology.Physiology; p.defLocked().Toilet == ToiletOutside && max(ph.Bowel, ph.Bladder) >= 0.5 {
 		return &PetRequest{"walk", "🦮", p.Name + " is waiting by the door and needs to go outside!"}
 	}
 
@@ -193,10 +193,7 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 	}
 
 	if p.LivingAreaWaste >= 0.5 {
-		if p.speciesLocked() == SpeciesDog {
-			return &PetRequest{"clean", "🧹", "There's a mess in the house that needs cleaning up."}
-		}
-		return &PetRequest{"clean", "🧹", p.Name + "'s litter box needs cleaning."}
+		return &PetRequest{"clean", "🧹", withName(p.defLocked().MessRequest, p.Name)}
 	}
 
 	// A sleeping pet only wakes for food and water

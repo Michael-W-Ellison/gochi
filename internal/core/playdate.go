@@ -44,7 +44,7 @@ func (p *DigitalPet) PlaymateCard() PlaymateCard {
 // Valid reports whether a card from another game can be used
 func (c PlaymateCard) Valid() bool {
 	return c.ID != "" && len(c.ID) <= maxCardIDLength && strings.TrimSpace(c.Name) != "" &&
-		len([]rune(c.Name)) <= maxCardNameLength && (c.Species == SpeciesCat || c.Species == SpeciesDog)
+		len([]rune(c.Name)) <= maxCardNameLength && c.Species.Known()
 }
 
 // info returns the social information a card gives: traits whose

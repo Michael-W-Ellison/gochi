@@ -804,17 +804,19 @@ cppclass CloudService {
 };
 
 Implementation (internal/hub): the cloud service is a hub, which any Gochi server can run (-hub with
-a join code). Players register with the join code and get an account key (32 random bytes; the hub
+a join code), or which runs on its own as gochihub (section 6.3). Players register with the join code and get an account key (32 random bytes; the hub
 stores its SHA-256 hash); other devices connect with the username and key. HTTP API at /hub/v1:
 register; list, get, put (with the base version: a stale upload is refused with 409 and the hub's
-version) and delete pets, keyed by a hash of the pet ID; get and set the profile (area and sharing);
+version) and delete pets, keyed by a hash of the pet ID; get and set the profile (area and what is shared);
 nearby pets; the achievements feed; and AR playdates (section 5.2). uploadPetData / downloadPetData store and return a pet's
-whole save file (at most 8 MB, 50 pets per account); the hub keeps one previous version, and a
+whole save file, encrypted by the game (section 6.2; at most 8 MB, 50 pets per account); the hub keeps one previous version, and a
 deleted pet leaves a marker so other devices don't upload it again. enableSocialFeatures sets the
-player's area (typed by the player, at most 60 characters) and sharing. getNearbyPets returns living
-pets of other sharing players whose area matches (case and spacing ignored): owner, name, species,
-life stage and when last played. shareAchievement posts to a feed of the last 200 (players must be
-sharing); the game shares each achievement as it is earned. Each player may make 120 requests a
+player's area (typed by the player, at most 60 characters) and two separate choices, both off for a
+new account: show_nearby and share_achievements (an older game's single "sharing" sets both, and
+accounts saved with it keep both on). getNearbyPets returns, to a player who shows their pets, the
+living pets of other players who do and whose area matches (case and spacing ignored): owner, name,
+species, life stage and when last played. shareAchievement posts to a feed of the last 200 (players
+must share achievements); the game shares each achievement as it is earned. Each player may make 120 requests a
 minute; requests without a valid account key (such as registering) are limited to 120 a minute per
 IP address, so players sharing a network (as at a playdate) don't share a limit.
 4.3 REST API
@@ -941,6 +943,19 @@ Memory Efficiency: Target <500MB RAM usage
 Battery Optimization: Adaptive processing based on battery level
 Cross-Platform: iOS, Android, Windows, macOS compatibility
 
+Implementation: the simulation runs in the server, one tick a second; the page only displays state.
+A test plays twelve hours at the default pace (720 game days, care every 30 seconds) and requires
+the heap after garbage collection to stay under 500 MB and grow by less than 20 MB from the first
+hour, the save to stay under 1.5 MB, and the mean tick to be under 20 ms; measured: about 1.4 MB of
+heap, an 866 KB save and 12 microseconds a tick. A pet keeps at most 1,000 long-term memories (the
+strongest; older saves are trimmed when loaded) and 500 history entries, so its save stops growing.
+Battery: the page polls /api/status every 2 s, every 5 s on battery and every 15 s on low battery
+(20% or less, from the Battery Status API where the browser has it), when it also stops animations;
+a hidden page doesn't poll, and animations stop under prefers-reduced-motion.
+Cross-platform: the game and the hub are pure Go (CGO off); make release builds both for Windows,
+macOS and Linux on amd64 and arm64, each in a folder with web/ and configs/. iOS and Android play
+in the browser against a computer running the game.
+
 6.2 Security and Privacy
 
 Data Encryption: All user data encrypted at rest and in transit
@@ -948,12 +963,59 @@ Privacy Controls: Granular permissions for social features
 Child Safety: COPPA-compliant for users under 13
 Offline Mode: Full functionality without internet connection
 
+Implementation:
+In transit: the game and the hub serve HTTPS when given a certificate and key (server.tls_cert and
+server.tls_key, or -tls-cert and -tls-key; both checked at startup), with TLS 1.2 or later. Every
+response carries X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN and Referrer-Policy:
+same-origin.
+At rest on the hub: the hub client seals each save before upload with AES-256-GCM under a key
+HMAC-SHA256(account key, "gochi save encryption v1"), a random 12-byte nonce, and the pet's hub key
+as additional data, stored as {"gochi_sealed": 1, "nonce", "data"}; downloads are opened the same way,
+and unsealed saves from older versions are accepted. The hub keeps only the account key's hash, so
+its files can't be decrypted on their own. Pet names, species and life stages stay readable (nearby
+pets need them).
+At rest locally: saves, backups, cloud.json, owner.json and parental.json are written with mode 0600
+in directories made 0700 (existing ones too). Saves aren't encrypted locally: the key would have to
+be stored beside them; the operating system's disk encryption is the means for that.
+Privacy controls: nearby visibility and achievement sharing are separate choices (section 4.2), off
+until chosen. Learning the play schedule (section 5.3) can be turned off and erased (/api/privacy).
+Child safety: an optional parent PIN (4 to 8 digits), stored as a 16-byte salt and 100,000 rounds of
+SHA-256 in parental.json, is then needed to connect to or disconnect from a hub, change sharing, start
+or join a playdate, and change privacy settings; 5 wrong PINs refuse every PIN for 5 minutes. There
+is no chat; other players see only usernames, pet names, species, life stages, area names and
+achievements. COPPA compliance is a legal obligation of whoever operates a hub for children; the
+software keeps shared data to that minimum and gives parents control of it.
+Offline: everything but the cloud features works without a network; at startup the game waits at
+most 15 s for a hub before restoring the last pet.
+
 6.3 Scalability Considerations
 
 Modular Architecture: Plugin system for new features and pet types
 Database Optimization: Efficient queries for large user bases
 CDN Integration: Global content delivery for low latency
 Microservices: Scalable backend services for different system components
+
+Implementation:
+Pet types: species are registered. A SpeciesDef holds everything that differs between species:
+names, icon and sprites; lifespan factor, sleep window, twilight activity and self-grooming; toilet
+style (litter box or outside), living area, mess request and warning sign, clean-up refusal, the
+illness a dirty home causes, whether it goes for walks; care lessons, care guide, daily routine,
+illness names and signs; liking for kinds of care, reaction texts, petting regions, home changes,
+basic food, treats and its own supplies; and meeting odds with its own kind, introduction lessons,
+threat and friendly signals, crowd sensitivity, leader text, group and conflict lessons.
+RegisterSpecies checks a definition is complete; species_cat.go and species_dog.go register the two
+species; elsewhere the game names them only as
+the species constants and the default for saves without a species (cat). GET /api/species gives the page each species'
+name, icon, sprites, clean-up label and whether it walks.
+Hub queries: the hub keeps each account's pets' information and the accounts in each area in memory,
+loaded at startup and kept current by uploads, deletions and profile changes, so listing pets,
+version checks and nearby pets read no saves. With 300 players of two 64 KB saves each in 30 areas,
+a nearby query went from 6.2 ms and 2.7 MB to 9 microseconds and 10 KB.
+Content delivery: static files are requested with ?v= and a hash of their contents and are then
+served with Cache-Control: public, max-age=31536000, immutable, so a CDN or proxy can cache them;
+other requests for them are revalidated.
+Services: cmd/gochihub runs the hub alone (-addr, -dir, -join-code, -tls-cert, -tls-key), separate
+from any game; a game server can still run one with -hub.
 
 
 7. Testing Strategy
