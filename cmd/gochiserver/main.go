@@ -43,6 +43,9 @@ type Server struct {
 	owner     *ai.OwnerSchedule
 	ownerPath string // Where owner is saved; "" to not save it
 
+	// The AR playdate the player is at, through the cloud hub
+	playdates playdateState
+
 	// Time stops while the game is paused, so the pet cannot decline
 	manualPause  bool          // Paused with the Pause button
 	lastActivity time.Time     // Last time the player was present
@@ -347,6 +350,9 @@ func main() {
 	mux.HandleFunc("/api/ar/place", server.handleARPlace)
 	mux.HandleFunc("/api/ar/gesture", server.handleARGesture)
 	mux.HandleFunc("/api/ar/exercise", server.handleARExercise)
+	mux.HandleFunc("/api/playdate", server.handlePlaydate)
+	mux.HandleFunc("/api/playdate/update", server.handlePlaydateUpdate)
+	mux.HandleFunc("/api/playdate/play", server.handlePlaydatePlay)
 
 	// Static files with no-cache headers for development
 	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(webDir, "static"))))
@@ -2357,6 +2363,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             p.append(actions);
             const keyLine = cloudText(p, '', 'panel-text cloud-key hidden');
 
+            renderPlaydateSection(p);
+
             const title = cloudText(p, 'Nearby pets and sharing', 'section-title');
             title.style.marginTop = '14px';
             cloudText(p, 'Type your town or area. When sharing is on, players who chose the same area see your pets ' +
@@ -2392,6 +2400,37 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 if (!data.success || data.data.length === 0) return;
                 feed.textContent = 'Shared achievements: ' + data.data.slice(0, 10).map(a =>
                     a.icon + ' ' + a.pet_name + ' (' + a.owner + '): ' + a.name).join(' · ');
+            }).catch(console.error);
+        }
+
+        // AR playdates: players connected to this hub bring their pets to the
+        // same place and see them together in AR
+        function renderPlaydateSection(p) {
+            const title = cloudText(p, 'AR playdate', 'section-title');
+            title.style.marginTop = '14px';
+            cloudText(p, 'Meet up with other players on this hub and see your pets together in AR. One of you starts ' +
+                'a playdate and tells the others its code; everyone then taps the same spot to mark the center.',
+                'panel-text cloud-note');
+            const code = cloudField(p, 'Playdate code', 'playdateCode', '', 'to join a friend\'s playdate');
+            code.autocapitalize = 'characters';
+            const row = document.createElement('div');
+            row.className = 'save-row';
+            cloudButton(row, '🐾 Start a playdate', () => playdateAction({action: 'start'}));
+            cloudButton(row, 'Join', () => playdateAction({action: 'join', code: code.value}));
+            p.append(row);
+        }
+
+        function playdateAction(body) {
+            body.sprite = document.getElementById('petSprite').textContent;
+            postJSON('/api/playdate', body).then(data => {
+                if (!data.success) {
+                    showPointsToast(data.error || 'Something went wrong');
+                    return;
+                }
+                closePanel();
+                showPointsToast((body.action === 'start' ? 'Playdate started. Its code is ' : 'Joined playdate ') +
+                    data.data.code + '.');
+                openAR({playdate: true});
             }).catch(console.error);
         }
 
@@ -2613,7 +2652,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // AR: places the pet in the room through the camera (or a drawn
         // room on devices without AR); see web/static/js/ar-link.js
         let arReady = false;
-        async function openAR() {
+        async function openAR(mode) {
             if (typeof GochiAR === 'undefined' || typeof GochiARLink === 'undefined') {
                 showPointsToast('AR could not be loaded.');
                 return;
@@ -2625,10 +2664,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.body.classList.add('ar-open');
             const started = await GochiARLink.start({
                 onMessage: text => showPointsToast(text),
-                onCare: result => { showResult(result); setTimeout(fetchStatus, 500); },
+                onCare: result => { showResult(result, result.text); setTimeout(fetchStatus, 500); },
                 petSprite: () => document.getElementById('petSprite').textContent,
                 statusText: () => lastStatus ? lastStatus.name + ' ' + lastStatus.activity : '',
-                onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); }
+                onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); },
+                playdate: !!(mode && mode.playdate)
             });
             if (!started) document.body.classList.remove('ar-open');
         }

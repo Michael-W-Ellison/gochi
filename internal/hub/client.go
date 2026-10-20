@@ -90,6 +90,10 @@ func (c *Client) do(ctx context.Context, method, path string, body, out interfac
 			return ErrUnauthorized
 		case resp.StatusCode == http.StatusNotFound && e.Error == ErrNotFound.Error():
 			return ErrNotFound
+		case resp.StatusCode == http.StatusNotFound && e.Error == ErrNoPlaydate.Error():
+			return ErrNoPlaydate
+		case resp.StatusCode == http.StatusNotFound && e.Error == ErrNotInPlaydate.Error():
+			return ErrNotInPlaydate
 		case e.Error != "":
 			return errors.New(e.Error)
 		}
@@ -191,4 +195,44 @@ func (c *Client) Feed(ctx context.Context) ([]SharedAchievement, error) {
 	var feed []SharedAchievement
 	err := c.do(ctx, http.MethodGet, "/hub/v1/achievements", nil, &feed)
 	return feed, err
+}
+
+// playdatePath returns the path of a playdate request
+func playdatePath(code, action string) string {
+	return "/hub/v1/playdates/" + url.PathEscape(NormalizePlaydateCode(code)) + "/" + action
+}
+
+// StartPlaydate starts a playdate with the player's pet (its card)
+func (c *Client) StartPlaydate(ctx context.Context, card json.RawMessage) (PlaydateState, error) {
+	var state PlaydateState
+	err := c.do(ctx, http.MethodPost, "/hub/v1/playdates", playdateRequest{Card: card}, &state)
+	return state, err
+}
+
+// JoinPlaydate joins a playdate with the player's pet
+func (c *Client) JoinPlaydate(ctx context.Context, code string, card json.RawMessage) (PlaydateState, error) {
+	var state PlaydateState
+	err := c.do(ctx, http.MethodPost, playdatePath(code, "join"), playdateRequest{Card: card}, &state)
+	return state, err
+}
+
+// UpdatePlaydate sends the player's pet (its card, if not nil) and its
+// position, and returns the playdate with the events after seq
+func (c *Client) UpdatePlaydate(ctx context.Context, code string, card json.RawMessage, position Offset, after int64) (PlaydateState, error) {
+	var state PlaydateState
+	err := c.do(ctx, http.MethodPost, playdatePath(code, "update"),
+		playdateRequest{Card: card, Position: position, After: after}, &state)
+	return state, err
+}
+
+// PostPlaydateEvent adds an event to a playdate
+func (c *Client) PostPlaydateEvent(ctx context.Context, code string, e PlaydateEvent) (PlaydateEvent, error) {
+	var event PlaydateEvent
+	err := c.do(ctx, http.MethodPost, playdatePath(code, "events"), e, &event)
+	return event, err
+}
+
+// LeavePlaydate leaves a playdate
+func (c *Client) LeavePlaydate(ctx context.Context, code string) error {
+	return c.do(ctx, http.MethodPost, playdatePath(code, "leave"), struct{}{}, nil)
 }

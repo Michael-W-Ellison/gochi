@@ -147,8 +147,9 @@ is self-hosted: it is just another Gochi server, and nothing is sent anywhere el
 `hub.join_code` in the config file) and give the join code to the people who may register. The hub
 answers at `/hub/v1` on the same address as the game; its data is kept in `<data-dir>/hub/`
 (accounts, with account keys stored only as hashes, each player's pets, and the shared achievements).
-With no join code, nobody new can register. The hub allows each client 120 requests a minute and
-each player 50 pets. The hub speaks plain HTTP: to use it over the internet, put it behind an HTTPS
+With no join code, nobody new can register. The hub allows each player 120 requests a minute (and
+requests without an account, such as registering, 120 a minute from each address) and each player
+50 pets. The hub speaks plain HTTP: to use it over the internet, put it behind an HTTPS
 reverse proxy so account keys and saves aren't sent in the clear.
 
 **Connecting**: press **☁️ Cloud**, enter the hub's address, a username and the join code, and press
@@ -216,8 +217,12 @@ itself.
 Under its name, the page shows your pet's surroundings: the weather, temperature, season and time
 of day. Each pet has its own weather and seasons, which move on with its own time (so they pause
 when the game is paused). Hot or stormy weather and the seasons change how quickly your pet gets
-hungry, thirsty and tired and can lift or lower its mood. Exploring in storms or extreme
-temperatures is riskier, and trips at night find fewer souvenirs. Each pet also has a favorite
+hungry, thirsty and tired and can lift or lower its mood. They also change what it chooses to do on
+its own: pets are livelier in spring and on fine days, and quieter in winter, in the heat, in rain
+or snow and at night (cats perk up at dawn and dusk). Storms make pets, nervous ones most of all,
+seek company, and cuddly pets look for warmth when it is cold. In poor weather, and in the dark, a
+pet doesn't ask to go exploring and enjoys walks less. Exploring in bad weather is riskier the
+worse the conditions are, and trips at night find fewer souvenirs. Each pet also has a favorite
 season, from its personality (curious pets love spring, energetic ones summer, adaptable ones
 fall, and cuddly, low-energy pets winter), shown under **About**: it is happier in that season and
 a little less happy in the opposite one.
@@ -227,6 +232,32 @@ hide and seek and exploring), **Company** and **Affection** (petting, grooming, 
 training), **Learning** (training and play) and **Adventure** (exploring). A pet asks for help when
 a need runs low, and needs left completely unmet make it unhappy. After each action the page shows what changed, for
 example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
+
+### Daily Goals and What's Coming Up
+
+Under the day's care checklist, the page shows **Today's goals**: three goals for the day, each
+worth bonus Friendship Points when you complete it.
+
+- one asks for the part of the daily routine you have given least over the past week (for
+  example brushing, if you rarely brush your cat);
+- one asks for an activity: playing, practicing tricks, exploring or, at the highest levels,
+  teaching a new trick;
+- one asks you to raise your pet's happiness to a level above where it is now.
+
+Goals start at level 1 and adapt to how you are doing: completing two or three of a day's goals
+makes the next day's goals one half-level harder (up to level 5), and trying but completing none
+makes them half a level easier. Each goal earns 5 points per level (rounded), and the page announces
+each goal as you complete it. Goals are kept with the pet's save, and a new set starts each
+calendar day.
+
+**Coming up** shows what your pet will ask for next if nothing changes, and when (for example "In
+about 13 minutes: Mochi is thirsty!"). The game works this out by running a copy of your pet
+forward in time, up to when you usually stop playing. To know that, the game learns when you play:
+each hour of the week you use the page counts towards your usual times, recent weeks counting more
+than older ones. After a few visits it looks ahead until the end of your usual playing time
+(between 10 minutes and 2 hours), and otherwise 30 minutes, and the panel says when you usually
+play (for example "weekday evenings"). This is kept in `<data-dir>/owner.json` and never leaves
+your computer.
 
 ### Health and Learning Real Care
 
@@ -435,7 +466,13 @@ Several kinds of care come in variants, each with its own effect and lesson:
   the forest (6), the city (9) and the mountain (12). Wilder places hold more to find and are more
   dangerous. What your pet finds is taken from the place (a souvenir takes more than looking
   around and finding nothing), shown as a bar of what is left to find; a place grows back over
-  about 20 game days, so going to the same place again and again finds less. It needs energy, water and food to go,
+  about 20 game days (faster in summer and fall, when food is plentiful, and slower in winter), so
+  going to the same place again and again finds less. Places differ in other ways too: the park and
+  the city have the most animals and people around, so trips there do the most for your pet's need
+  for company (and a sociable pet comes home happier, having made friends), while wilder places do
+  more for its need for adventure. Every place carries some risk of parasites, lowest at the park
+  and the farm and highest on the mountain; it builds up over visits (faster for a pet with a weak
+  immune system) until the pet catches them and needs medical care. It needs energy, water and food to go,
   and can't be cared for while it is away, though you can still clean its living area. Pausing
   time pauses the trip too. Trips don't always go well:
   - a little over half the time your pet brings home a souvenir for its treasure collection (curious
@@ -606,7 +643,39 @@ endpoints, and other AR clients can use them too:
 | `POST /api/ar/exercise` | `{"action": "start"}`, `{"action": "position", "position": {...}}` while walking, then `{"action": "stop"}` |
 
 Gestures follow the same rules as the care buttons. Stopping the session removes the pet from the
-scene. A walk counts towards the pet's **Exercise**
+scene.
+
+### AR Playdates
+
+Players connected to the same cloud hub (see [Cloud](#cloud-backup-sync-and-sharing)) can meet in
+one place and see their pets together in AR, up to six at a time. Each player brings their active
+pet from their own game.
+
+1. One player opens **☁️ Cloud** and presses **🐾 Start a playdate**. AR opens, and the top of the
+   screen shows the playdate's six-character code.
+2. The others type the code under **AR playdate** and press **Join**.
+3. Everyone agrees on a spot they can all see, such as the middle of a table, and taps it in their
+   own AR view. That marks the playdate's center; each pet walks to its own place around it, and
+   the other players' pets appear around it too, with their names.
+4. Tap another player's pet to have yours play with it. How it goes is worked out like an
+   introduction (both pets' sociability, their species and how earlier meetings went), and both
+   pets remember it: your game records it for your pet, earning care points as usual, and the
+   other player's game records it for theirs. The panel shows what has happened and how your pet
+   gets along with each of the others.
+
+Closing AR leaves the playdate; a player whose game stops sending updates for 30 seconds is
+removed, and a playdate ends when everyone has left. Switching to another pet also leaves it.
+Each device places pets in its own view of the room, so pets appear around the center in the same
+arrangement on every device but are not aligned to the same compass direction. The hub passes on
+only each pet's name, species, whether it is young, how sociable it is, how it looks and its
+position relative to the center, and keeps playdates in memory only.
+
+| Route | Description |
+|---|---|
+| `GET /api/playdate` | The playdate you are at, as last updated: its code, the players and their pets, and what happened |
+| `POST /api/playdate` | `{"action": "start"}`, `{"action": "join", "code": "..."}` or `{"action": "leave"}`; also takes `"sprite"`, how your pet looks |
+| `POST /api/playdate/update` | Send your pet's `{"position": {...}}` relative to the center (and `"sprite"`); returns the playdate. Send it about once a second |
+| `POST /api/playdate/play` | `{"owner": "..."}`: your pet plays with that player's pet | A walk counts towards the pet's **Exercise**
 need: every 500 m counts as much as one play session (at most two per walk) and uses a little
 energy. A sleeping, tired, hibernating or exploring pet can't go for a walk.
 

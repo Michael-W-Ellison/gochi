@@ -123,8 +123,23 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 		}
 	}
 
-	// How the meeting goes: both pets' sociability, their species, and
-	// how earlier meetings went (from a's side)
+	meeting, bond, err := a.meet(infoA, infoB, "met")
+	if err != nil {
+		return Meeting{}, err
+	}
+
+	b.mu.Lock()
+	b.recordMeetingLocked(infoA, bond, "met")
+	b.meetLocked(meeting.Quality)
+	b.mu.Unlock()
+	return meeting, nil
+}
+
+// meet has this pet (a) meet another (b): how the meeting goes depends on
+// both pets' sociability, their species and how a's earlier meetings with
+// b went. a receives it as care and records it (what they did) in its
+// relationships. It returns the meeting and the bond to record on b's side.
+func (a *DigitalPet) meet(infoA, infoB socialInfo, what string) (Meeting, float64, error) {
 	a.mu.Lock()
 	quality := (sociability(infoA.traits)+sociability(infoB.traits))/2 + speciesMeeting(infoA.species, infoB.species)
 	if rel, ok := a.Relationships.GetRelationship(infoB.id); ok {
@@ -145,16 +160,11 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 	result := a.interactWithLocked(types.InteractionSocialIntroduction, careChoice{meeting: &outcome})
 	if !result.Applied {
 		a.mu.Unlock()
-		return Meeting{}, RefusedError{result.Refusal}
+		return Meeting{}, 0, RefusedError{result.Refusal}
 	}
 	bond := (quality - cautiousMeeting) * 2 * weight
-	description := a.recordMeetingLocked(infoB, bond, "met")
+	description := a.recordMeetingLocked(infoB, bond, what)
 	a.mu.Unlock()
-
-	b.mu.Lock()
-	b.recordMeetingLocked(infoA, bond, "met")
-	b.meetLocked(quality)
-	b.mu.Unlock()
 
 	meeting := Meeting{InteractionResult: result, Quality: quality, Relationship: description}
 	verb := "growled at"
@@ -169,7 +179,7 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 	default:
 		meeting.Text = fmt.Sprintf("%s %s %s. The meeting didn't go well.", infoA.name, verb, infoB.name)
 	}
-	return meeting, nil
+	return meeting, bond, nil
 }
 
 // recordMeetingLocked records time spent with another pet (what they did)

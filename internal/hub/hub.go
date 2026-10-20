@@ -3,7 +3,8 @@
 // code and get an account token. The hub keeps a copy of each player's
 // pet saves, so they can be backed up and synced between devices; it
 // shows players whose pets are in the same area (nearby pets), when they
-// choose to share; and it keeps a feed of achievements players share.
+// choose to share; it keeps a feed of achievements players share; and it
+// hosts AR playdates, where players bring their pets to the same place.
 //
 // The hub is self-hosted and stores everything as files in its directory.
 // Tokens are stored only as hashes.
@@ -121,6 +122,8 @@ type Hub struct {
 	accounts map[string]*account // By lowercase username
 	byToken  map[string]string   // Token hash -> lowercase username
 	feed     []SharedAchievement
+
+	playdates map[string]*playdate // By code; kept in memory only
 }
 
 // New opens (or creates) a hub keeping its files in dir. Players need
@@ -130,7 +133,8 @@ func New(dir, joinCode string) (*Hub, error) {
 		return nil, err
 	}
 	h := &Hub{dir: dir, joinCode: joinCode, now: time.Now,
-		accounts: make(map[string]*account), byToken: make(map[string]string)}
+		accounts: make(map[string]*account), byToken: make(map[string]string),
+		playdates: make(map[string]*playdate)}
 
 	var accounts []*account
 	if err := readJSON(filepath.Join(dir, "accounts.json"), &accounts); err != nil && !errors.Is(err, os.ErrNotExist) {

@@ -22,7 +22,8 @@ Cross-platform synchronization and cloud persistence
 Version 1.1 adds the player-facing game systems built on these foundations: care rewards and a
 shop (3.7), activities (3.8), requests, reactions and preferences (3.9), session and lifecycle
 management including optional hibernation (3.10), save slots and backups (4.1), a REST API (4.3),
-and the implemented environment and AR designs (5.1, 5.2).
+the environment, AR and adaptation features (5.1 - 5.3), including AR playdates through the cloud
+hub (4.2, 5.2).
 
 
 2. System Architecture
@@ -807,14 +808,15 @@ a join code). Players register with the join code and get an account key (32 ran
 stores its SHA-256 hash); other devices connect with the username and key. HTTP API at /hub/v1:
 register; list, get, put (with the base version: a stale upload is refused with 409 and the hub's
 version) and delete pets, keyed by a hash of the pet ID; get and set the profile (area and sharing);
-nearby pets; and the achievements feed. uploadPetData / downloadPetData store and return a pet's
+nearby pets; the achievements feed; and AR playdates (section 5.2). uploadPetData / downloadPetData store and return a pet's
 whole save file (at most 8 MB, 50 pets per account); the hub keeps one previous version, and a
 deleted pet leaves a marker so other devices don't upload it again. enableSocialFeatures sets the
 player's area (typed by the player, at most 60 characters) and sharing. getNearbyPets returns living
 pets of other sharing players whose area matches (case and spacing ignored): owner, name, species,
 life stage and when last played. shareAchievement posts to a feed of the last 200 (players must be
-sharing); the game shares each achievement as it is earned. Each client may make 120 requests a
-minute.
+sharing); the game shares each achievement as it is earned. Each player may make 120 requests a
+minute; requests without a valid account key (such as registering) are limited to 120 a minute per
+IP address, so players sharing a network (as at a playdate) don't share a limit.
 4.3 REST API
 cppclass RestAPI {   // /api/v1, enabled with -api-token; Bearer token required
     GET    /pets;  POST /pets;  GET /pets/{id};  PUT /pets/{id};  GET /pets/{id}/status;
@@ -843,6 +845,22 @@ day, which advance with that pet's game time (and so pause with it); weather cha
 game hours. The environment multiplies the rates at which hunger, thirst and energy change,
 nudges mood and stress, sets sleep quality (section 3.1.2) and changes exploring outcomes
 (section 3.8.3). The page shows the surroundings under the pet's name.
+Behavior: the pet's activity drive is the season's activity level (spring 1.1, summer and fall
+1.0, winter 0.8) times a weather factor (hot 0.8, stormy 0.85, rainy, cold or snowy 0.9, clear and
+comfortable (comfort above 0.7) 1.05, otherwise 1.0) times a time factor (1.1 for cats at dawn
+and dusk, otherwise 0.9 at night). It scales the weights of playing and exercising among the pet's own
+choices (section 3.3.1). Storms add 0.1 + 0.15 x neuroticism, and cold or snow 0.05 + 0.05 x
+affection, to the weight of seeking company. Outdoor suitability is the weather's (its comfort,
+0.2 in storms), halved at night; below 0.6 the pet doesn't ask to explore, a walk's reaction falls
+by (0.6 - suitability) x 0.5, and a trip's injury chance rises by up to 12 percentage points in
+proportion to the shortfall. At night the chance of finding a souvenir is multiplied by 0.6.
+Places (section 3.8.3): a trip that ends without injury meets the social need by the place's social
+bonus (park 0.6, city 0.5, beach 0.4, farm 0.3, forest 0.1, mountain 0.05) and the exploration need
+by its exploration bonus. At a social bonus of 0.5 or more a pet with sociability 0.5 or more also
+gains 0.05 happiness. Each trip adds the place's health risk (park and farm 0.05, beach and city
+0.1, forest 0.15, mountain 0.2) times max(1.2 - immune response, 0.1) to the pet's parasite
+exposure; at 1.0 the exposure resets and the pet gets parasites. Resources regrow at the base rate
+times the season's food availability (spring 0.9, summer 1.2, fall 1.1, winter 0.6).
 A new season blends in from the previous one over its first 5 days. Each pet has a favorite
 season from its personality (the highest of curiosity for spring, energy for summer, adaptability
 for fall, and the mean of affection and 1 - energy for winter); its mood modifier rises by 0.1 in
@@ -868,12 +886,51 @@ feeding, swipe = throwing a ball (play), subject to the same validation as the c
 Exercise tracking records the player's walk; every 500 m counts towards the pet's exercise need
 as one play session (at most two per walk). The web page's AR view is such a client: with WebXR
 it finds surfaces by hit testing from the center of the view; without it, it shows a drawn room.
+Playdates: players on the same cloud hub (section 4.2) meet in one place, each with the active pet
+from their own game. A player starts a playdate and gets a six-character code (from an alphabet
+without look-alike characters); up to five others join with it. Each game describes its pet with a
+PlaymateCard (ID, name, species, whether young, sociability, and why it can't play if so) plus how
+it looks; the hub passes cards on without reading them (at most 2 KB each). In AR each player taps
+the agreed spot to mark the center; each member has a slot, and the client places its pet 1 m from
+the center at an angle of 60 degrees per slot. About once a second the page posts its pet's
+position relative to the center (clamped to 10 m) to its server, which forwards it with the card
+and gets back the members and the events since the last it saw. Tapping another pet makes the
+player's pet meet it as in an introduction (section 3.6.1: both sociabilities, species and the
+pet's earlier meetings decide the quality), recorded as care with points; the server then posts a
+"play" event to the hub with the quality and bond, and the other pet's server records the same
+meeting from its side ("played at a playdate") when it next updates. Members that send nothing for
+30 seconds are removed; a playdate ends when empty. Playdates are kept in the hub's memory only
+(at most 500 at once, the last 50 events each). Hub routes: POST /hub/v1/playdates (start),
+/playdates/{code}/join, /update, /events and /leave. Game routes: GET and POST /api/playdate
+(start, join, leave), POST /api/playdate/update and POST /api/playdate/play.
 
 5.3 Machine Learning Adaptation
 
 User Pattern Recognition: Learn user's schedule and care preferences
 Predictive Care: Suggest care activities before needs become critical
 Personalized Content: Adaptive challenges and goals based on user engagement
+
+Implementation: the server keeps an OwnerSchedule in <data dir>/owner.json: a weight for each of
+the 168 hours of the week. Whenever the player is present (any use of the page), the current hour's
+weight grows by 1/6, at most once every 10 minutes; all weights decay by a factor of 0.85 per week,
+and an absence of an hour or more starts a new visit. With at least 6 such steps over 3 visits it
+predicts: an hour is usual if its weight is at least 35% of the busiest hour's; the usual end of a
+session is the end of the run of usual hours containing now; and the summary names the busiest
+weekday and weekend parts of the day (such as "weekday evenings").
+Predictive care: Forecast(horizon) copies the pet (through its save) and advances the copy in 60
+steps, recording each request (section 3.9) it starts to make that the pet isn't making now, at
+most 3, soonest first. The status's forecasts look ahead until the usual end of play (between 10
+minutes and 2 hours of real time) or 30 minutes if that isn't known, converted to game time at the
+current game speed, and give each forecast's real time. The page shows them as "Coming up".
+Adaptive goals: each calendar day the pet gets three goals at a difficulty level from 1 to 5:
+the routine care (section 3.10.4's checklist) given least over the last 7 days relative to how
+often it is due, target its daily target + floor(steps/2); an activity (level 4 and above, learn a
+new trick, if any are left to learn; otherwise from level 3, explore steps - 1 times; 2, practice tricks 2 + steps times; 1, play twice, or train
+twice if play was the neglected care); and a happiness level of min(max(60 + 5 x round(level),
+happiness + 10%), 95%), where steps = floor(level - 1). Each goal pays round(level) x 5 Friendship
+Points when completed, and is announced as an event. At the start of each day, the level rises by
+0.5 if at least two thirds of the last day's goals were completed and falls by 0.5 if none were
+completed but some were tried. Goals are part of the pet's save.
 
 
 6. Technical Implementation Details

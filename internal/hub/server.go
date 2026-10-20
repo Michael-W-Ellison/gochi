@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/api"
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 // The hub's HTTP API, under /hub/v1. Every route but status and register
@@ -25,6 +27,11 @@ import (
 //	GET    /hub/v1/nearby              Other players' pets in the same area
 //	GET    /hub/v1/achievements        Shared achievements, newest first
 //	POST   /hub/v1/achievements        Share an achievement
+//	POST   /hub/v1/playdates           {"card"} -> the new playdate, with its code
+//	POST   /hub/v1/playdates/{code}/join    {"card"} -> the playdate
+//	POST   /hub/v1/playdates/{code}/update  {"card", "position", "after"} -> the playdate, with events after "after"
+//	POST   /hub/v1/playdates/{code}/events  {"kind", "to", "text", "data"} -> the event
+//	POST   /hub/v1/playdates/{code}/leave
 
 // requestsPerMinute is how many requests each client may make
 const requestsPerMinute = 120
@@ -43,8 +50,29 @@ func (h *Hub) Handler() http.Handler {
 	mux.HandleFunc("GET /hub/v1/nearby", h.authed(h.handleNearby))
 	mux.HandleFunc("GET /hub/v1/achievements", h.authed(h.handleFeed))
 	mux.HandleFunc("POST /hub/v1/achievements", h.authed(h.handleShare))
+	mux.HandleFunc("POST /hub/v1/playdates", h.authed(h.handleStartPlaydate))
+	mux.HandleFunc("POST /hub/v1/playdates/{code}/join", h.authed(h.handleJoinPlaydate))
+	mux.HandleFunc("POST /hub/v1/playdates/{code}/update", h.authed(h.handleUpdatePlaydate))
+	mux.HandleFunc("POST /hub/v1/playdates/{code}/events", h.authed(h.handlePlaydateEvent))
+	mux.HandleFunc("POST /hub/v1/playdates/{code}/leave", h.authed(h.handleLeavePlaydate))
 	limit := api.RateLimitMiddleware(api.NewSlidingWindowLimiter(requestsPerMinute, time.Minute))
-	return limit(mux)
+	return h.identify(limit(mux))
+}
+
+// identify marks requests with a valid account token with the player's
+// username, so each player has their own rate limit even when several
+// share an address (as players at a playdate often do); other requests
+// are limited by address
+func (h *Hub) identify(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+			if username, err := h.Authenticate(token); err == nil {
+				ctx := context.WithValue(r.Context(), api.ContextKeyUserID, types.UserID("hub:"+strings.ToLower(username)))
+				r = r.WithContext(ctx)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // reply writes a JSON response
@@ -68,10 +96,13 @@ func fail(w http.ResponseWriter, err error) {
 		status = http.StatusUnauthorized
 	case errors.Is(err, ErrRegistrationClosed):
 		status = http.StatusForbidden
-	case errors.Is(err, ErrNotFound):
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrNoPlaydate), errors.Is(err, ErrNotInPlaydate):
 		status = http.StatusNotFound
-	case errors.Is(err, ErrUsernameTaken), errors.Is(err, ErrVersionConflict), errors.Is(err, ErrTooManyPets):
+	case errors.Is(err, ErrUsernameTaken), errors.Is(err, ErrVersionConflict), errors.Is(err, ErrTooManyPets),
+		errors.Is(err, ErrPlaydateFull):
 		status = http.StatusConflict
+	case errors.Is(err, ErrTooManyPlaydate):
+		status = http.StatusServiceUnavailable
 	}
 	reply(w, status, errorReply{Error: err.Error()})
 }
@@ -242,4 +273,74 @@ func (h *Hub) handleShare(w http.ResponseWriter, r *http.Request, username strin
 		return
 	}
 	reply(w, http.StatusCreated, map[string]bool{"shared": true})
+}
+
+// playdateRequest is a playdate request's body
+type playdateRequest struct {
+	Card     json.RawMessage `json:"card"`
+	Position Offset          `json:"position"`
+	After    int64           `json:"after"`
+}
+
+// playdateRequestBytes is the most a playdate request may hold
+const playdateRequestBytes = 8192
+
+func (h *Hub) handleStartPlaydate(w http.ResponseWriter, r *http.Request, username string) {
+	var req playdateRequest
+	if !decode(w, r, playdateRequestBytes, &req) {
+		return
+	}
+	state, err := h.StartPlaydate(username, req.Card)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, state)
+}
+
+func (h *Hub) handleJoinPlaydate(w http.ResponseWriter, r *http.Request, username string) {
+	var req playdateRequest
+	if !decode(w, r, playdateRequestBytes, &req) {
+		return
+	}
+	state, err := h.JoinPlaydate(username, r.PathValue("code"), req.Card)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, state)
+}
+
+func (h *Hub) handleUpdatePlaydate(w http.ResponseWriter, r *http.Request, username string) {
+	var req playdateRequest
+	if !decode(w, r, playdateRequestBytes, &req) {
+		return
+	}
+	state, err := h.UpdatePlaydate(username, r.PathValue("code"), req.Card, req.Position, req.After)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, state)
+}
+
+func (h *Hub) handlePlaydateEvent(w http.ResponseWriter, r *http.Request, username string) {
+	var e PlaydateEvent
+	if !decode(w, r, playdateRequestBytes, &e) {
+		return
+	}
+	event, err := h.PostPlaydateEvent(username, r.PathValue("code"), e)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusCreated, event)
+}
+
+func (h *Hub) handleLeavePlaydate(w http.ResponseWriter, r *http.Request, username string) {
+	if err := h.LeavePlaydate(username, r.PathValue("code")); err != nil {
+		fail(w, err)
+		return
+	}
+	reply(w, http.StatusOK, map[string]bool{"left": true})
 }
