@@ -215,15 +215,20 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 	child.Species = infoA.species
 	child.Relationships.AddRelationship(infoA.id, types.RelationshipParent)
 	child.Relationships.AddRelationship(infoB.id, types.RelationshipParent)
+	child.rememberPetLocked(infoA.id, infoA.name)
+	child.rememberPetLocked(infoB.id, infoB.name)
 
 	for _, parent := range []struct {
-		pet  *DigitalPet
-		mate types.PetID
-	}{{a, infoB.id}, {b, infoA.id}} {
+		pet      *DigitalPet
+		mate     types.PetID
+		mateName string
+	}{{a, infoB.id, infoB.name}, {b, infoA.id, infoA.name}} {
 		parent.pet.mu.Lock()
 		parent.pet.LastBredAge = parent.pet.Biology.GetAgeInDays()
 		parent.pet.Relationships.AddRelationship(parent.mate, types.RelationshipMate)
 		parent.pet.Relationships.AddRelationship(child.ID, types.RelationshipOffspring)
+		parent.pet.rememberPetLocked(child.ID, child.Name)
+		parent.pet.rememberPetLocked(parent.mate, parent.mateName)
 		parent.pet.mu.Unlock()
 	}
 	return child, nil

@@ -261,6 +261,32 @@ The lessons and guide give general care advice. For a real pet, follow your vete
   that has learned to love something enjoys it even more. How much your pet enjoys an action
   changes how much good it does (from 0.6 to 1.4 times the usual effect).
 
+### Ways to Care
+
+Several kinds of care come in variants, each with its own effect and lesson:
+
+- **Feed ▾**: choose a food (or a treat) from the pantry.
+- **Play ▾**: play together, or with a toy. Each toy suits a species and a kind of play (chasing,
+  hunting, tugging, chewing, puzzles), giving more exercise, more mental stimulation or more
+  calm.
+- **Pet ▾**: choose where to pet. Most cats like their cheeks, chin and head and dislike belly rubs;
+  most dogs like their chest and a scratch behind the ears, many dislike having their paws handled,
+  and a pat on top of the head can feel threatening. Personality matters: affectionate, calm pets
+  accept sensitive spots, and nervous ones less so. A cuddly, calm dog may love a belly rub.
+- **🎓 Train**: choose a training method: clicker and reward (fastest, needs a clicker and treats),
+  treat rewards (needs treats), praise (works best for pets that love attention) or scolding (slow,
+  and makes the pet more anxious).
+- **🏠 Enrich**: change something at home: for a cat a cardboard box, a window perch, food to
+  hunt for, a scratching post or a toy swap; for a dog a treat-sniffing game, new things to sniff, a
+  quiet den, a frozen food toy or a toy swap. Each keeps the pet's mind busy in its own way, and
+  hiding places calm nervous pets. The same change done again within a few days feels less new.
+- **🤝 Meet**: introduce your pet to another of your saved pets. How it goes depends on both
+  personalities (sociable, easy-going pets get on; territorial, nervous ones clash), their
+  species (dogs usually get on, cats are territorial, and a cat and a dog need the most care) and
+  how earlier meetings went. Good meetings build a friendship and bad ones a rivalry, recorded for
+  both pets and shown under **About**. The page explains how to introduce cats, dogs, or a cat and
+  a dog.
+
 ### Activities
 
 - **🎓 Train**: teach tricks (Sit, Shake a paw, Spin, Roll over, Play dead). Each session
@@ -312,12 +338,32 @@ pet that earned them. Press **Shop** to spend them on items for that pet:
 | Puzzle Ball | 200 | Playing is 50% more fun |
 | Cozy Bed | 150 | Tiredness builds 25% slower |
 | Soft Brush | 80 | Grooming is 50% more effective |
+| Training Clicker | 40 | Needed for clicker training, which is 40% faster |
 | Balloon, Potted Plant, Night Lamp, Painting, Rainbow Mural | 30–120 | Decorations |
 
 Items work automatically once bought; if a pet owns two items of the same kind, the better one
 applies. Owned items are shown under the pet's name, with an **Active effects** list of the items
 currently working. When a toy or brush improves an action, the page says so after that action.
 Toys make play more fun without making it more tiring.
+
+**Supplies** are sold in the same shop and are used up: food, treats and toys that wear out. They
+are kept in the pet's pantry, and the shop only shows those for the pet's species.
+
+- **Food**: each species' dry food is always available and free, so a pet never goes hungry for
+  lack of points. Wet food adds water, plain cooked fish or chicken is a tasty topper (not a
+  complete meal), and premium food is easy to digest.
+- **Foods to avoid**, sold so you can learn what not to feed: cow's milk (most adult cats and many
+  dogs are lactose intolerant), table scraps (fatty and sometimes toxic), and chocolate for dogs.
+  The page warns you before feeding them. Milk and table scraps upset the stomach; chocolate
+  poisons a dog, which then needs medical care (**Heal**) before it gets worse.
+- **Treats**, used for treat and clicker training.
+- **Toys**: for cats a feather wand, a catnip mouse (about two cats in three react to catnip,
+  depending on their genes) and a laser pointer; for dogs a tennis ball, a rope toy and a chew toy;
+  and a puzzle feeder for either. Most toys wear out after a number of play sessions.
+
+Supplies come in rarities. Common ones are available from the start; uncommon, rare, epic and
+legendary ones unlock once the pet has earned 50, 150, 300 and 600 Friendship Points over its
+life. Two supplies are on sale (25% off) each day.
 
 ### Hibernation (Gentle Mode)
 

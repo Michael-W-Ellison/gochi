@@ -30,6 +30,7 @@ var needsMet = map[types.InteractionType]map[types.NeedType]float64{
 	types.InteractionEnvironmentalEnrichment: {types.NeedExploration: 2.0, types.NeedExercise: 1.0},
 	types.InteractionRewards:                 {types.NeedAffection: 0.3},
 	types.InteractionWalking:                 {types.NeedExercise: 1.0, types.NeedExploration: 0.5, types.NeedSocial: 0.3},
+	types.InteractionSocialIntroduction:      {types.NeedSocial: 0.5}, // More when the meeting goes well (social.go)
 }
 
 // unmetNeedUnhappiness is how much happiness each critically unmet

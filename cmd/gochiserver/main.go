@@ -99,6 +99,7 @@ type PetStatus struct {
 	Changes          []string               `json:"personality_changes"` // How its personality has changed
 	Attention        string                 `json:"attention"`           // How much it enjoys attention by nature
 	Tolerates        []string               `json:"tolerates"`           // Care it neither likes nor dislikes
+	Relations        []core.PetRelation     `json:"relations"`           // Pets it knows and how they get along
 	Likes            []string               `json:"likes"`
 	Dislikes         []string               `json:"dislikes"`
 	Slot             string                 `json:"slot"`
@@ -245,6 +246,12 @@ func main() {
 	mux.HandleFunc("/api/explore/recall", server.handleRecall)
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 	mux.HandleFunc("/api/guide", server.handleGuide)
+	mux.HandleFunc("/api/care/options", server.handleCareOptions)
+	mux.HandleFunc("/api/supplies", server.handleSupplies)
+	mux.HandleFunc("/api/supplies/buy", server.handleBuySupply)
+	mux.HandleFunc("/api/enrich", server.handleEnrich)
+	mux.HandleFunc("/api/introduce", server.handleIntroduce)
+	mux.HandleFunc("/api/introduce/partners", server.handleIntroducePartners)
 	mux.HandleFunc("/api/ar", server.handleARState)
 	mux.HandleFunc("/api/ar/session", server.handleARSession)
 	mux.HandleFunc("/api/ar/plane", server.handleARPlane)
@@ -599,6 +606,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .shop-info { flex: 1; min-width: 0; }
         .shop-name { font-weight: bold; color: #333; }
         .shop-desc { font-size: 0.8em; color: #777; }
+        .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 0.72em; font-weight: 600; vertical-align: middle; }
+        .badge.common { background: #e9ecef; color: #495057; }
+        .badge.uncommon { background: #d3f9d8; color: #2b8a3e; }
+        .badge.rare { background: #d0ebff; color: #1864ab; }
+        .badge.epic, .badge.legendary { background: #f3d9fa; color: #862e9c; }
+        .badge.sale { background: #ffe3e3; color: #c92a2a; }
+        .shop-item.locked { opacity: 0.6; }
+        .shop-warning { font-size: 0.8em; color: #c92a2a; }
+        .choice-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .choice-name { flex: 1; color: #333; }
+        .choice-sub { font-size: 0.8em; color: #777; }
+        .method-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.9em; color: #555; }
+        .method-row select { flex: 1; padding: 4px 6px; border-radius: 8px; border: 2px solid #ddd; }
+        .points-toast .note { color: #868e96; }
         .shop-msg { text-align: center; min-height: 1.3em; color: #c94a4a; font-size: 0.9em; margin-top: 8px; }
         .save-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; margin-top: 16px; }
         .save-btn { padding: 8px 20px; border: 2px solid #667eea; border-radius: 20px; background: white; color: #667eea; font-weight: bold; cursor: pointer; }
@@ -730,6 +751,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn" onclick="startHideSeek()">🙈 Hide &amp; Seek</button>
                 <button class="activity-btn explore" onclick="explore()">🧭 Explore</button>
                 <button class="activity-btn" onclick="openBreeding()">💞 Breed</button>
+                <button class="activity-btn enrich" onclick="openChoices('enrich')">🏠 Enrich</button>
+                <button class="activity-btn" onclick="openMeet()">🤝 Meet</button>
                 <button class="activity-btn ar" onclick="openAR()" style="grid-column: span 2;">📷 See in your room (AR)</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
@@ -772,10 +795,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="needs" id="needs"></div>
 
             <div class="actions">
-                <button class="action-btn feed" onclick="interact('feed')">Feed</button>
+                <button class="action-btn feed" onclick="openChoices('feed')">Feed ▾</button>
                 <button class="action-btn drink" onclick="interact('drink')">Drink</button>
-                <button class="action-btn pet" onclick="interact('pet')">Pet</button>
-                <button class="action-btn play" onclick="interact('play')">Play</button>
+                <button class="action-btn pet" onclick="openChoices('pet')">Pet ▾</button>
+                <button class="action-btn play" onclick="openChoices('play')">Play ▾</button>
                 <button class="action-btn groom" onclick="interact('groom')">Groom</button>
                 <button class="action-btn medic" onclick="interact('medic')">🩹 Heal</button>
                 <button class="action-btn clean" id="cleanBtn" onclick="interact('clean')">🧹 Scoop litter</button>
@@ -816,6 +839,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div id="aboutTolerates"></div>
                 <div id="aboutDislikes"></div>
                 <div id="aboutChanges"></div>
+                <div id="aboutRelations"></div>
                 <div id="aboutTreasures"></div>
                 <div id="aboutGeneration"></div>
             </div>
@@ -1118,7 +1142,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         let shopping = false;
         const shopCategories = [
             ['food_bowl', 'Food containers'], ['water_bowl', 'Water containers'],
-            ['toy', 'Toys'], ['bed', 'Beds'], ['brush', 'Grooming'], ['decoration', 'Decorations']
+            ['toy', 'Toys (kept forever)'], ['bed', 'Beds'], ['brush', 'Grooming'], ['training', 'Training'], ['decoration', 'Decorations']
         ];
 
         function openShop() {
@@ -1137,10 +1161,85 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function loadShop() {
-            fetch('/api/shop')
-                .then(r => r.json())
-                .then(data => { if (data.success) renderShop(data.data); })
+            Promise.all([fetch('/api/shop').then(r => r.json()), fetch('/api/supplies').then(r => r.json())])
+                .then(([shop, supplies]) => {
+                    if (shop.success) renderShop(shop.data);
+                    if (supplies.success) renderSupplies(supplies.data);
+                })
                 .catch(err => console.error('Shop error:', err));
+        }
+
+        // Supplies: food, treats and toys that are used up; rarer ones unlock
+        // as the pet earns points, and some are on sale each day
+        const supplyKinds = [['food', 'Food (used up)'], ['treat', 'Treats (used up)'], ['toy', 'Toys (wear out)']];
+        function renderSupplies(data) {
+            const list = document.getElementById('shopList');
+            supplyKinds.forEach(([kind, title]) => {
+                const supplies = data.supplies.filter(s => s.kind === kind);
+                if (supplies.length === 0) return;
+                const heading = document.createElement('div');
+                heading.className = 'shop-category';
+                heading.textContent = title;
+                list.append(heading);
+
+                supplies.forEach(supply => {
+                    const row = document.createElement('div');
+                    row.className = 'shop-item' + (supply.locked ? ' locked' : '');
+                    const icon = document.createElement('div');
+                    icon.className = 'shop-icon';
+                    icon.textContent = supply.icon;
+                    const info = document.createElement('div');
+                    info.className = 'shop-info';
+                    const name = document.createElement('div');
+                    name.className = 'shop-name';
+                    name.textContent = supply.name;
+                    const rarity = document.createElement('span');
+                    rarity.className = 'badge ' + supply.rarity.toLowerCase();
+                    rarity.textContent = supply.rarity;
+                    name.append(rarity);
+                    if (supply.discounted) {
+                        const sale = document.createElement('span');
+                        sale.className = 'badge sale';
+                        sale.textContent = 'Sale';
+                        name.append(sale);
+                    }
+                    const desc = document.createElement('div');
+                    desc.className = 'shop-desc';
+                    desc.textContent = supply.description + (supply.owned ? ' You have ' + supply.owned + '.' : '');
+                    info.append(name, desc);
+                    if (supply.warning) {
+                        const warning = document.createElement('div');
+                        warning.className = 'shop-warning';
+                        warning.textContent = '⚠️ ' + supply.warning.replace(/ [^.]*\?$/, '');
+                        info.append(warning);
+                    }
+
+                    const btn = document.createElement('button');
+                    btn.className = 'save-btn';
+                    if (supply.locked) {
+                        btn.textContent = '🔒 ' + supply.unlock_at;
+                        btn.title = 'Unlocks once your pet has earned ' + supply.unlock_at + ' Friendship Points in all';
+                        btn.disabled = true;
+                    } else {
+                        btn.textContent = '❤️ ' + supply.price + (supply.discounted ? ' (was ' + supply.full_price + ')' : '');
+                        btn.disabled = data.points < supply.price;
+                        btn.onclick = () => buySupply(supply.id);
+                    }
+                    row.append(icon, info, btn);
+                    list.append(row);
+                });
+            });
+        }
+
+        function buySupply(id) {
+            const msg = document.getElementById('shopMsg');
+            msg.textContent = '';
+            postJSON('/api/supplies/buy', {id: id})
+                .then(data => {
+                    if (data.success) loadShop();
+                    else msg.textContent = data.error || 'Could not buy this';
+                })
+                .catch(console.error);
         }
 
         function renderShop(shop) {
@@ -1338,6 +1437,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             setList('aboutDislikes', 'Dislikes', status.dislikes || [], 'nothing yet');
             setList('aboutAttention', 'Attention', status.attention ? [status.name + ' ' + status.attention] : [], 'unknown');
             setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
+            setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description + ')'),
+                'no other pets yet');
             document.getElementById('activity').textContent =
                 status.is_alive ? status.name + ' ' + status.activity :
                 status.name + ' has passed away' + (status.cause_of_death ? ' (' + status.cause_of_death.toLowerCase() + ')' : '') + '.';
@@ -1600,6 +1701,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if (result.bonus_points > 0) lines.push(['+' + result.bonus_points + ' game bonus!', '']);
             if (result.lesson) lines.push(['💡 ' + result.lesson, 'lesson']);
             if (result.repeated) lines.push([result.repeated, 'repeated']);
+            if (result.note) lines.push([result.note, 'note']);
             if ('points_earned' in result) {
                 lines.push(result.points_earned > 0 ?
                     ['+' + result.points_earned + ' Friendship Points!', ''] :
@@ -1669,15 +1771,159 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .catch(console.error);
         }
 
+        // Care variants: what to feed, how to play, where to pet, and what to
+        // change at home
+        let careOptions = null;
+        let trainingMethod = 'praise';
+        function loadCareOptions() {
+            return fetch('/api/care/options')
+                .then(r => r.json())
+                .then(data => { if (data.success) careOptions = data.data; return careOptions; });
+        }
+
+        function choiceRow(label, sub, buttonText, onClick) {
+            const row = document.createElement('div');
+            row.className = 'choice-row';
+            const name = document.createElement('div');
+            name.className = 'choice-name';
+            name.textContent = label;
+            if (sub) {
+                const detail = document.createElement('div');
+                detail.className = 'choice-sub';
+                detail.textContent = sub;
+                name.append(detail);
+            }
+            const btn = document.createElement('button');
+            btn.className = 'save-btn';
+            btn.textContent = buttonText;
+            btn.onclick = onClick;
+            row.append(name, btn);
+            return row;
+        }
+
+        const choiceTitles = {feed: 'What to feed', play: 'How to play', pet: 'Where to pet', enrich: 'Change something at home'};
+        function openChoices(kind) {
+            panelMode = 'choice';
+            loadCareOptions().then(options => { if (options) renderChoices(kind, options); }).catch(console.error);
+        }
+
+        function renderChoices(kind, options) {
+            const p = panel();
+            p.replaceChildren(panelHeader(choiceTitles[kind]));
+            const hint = text => {
+                const div = document.createElement('div');
+                div.className = 'panel-text';
+                div.textContent = text;
+                p.append(div);
+            };
+            if (kind === 'feed') {
+                options.foods.forEach(f => p.append(choiceRow(f.icon + ' ' + f.name,
+                    f.quantity < 0 ? 'Always available' : f.quantity + ' left' + (f.warning ? ' · ⚠️ not recommended' : ''),
+                    'Feed', () => giveChoice('feed', {food: f.id}, f.warning, kind))));
+                options.treats.forEach(t => p.append(choiceRow(t.icon + ' ' + t.name, t.quantity + ' left', 'Give',
+                    () => giveChoice('treat', {food: t.id}, '', kind))));
+                if (options.foods.length === 1) hint('Other foods and treats are in the shop.');
+            } else if (kind === 'play') {
+                p.append(choiceRow('🤲 Play together', '', 'Play', () => giveChoice('play', {}, '', kind)));
+                options.toys.forEach(t => p.append(choiceRow(t.icon + ' ' + t.name,
+                    t.uses_left ? t.uses_left + ' plays left' + (t.quantity > 1 ? ' · ' + t.quantity + ' owned' : '') : '',
+                    'Play', () => giveChoice('play', {toy: t.id}, '', kind))));
+                if (options.toys.length === 0) hint('Toys are in the shop.');
+            } else if (kind === 'pet') {
+                options.regions.forEach(r => p.append(choiceRow(r.name, '', 'Pet',
+                    () => giveChoice('pet', {region: r.id}, '', kind))));
+            } else if (kind === 'enrich') {
+                options.changes.forEach(c => p.append(choiceRow(c.icon + ' ' + c.name, '', 'Do it', () => {
+                    postJSON('/api/enrich', {change: c.id}).then(data => afterChoice(data, kind)).catch(console.error);
+                })));
+            }
+            p.classList.remove('hidden');
+        }
+
+        function giveChoice(action, extra, warning, kind) {
+            if (warning && !confirm(warning)) return;
+            postJSON('/api/interact', Object.assign({action: action}, extra))
+                .then(data => afterChoice(data, kind))
+                .catch(console.error);
+        }
+
+        function afterChoice(data, kind) {
+            if (data.success) {
+                showResult(data.data, data.data.text);
+                setTimeout(fetchStatus, 500);
+                if (panelMode === 'choice') openChoices(kind); // Quantities and uses change
+            } else {
+                showPointsToast(data.error || 'Something went wrong');
+            }
+        }
+
+        // Introductions to the player's other pets
+        function openMeet() {
+            panelMode = 'meet';
+            fetch('/api/introduce/partners')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        showPointsToast(data.error || 'Something went wrong');
+                        return;
+                    }
+                    const p = panel();
+                    p.replaceChildren(panelHeader('Meet another pet'));
+                    if (data.data.length === 0) {
+                        const none = document.createElement('div');
+                        none.className = 'panel-text';
+                        none.textContent = 'Create or load another pet first to introduce them.';
+                        p.append(none);
+                    }
+                    data.data.forEach(partner => p.append(choiceRow(
+                        (partner.species === 'dog' ? '🐶 ' : '🐱 ') + partner.name,
+                        partner.relationship || "Haven't met yet", 'Meet', () => {
+                            postJSON('/api/introduce', {partner_slot: partner.slot})
+                                .then(data => {
+                                    if (data.success) {
+                                        showResult(data.data, data.data.text);
+                                        setTimeout(fetchStatus, 500);
+                                        openMeet();
+                                    } else {
+                                        showPointsToast(data.error || 'Something went wrong');
+                                    }
+                                })
+                                .catch(console.error);
+                        })));
+                    p.classList.remove('hidden');
+                })
+                .catch(console.error);
+        }
+
         function openTricks() {
             panelMode = 'tricks';
-            renderTricks();
+            loadCareOptions().then(renderTricks).catch(renderTricks);
         }
 
         function renderTricks() {
             if (!lastStatus) return;
             const p = panel();
             p.replaceChildren(panelHeader('Tricks'));
+            const methods = (careOptions && careOptions.methods) || [];
+            if (methods.length > 0) {
+                const row = document.createElement('label');
+                row.className = 'method-row';
+                row.textContent = 'Training method';
+                const select = document.createElement('select');
+                select.id = 'methodSelect';
+                methods.forEach(m => {
+                    const option = document.createElement('option');
+                    option.value = m.id;
+                    option.textContent = m.name + (m.unavailable ? ' (' + m.unavailable.toLowerCase() + ')' : '');
+                    option.disabled = !!m.unavailable;
+                    select.append(option);
+                });
+                if (methods.some(m => m.id === trainingMethod && !m.unavailable)) select.value = trainingMethod;
+                else select.value = trainingMethod = 'praise';
+                select.onchange = () => { trainingMethod = select.value; };
+                row.append(select);
+                p.append(row);
+            }
             lastStatus.tricks.forEach(trick => {
                 const row = document.createElement('div');
                 row.className = 'trick-row';
@@ -1701,11 +1947,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function doTrick(id, perform) {
-            postJSON(perform ? '/api/perform' : '/api/train', {trick: id})
+            postJSON(perform ? '/api/perform' : '/api/train', {trick: id, method: trainingMethod})
                 .then(data => {
                     if (data.success) {
                         showResult(data.data, data.data.text);
                         fetchStatus();
+                        if (!perform) loadCareOptions().then(() => { if (panelMode === 'tricks') renderTricks(); });
                     } else {
                         showPointsToast(data.error || 'Something went wrong');
                     }
@@ -2521,6 +2768,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	petStatus.Changes = s.pet.PersonalityChanges()
 	petStatus.Attention = s.pet.AttentionStyle()
+	petStatus.Relations = s.pet.Relations()
 	petStatus.Tolerates = s.pet.Tolerates()
 	petStatus.Likes, petStatus.Dislikes = s.pet.LikesAndDislikes()
 	if petStatus.Likes == nil {
@@ -2543,6 +2791,9 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Action string `json:"action"`
+		Food   string `json:"food"`   // Feed and treat: a food or treat from the pantry
+		Toy    string `json:"toy"`    // Play: a toy from the pantry
+		Region string `json:"region"` // Pet: where to pet
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
@@ -2572,6 +2823,10 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markActiveLocked(time.Now())
+	if result, chosen, err := s.interactWithChoice(req.Action, req.Food, req.Toy, req.Region); chosen {
+		s.writeCareResult(w, result, err)
+		return
+	}
 	result := s.pet.Interact(interactionType, 1.0)
 	if !result.Applied {
 		message := result.Refusal

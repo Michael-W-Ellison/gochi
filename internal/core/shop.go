@@ -39,6 +39,8 @@ var rewardedCare = map[types.InteractionType]bool{
 	types.InteractionEnvironmentalEnrichment: true,
 	types.InteractionCleaning:                true,
 	types.InteractionWalking:                 true,
+	types.InteractionEnvironmentChange:       true,
+	types.InteractionSocialIntroduction:      true,
 }
 
 // ItemCategory groups shop items. Within a category with an effect, the
@@ -52,6 +54,7 @@ const (
 	CategoryBed        ItemCategory = "bed"
 	CategoryBrush      ItemCategory = "brush"
 	CategoryDecoration ItemCategory = "decoration"
+	CategoryTraining   ItemCategory = "training"
 )
 
 // ShopItem is something that can be bought with Friendship Points
@@ -87,6 +90,8 @@ var shopCatalog = []ShopItem{
 		Description: "Tiredness builds 25% slower."},
 	{ID: "soft_brush", Name: "Soft Brush", Icon: "🪮", Category: CategoryBrush, Price: 80, Effect: 1.5,
 		Description: "Grooming is 50% more effective."},
+	{ID: "clicker", Name: "Training Clicker", Icon: "🔘", Category: CategoryTraining, Price: 40, Effect: 1.4,
+		Description: "Marks the moment your pet gets it right: training with it is 40% faster."},
 	{ID: "balloon", Name: "Balloon", Icon: "🎈", Category: CategoryDecoration, Price: 30,
 		Description: "A cheerful decoration."},
 	{ID: "plant", Name: "Potted Plant", Icon: "🪴", Category: CategoryDecoration, Price: 40,
@@ -134,6 +139,9 @@ type InteractionResult struct {
 
 	// What this care teaches about looking after a real pet
 	Lesson string
+
+	// Anything else worth telling the player, such as a toy wearing out
+	Note string
 
 	// Set when the same care was repeated so often just now that it
 	// barely counts towards the pet's learning and personality
@@ -228,6 +236,7 @@ func (p *DigitalPet) awardCareLocked(interactionType types.InteractionType) int 
 	}
 	p.LastCareReward[interactionType] = t
 	p.FriendshipPoints += PointsPerCare
+	p.PointsEarned += PointsPerCare
 	return PointsPerCare
 }
 

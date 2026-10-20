@@ -92,6 +92,7 @@ var careLessons = map[Species]map[types.InteractionType][]string{
 
 // treatmentLessons explain how to keep each illness from coming back
 var treatmentLessons = map[string]string{
+	IllnessPoisoning:   "Treatment worked this time. Keep chocolate, grapes and raisins, onions, garlic and xylitol well out of reach.",
 	IllnessUrinary:     "Treatment helps, but keep the litter box clean: a cat that avoids a dirty box is prone to urinary problems.",
 	IllnessParasites:   "Treatment clears the parasites; picking up after your dog every time stops them coming back.",
 	IllnessRespiratory: "Treatment helps the airways heal; a clean home with fresh air keeps them healthy.",
@@ -203,6 +204,12 @@ var illnessSigns = map[string]map[Species]Symptom{
 		SpeciesDog: {"Diarrhea and losing weight",
 			"Signs of intestinal parasites, often picked up from feces. Give medical care (Heal), then keep the " +
 				"home clean.", "bathroom", false},
+	},
+	IllnessPoisoning: {
+		SpeciesCat: {"Vomiting and restlessness",
+			"Signs of poisoning, which gets worse until treated. Give medical care (Heal) right away.", "feeding", false},
+		SpeciesDog: {"Vomiting, restlessness and a racing heart",
+			"Signs of chocolate poisoning, which gets worse until treated. Give medical care (Heal) right away.", "feeding", false},
 	},
 	IllnessRespiratory: {
 		SpeciesCat: {"Sneezing, with runny eyes and nose",

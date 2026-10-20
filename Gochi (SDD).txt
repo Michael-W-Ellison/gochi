@@ -1,6 +1,6 @@
 Software Design Document (SDD)
 Advanced Tamagotchi Digital Pet System
-Version: 1.4
+Version: 1.5
 Date: October 2026
 Author: System Architecture Team
 
@@ -343,13 +343,14 @@ cppenum class InteractionType {
     TRAINING,
     GROOMING,
     MEDICAL_CARE,
-    ENVIRONMENTAL_ENRICHMENT,
+    ENVIRONMENTAL_ENRICHMENT,   // Exploring trips
     SOCIAL_INTRODUCTION,
     DISCIPLINE,
     REWARDS,
     DRINKING,
     CLEANING,         // The living area (section 3.11)
-    WALKING           // Dogs only
+    WALKING,          // Dogs only
+    ENVIRONMENT_CHANGE // Enrichment at home (section 3.4.2)
 };
 
 class InteractionProcessor {
@@ -370,6 +371,45 @@ The description of each interaction is shown as the tip of its care button.
 
 The player's care actions are Feed, Drink, Pet, Play, Groom, Heal (medical care) and Treat
 (rewards); training and exploring are activities (section 3.8).
+3.4.2 Care Variants
+cppstruct CareChoice {      // The variant of the care being given
+    Supply food;          // FEEDING, REWARDS
+    Supply toy;           // PLAYING ("" to play together)
+    PetRegion region;     // PETTING
+    TrainingMethod method;// TRAINING
+    EnvironmentChange change; // ENVIRONMENT_CHANGE
+    MeetingOutcome meeting;   // SOCIAL_INTRODUCTION
+};
+
+Each variant adds to the innate reaction score (section 3.9) and applies its own effects and
+lesson (the variant's lesson takes precedence over the general one):
+Food: taste adds to the reaction; nutrition scales the meal (and stomach fill), hydration adds
+water, digestion changes digestive health (negative: an upset stomach), and toxic food causes
+poisoning (an illness, section 3.11.2, starting at severity 0.4 and affecting heart and nerves).
+Basic food per species is free and unlimited; other foods come from the pantry (section 3.7.3).
+Toys: species fit adds to the reaction; exercise and mental stimulation replace play's defaults;
+some calm; most wear out after a number of uses. Catnip affects about two cats in three (fixed
+per pet, from its identity, standing in for genetics).
+Petting regions: per species, a base liking plus, for sensitive regions, (affectionate - 0.5) x 0.3
+- (neuroticism - 0.3) x 0.4 times the region's sensitivity.
+Training methods: progress x 1.4 (clicker, needs the Training Clicker and a treat), x 1.3 (treats,
+uses one), x 1.0 (praise, liked more by pets that love attention) or x 0.4 (scolding: reaction
+-0.6, stress +0.1, neuroticism up).
+Environment changes (cat: box, window perch, food foraging, scratching post, toy swap; dog: sniffing
+game, new smells, den, frozen food toy, toy swap): mental stimulation, exploration, exercise and
+calming (scaled by 0.5 + neuroticism), with a liking from personality. Novelty = days since the
+same change / 3, up to 1, scales the effects and liking.
+3.4.3 Social Introductions
+SOCIAL_INTRODUCTION introduces the active pet to another saved pet. Meeting quality = the mean of
+both pets' sociability ((extraversion + agreeableness + (1 - territoriality) + (1 - neuroticism))
+/ 4) + species (dog-dog +0.1, cat-cat -0.1, cat-dog -0.15) + history (an existing relationship
+adds (bond - 0.3) x 0.5 - rivalry x 0.3; a first meeting -0.05), limited to 0.0 - 1.0. At 0.6 or
+more they play together, at 0.45 or more they keep a cautious distance, below that they hiss or
+growl. Both pets' relationships are updated with (quality - 0.45) x 2 (times the repeat weight);
+a first meeting sets the starting bond and rivalry. Pets whose bond minus rivalry is at least 0.2
+are friends, otherwise rivals, described from that score. The active pet receives the meeting as
+care; the other pet's mood, stress and social need follow how it went. Both are saved. Lessons
+explain how to introduce cats, dogs, or a cat and a dog.
 3.5 Evolutionary System
 3.5.1 Genetics and Reproduction
 cppclass GeneticSystem {
@@ -451,7 +491,16 @@ Soft Brush                80      Grooming is 50% more effective
 Decorations (5)           30-120  Cosmetic only
 
 Items apply automatically once bought. Within a category only the strongest owned item applies.
-Toys make play more fun without making it more tiring.
+Toys make play more fun without making it more tiring. The Training Clicker (40 points) enables
+clicker training.
+3.7.3 Supplies
+Supplies are consumables built on the interaction package's item system: Item templates with
+rarities, an ItemCatalog per pet, an Inventory as the pet's pantry (quantities; toys with uses),
+and a Shop that applies discounts and takes payment from the pet's Friendship Points. Each
+species has its own foods, treats and toys (a few, such as milk, table scraps and the puzzle
+feeder, are for both). Rarities unlock by lifetime points earned: uncommon 50, rare 150, epic 300,
+legendary 600. Two unlocked supplies are 25% off each calendar day, chosen from the date. A
+purchase buys a pack (for example 3 meals or 10 treats).
 
 3.8 Activities
 3.8.1 Tricks

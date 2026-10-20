@@ -85,6 +85,18 @@ var reactionTexts = map[types.InteractionType]map[ReactionLevel]string{
 		ReactionOkay:      "%s takes a short stroll.",
 		ReactionReluctant: "%s drags its paws and wants to go home.",
 	},
+	types.InteractionEnvironmentChange: {
+		ReactionDelighted: "%s rushes over to investigate!",
+		ReactionHappy:     "%s explores the change with interest.",
+		ReactionOkay:      "%s gives it a quick sniff.",
+		ReactionReluctant: "%s eyes the change warily.",
+	},
+	types.InteractionSocialIntroduction: {
+		ReactionDelighted: "%s is thrilled to have company!",
+		ReactionHappy:     "%s seems glad of the company.",
+		ReactionOkay:      "%s watches carefully.",
+		ReactionReluctant: "%s wants to get away.",
+	},
 	types.InteractionDiscipline: {
 		ReactionDelighted: "%s looks sad and lowers its ears.",
 		ReactionHappy:     "%s looks sad and lowers its ears.",
@@ -130,7 +142,7 @@ const overstimulation = 0.08
 func (p *DigitalPet) innateReactionLocked(interactionType types.InteractionType) float64 {
 	traits := p.Personality.Traits
 	v := p.Biology.Vitals
-	score := 0.0
+	score := p.choiceReactionLocked() // The food, toy, spot or method chosen
 
 	switch interactionType {
 	case types.InteractionFeeding:
@@ -245,9 +257,23 @@ var unwantedAttentionLessons = map[Species]string{
 		"whites of their eyes. Give them space and let them come to you.",
 }
 
-// reactionText describes a reaction, or returns "" for interactions
-// without reaction texts
-func reactionText(interactionType types.InteractionType, level ReactionLevel, name string) string {
+// speciesReactionTexts replace reactionTexts where a species reacts
+// differently
+var speciesReactionTexts = map[Species]map[types.InteractionType]map[ReactionLevel]string{
+	SpeciesDog: {
+		types.InteractionPetting: {
+			ReactionDelighted: "%s leans into your hand, tail wagging!",
+			ReactionReluctant: "%s turns away and licks its lips. It wants some space.",
+		},
+	},
+}
+
+// reactionText describes a species' reaction, or returns "" for
+// interactions without reaction texts
+func reactionText(species Species, interactionType types.InteractionType, level ReactionLevel, name string) string {
+	if text, ok := speciesReactionTexts[species][interactionType][level]; ok {
+		return fmt.Sprintf(text, name)
+	}
 	texts, ok := reactionTexts[interactionType]
 	if !ok {
 		return ""

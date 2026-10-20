@@ -619,6 +619,7 @@ func GetInteractionDescription(interactionType types.InteractionType) string {
 		types.InteractionDrinking:                "Give your pet fresh water to quench its thirst",
 		types.InteractionCleaning:                "Clean your pet's living area to keep it healthy",
 		types.InteractionWalking:                 "Take your dog outside for exercise and a bathroom break",
+		types.InteractionEnvironmentChange:       "Change something at home to keep your pet's mind busy",
 	}
 
 	if desc, exists := descriptions[interactionType]; exists {
@@ -645,6 +646,11 @@ func ValidateInteraction(interactionType types.InteractionType, ctx InteractionC
 		if ctx.Stress > 0.7 {
 			return false, "Pet is too stressed for training"
 		}
+		if ctx.IsSleeping {
+			return false, "Pet is sleeping"
+		}
+
+	case types.InteractionSocialIntroduction:
 		if ctx.IsSleeping {
 			return false, "Pet is sleeping"
 		}

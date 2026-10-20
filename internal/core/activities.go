@@ -132,6 +132,14 @@ func (p *DigitalPet) trainingProgressLocked(t Trick, reactionMultiplier float64)
 
 // TrainTrick practices a trick with the pet
 func (p *DigitalPet) TrainTrick(trickID string) (TrickResult, error) {
+	return p.TrainTrickWith(trickID, "")
+}
+
+// TrainTrickWith trains a trick with a training method (see
+// trainingMethods; "" trains without a particular method). Treats and
+// clicker training use a treat from the pantry; clicker training also
+// needs a clicker.
+func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -143,17 +151,32 @@ func (p *DigitalPet) TrainTrick(trickID string) (TrickResult, error) {
 		return TrickResult{}, err
 	}
 
+	choice, speed := careChoice{}, 1.0
+	if methodID != "" {
+		m, ok := findMethod(methodID)
+		if !ok {
+			return TrickResult{}, ErrUnknownChoice
+		}
+		if err := p.methodAvailableLocked(m); err != nil {
+			return TrickResult{}, err
+		}
+		choice.method, speed = &m, p.methodProgressLocked(m)
+	}
+
 	result := TrickResult{Trick: t}
-	result.InteractionResult = p.interactLocked(types.InteractionTraining, 1.0)
+	result.InteractionResult = p.interactWithLocked(types.InteractionTraining, choice)
 	if !result.Applied {
 		return TrickResult{}, RefusedError{result.Refusal}
+	}
+	if methodID == "treats" || methodID == "clicker" {
+		p.useSupplyLocked(speciesTreats[p.speciesLocked()])
 	}
 
 	if p.TrickSkills == nil {
 		p.TrickSkills = make(map[string]float64)
 	}
 	before := p.TrickSkills[t.ID]
-	result.Skill = min(before+p.trainingProgressLocked(t, result.ReactionMultiplier), 1.0)
+	result.Skill = min(before+p.trainingProgressLocked(t, result.ReactionMultiplier)*speed, 1.0)
 	p.TrickSkills[t.ID] = result.Skill
 	result.JustLearned = before < 1.0 && result.Skill >= 1.0
 
@@ -298,6 +321,7 @@ func (p *DigitalPet) GuessHidingSpot(spot int) (GameResult, error) {
 		if t := now(); t.Sub(p.LastGameReward) >= CareRewardCooldown {
 			p.LastGameReward = t
 			p.FriendshipPoints += GameBonusPoints
+			p.PointsEarned += GameBonusPoints
 			result.BonusPoints = GameBonusPoints
 		}
 		result.Text = fmt.Sprintf("You found %s %s! %s", p.Name, hiding.Name, hiding.Icon)

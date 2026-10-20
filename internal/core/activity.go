@@ -66,6 +66,8 @@ var careNames = []struct {
 	{types.InteractionPetting, "being petted"},
 	{types.InteractionPlaying, "playing"},
 	{types.InteractionWalking, "walks"},
+	{types.InteractionEnvironmentChange, "new things at home"},
+	{types.InteractionSocialIntroduction, "meeting other pets"},
 	{types.InteractionGrooming, "being groomed"},
 	{types.InteractionTraining, "training"},
 	{types.InteractionEnvironmentalEnrichment, "exploring"},

@@ -61,6 +61,8 @@ type DigitalPet struct {
 	FriendshipPoints int                                 `json:"friendship_points"`
 	Inventory        []string                            `json:"inventory"`
 	LastCareReward   map[types.InteractionType]time.Time `json:"last_care_reward"`
+	PointsEarned     int                                 `json:"points_earned"` // Over its whole life, which unlocks rarer supplies
+	Supplies         *interaction.Inventory              `json:"supplies"`      // Pantry of food, treats and toys
 
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
@@ -89,9 +91,12 @@ type DigitalPet struct {
 	// What the pet has learned about how its owner responds to its
 	// behaviors (reinforcement learning), and the state machine that
 	// chooses its behavior (built when needed, not saved)
-	Learning   *ai.LearningSystem                    `json:"learning"`
-	RecentCare map[types.InteractionType]*RecentCare `json:"recent_care"` // Repeated care, which counts less
-	behavior   *ai.BehaviorStateMachine
+	Learning       *ai.LearningSystem                    `json:"learning"`
+	RecentCare     map[types.InteractionType]*RecentCare `json:"recent_care"`     // Repeated care, which counts less
+	EnrichmentUsed map[string]float64                    `json:"enrichment_used"` // Age each environment change was last made
+	KnownPets      map[types.PetID]string                `json:"known_pets"`      // Names of the pets it has met or is related to
+	choice         *careChoice                           // Variant of the care being given (not saved)
+	behavior       *ai.BehaviorStateMachine
 
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
@@ -337,7 +342,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	innate, weight := 0.0, 0.0
 	if involved {
 		result.Reaction, result.ReactionMultiplier = p.reactionLocked(interactionType)
-		result.ReactionText = reactionText(interactionType, result.Reaction, p.Name)
+		result.ReactionText = reactionText(p.speciesLocked(), interactionType, result.Reaction, p.Name)
 		innate = p.innateReactionLocked(interactionType)
 		weight = p.repeatWeightLocked(interactionType) // After the reaction, which counts earlier repeats
 	}
@@ -353,6 +358,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	// Apply biological effects; the boost strengthens the benefits only
 	p.applyInteractionEffects(interactionType, intensity, boost)
+	choiceLesson := p.applyChoiceLocked(boost) // The variant chosen, such as the food or toy
 	intensity *= boost
 
 	// Apply emotional effects
@@ -390,7 +396,13 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	result.PointsEarned = p.awardCareLocked(interactionType)
 	p.checkOffLocked(interactionType)
 	result.Lesson = p.lessonLocked(interactionType, treated)
-	if unwanted {
+	// The most specific lesson: about the illness treated, then about the
+	// food, toy, spot or method chosen, then about unwanted attention
+	switch {
+	case treated != "":
+	case choiceLesson != "":
+		result.Lesson = choiceLesson
+	case unwanted:
 		result.Lesson = unwantedAttentionLessons[p.speciesLocked()]
 	}
 
@@ -409,10 +421,14 @@ func (p *DigitalPet) applyInteractionEffects(interactionType types.InteractionTy
 
 	switch interactionType {
 	case types.InteractionFeeding:
-		vitals.Nutrition += 0.3 * intensity * boost * p.Biology.Absorption()
+		portion := 1.0 // A meal's share of a normal meal of basic food
+		if p.choice != nil && p.choice.food != nil {
+			portion = p.choice.food.food.nutrition
+		}
+		vitals.Nutrition += 0.3 * portion * intensity * boost * p.Biology.Absorption()
 		vitals.Energy += 0.1 * intensity * boost
 		vitals.Happiness += 0.05 * intensity * boost
-		p.eatLocked(0.3 * intensity)
+		p.eatLocked(0.3 * portion * intensity)
 
 	case types.InteractionPetting:
 		vitals.Happiness += 0.15 * intensity * boost

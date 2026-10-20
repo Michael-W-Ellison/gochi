@@ -129,6 +129,10 @@ var careExperiences = map[types.InteractionType][]ai.ExperienceData{
 		{TraitAffected: "intelligence", Intensity: 0.05}},
 	types.InteractionEnvironmentalEnrichment: {{TraitAffected: "curiosity", Intensity: 0.2},
 		{TraitAffected: "openness", Intensity: 0.1}},
+	types.InteractionEnvironmentChange: {{TraitAffected: "openness", Intensity: 0.1},
+		{TraitAffected: "curiosity", Intensity: 0.1}},
+	types.InteractionSocialIntroduction: {{TraitAffected: "extraversion", Intensity: 0.15},
+		{TraitAffected: "agreeableness", Intensity: 0.1}},
 }
 
 // evolveLocked applies experiences to the pet's personality. Caller must

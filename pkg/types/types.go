@@ -71,8 +71,9 @@ const (
 	InteractionDiscipline
 	InteractionRewards
 	InteractionDrinking
-	InteractionCleaning // Cleaning the pet's living area (litter box, house)
-	InteractionWalking  // Taking a dog out for a walk
+	InteractionCleaning          // Cleaning the pet's living area (litter box, house)
+	InteractionWalking           // Taking a dog out for a walk
+	InteractionEnvironmentChange // Changing the pet's surroundings at home (enrichment)
 )
 
 // String returns the string representation of InteractionType
@@ -80,7 +81,7 @@ func (it InteractionType) String() string {
 	return [...]string{
 		"Feeding", "Petting", "Playing", "Training", "Grooming",
 		"Medical Care", "Environmental Enrichment", "Social Introduction",
-		"Discipline", "Rewards", "Drinking", "Cleaning", "Walking",
+		"Discipline", "Rewards", "Drinking", "Cleaning", "Walking", "Environment Change",
 	}[it]
 }
 

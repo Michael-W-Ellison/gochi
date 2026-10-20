@@ -55,6 +55,7 @@ const (
 	IllnessUrinary     = "urinary"     // Cats: from a dirty litter box
 	IllnessParasites   = "parasites"   // Dogs: from feces left in the home
 	IllnessRespiratory = "respiratory" // From airways damaged by foul air
+	IllnessPoisoning   = "poisoning"   // From eating something toxic, such as chocolate for a dog
 )
 
 // Illness is an illness the pet has. It gets worse over time until treated
@@ -70,6 +71,7 @@ var illnessNames = map[string]map[Species]string{
 	IllnessUrinary:     {SpeciesCat: "Urinary tract infection", SpeciesDog: "Urinary tract infection"},
 	IllnessParasites:   {SpeciesCat: "Intestinal parasites", SpeciesDog: "Intestinal parasites"},
 	IllnessRespiratory: {SpeciesCat: "Upper respiratory infection", SpeciesDog: "Respiratory infection"},
+	IllnessPoisoning:   {SpeciesCat: "Poisoning", SpeciesDog: "Chocolate poisoning"},
 }
 
 // HealthEvent is something that happened to the pet's health, shown among
@@ -205,6 +207,7 @@ var illnessTopics = map[string]string{
 	IllnessUrinary:     "litter",
 	IllnessParasites:   "bathroom",
 	IllnessRespiratory: "breathing",
+	IllnessPoisoning:   "feeding",
 }
 
 // progressIllnessLocked worsens an untreated illness, which costs the pet
@@ -226,9 +229,24 @@ func (p *DigitalPet) progressIllnessLocked(deltaTime float64) {
 		ph.DigestiveHealth -= 0.05 * ill.Severity * deltaTime
 	case IllnessRespiratory:
 		ph.RespiratoryHealth -= 0.05 * ill.Severity * deltaTime
+	case IllnessPoisoning:
+		ph.CardiovascularHealth -= 0.05 * ill.Severity * deltaTime // A racing heart
+		ph.NervousHealth -= 0.03 * ill.Severity * deltaTime        // Restlessness and tremors
 	}
 	v.Clamp()
 	ph.Clamp()
+}
+
+// poisonLocked makes the pet ill from eating something toxic; poisoning
+// starts more serious than an infection. Caller must hold p.mu.
+func (p *DigitalPet) poisonLocked() {
+	if p.Illness != nil && p.Illness.Kind == IllnessPoisoning {
+		p.Illness.Severity = min(p.Illness.Severity+0.2, 1)
+		return
+	}
+	p.Illness = &Illness{Kind: IllnessPoisoning, Severity: 0.4, SinceAge: p.Biology.GetAgeInDays()}
+	p.evolveFromHardshipLocked(0.2)
+	p.recordHealthEventLocked("feeding", "%s ate something poisonous and needs a vet.", p.Name)
 }
 
 // treatIllnessLocked cures the pet's illness with medical care and returns
