@@ -105,3 +105,15 @@ func TestRateLimitMiddleware(t *testing.T) {
 		t.Errorf("Another address has its own limit, got %d", other.Code)
 	}
 }
+
+func TestCORSPreflightMaxAge(t *testing.T) {
+	handler := CORSMiddleware(DefaultCORSConfig())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/pets", nil)
+	req.Header.Set("Origin", "http://example.com")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent || rec.Header().Get("Access-Control-Max-Age") != "86400" {
+		t.Errorf("Preflight: %d, Access-Control-Max-Age %q", rec.Code, rec.Header().Get("Access-Control-Max-Age"))
+	}
+}
