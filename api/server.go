@@ -21,6 +21,8 @@ type ServerConfig struct {
 	ShutdownTimeout time.Duration
 	TLSCertFile     string
 	TLSKeyFile      string
+	RateLimit       int           // Requests each client may make per RateWindow; 0 turns the limit off
+	RateWindow      time.Duration // Window for RateLimit
 }
 
 // DefaultServerConfig returns default server configuration
@@ -32,6 +34,7 @@ func DefaultServerConfig() ServerConfig {
 		WriteTimeout:    15 * time.Second,
 		IdleTimeout:     60 * time.Second,
 		ShutdownTimeout: 30 * time.Second,
+		RateWindow:      time.Minute,
 	}
 }
 
@@ -59,6 +62,17 @@ func (s *Server) SetupRoutes() http.Handler {
 	// Apply default middleware
 	defaultMiddleware := DefaultMiddlewareChain(s.validator)
 	authMiddleware := AuthenticatedMiddlewareChain(s.validator)
+	if s.config.RateLimit > 0 {
+		// Limit requests before authenticating them, so guessing tokens is
+		// limited too
+		window := s.config.RateWindow
+		if window <= 0 {
+			window = time.Minute
+		}
+		limit := RateLimitMiddleware(NewSlidingWindowLimiter(s.config.RateLimit, window))
+		defaultMiddleware = Chain(limit, defaultMiddleware)
+		authMiddleware = Chain(limit, authMiddleware)
+	}
 
 	// Health check endpoint (no auth required)
 	mux.Handle("GET /health", defaultMiddleware(http.HandlerFunc(s.handleHealth)))

@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,22 +198,26 @@ type RateLimiter interface {
 func RateLimitMiddleware(limiter RateLimiter) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Use IP address or user ID as key
+			// Use the client's IP address (without its port, which changes
+			// with each connection) or user ID as key
 			key := r.RemoteAddr
+			if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+				key = host
+			}
 			if userID, ok := r.Context().Value(ContextKeyUserID).(types.UserID); ok && userID != "" {
 				key = string(userID)
 			}
 
 			if !limiter.Allow(key) {
-				w.Header().Set("X-RateLimit-Limit", string(rune(limiter.Limit())))
+				w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limiter.Limit()))
 				w.Header().Set("X-RateLimit-Remaining", "0")
 				w.Header().Set("X-RateLimit-Reset", limiter.ResetTime(key).Format(time.RFC3339))
 				writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests")
 				return
 			}
 
-			w.Header().Set("X-RateLimit-Limit", string(rune(limiter.Limit())))
-			w.Header().Set("X-RateLimit-Remaining", string(rune(limiter.Remaining(key))))
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limiter.Limit()))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(limiter.Remaining(key)))
 
 			next.ServeHTTP(w, r)
 		})

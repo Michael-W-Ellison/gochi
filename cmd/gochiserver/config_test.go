@@ -61,6 +61,7 @@ func TestLoadConfigRejectsBadSettings(t *testing.T) {
 		"simulation:\n  time_scale: \"fast\"\n": "unknown time_scale",
 		"simulation:\n  autosave: -1m\n":        "can't be negative",
 		"simulation:\n  autosave: often\n":      "often",
+		"server:\n  api_rate_limit: -5\n":       "api_rate_limit can't be negative",
 	} {
 		if _, err := loadConfig(writeConfig(t, text)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: expected an error mentioning %q, got %v", text, want, err)

@@ -519,3 +519,41 @@ func TestMaxFunction(t *testing.T) {
 		}
 	}
 }
+
+func TestSeasonModifierScalesSuccess(t *testing.T) {
+	successes := func(modifier float64) int {
+		gs := NewGeneticSystem()
+		gs.SeasonModifier = modifier
+		count := 0
+		for i := 0; i < 200; i++ {
+			a, b := NewGenome(), NewGenome()
+			if gs.CompatibilityProblem(gs.CalculateCompatibility(a, b)) != "" {
+				continue
+			}
+			if gs.Breed(a, b).Success {
+				count++
+			}
+		}
+		return count
+	}
+
+	// At most 1% of attempts succeed with a tiny modifier; every
+	// compatible attempt succeeds with a large one
+	if n := successes(0.01); n > 20 {
+		t.Errorf("A season modifier of 0.01 should make babies rare, got %d of 200", n)
+	}
+	if n := successes(0); n < 50 {
+		t.Errorf("A season modifier of 0 should mean no change, got %d of 200", n)
+	}
+	gs := NewGeneticSystem()
+	gs.SeasonModifier = 10
+	for i := 0; i < 50; i++ {
+		a, b := NewGenome(), NewGenome()
+		if gs.CompatibilityProblem(gs.CalculateCompatibility(a, b)) != "" {
+			continue
+		}
+		if result := gs.Breed(a, b); !result.Success {
+			t.Fatalf("Success should be certain with a large modifier: %s", result.FailureReason)
+		}
+	}
+}

@@ -92,6 +92,9 @@ func (e *Environment) Update(deltaTimeHours float64) {
 	// Update weather
 	e.Weather.Update(deltaTimeHours, e.Seasons.GetSeason(), e.TimeOfDay)
 
+	// What pets take from the places they explore grows back
+	e.Locations.RegenerateResources(gameDaysPassed)
+
 	// Recalculate combined effects
 	e.calculateCombinedEffects()
 

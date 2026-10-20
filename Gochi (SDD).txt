@@ -441,6 +441,10 @@ is a crossover of its parents' with mutation, its personality is inherited from 
 (mutation rate 0.05) with the genetically based traits taken from its genome, and it is saved in
 its own slot. Parents, mate and offspring relationships are recorded, the baby's generation is one
 more than its parents', and each parent waits 3 game days before breeding again.
+The season scales the chance of success by its breeding modifier (spring 1.3, summer 1.0, fall
+0.8, winter 0.5, blended over the first 5 days of a season), averaged over the two pets'
+environments; the chance is at most 1. Two pets can have at most 5 babies together; each parent
+counts its babies per mate, and either count reaching 5 stops the pair.
 3.6 Social System
 3.6.1 Multi-Pet Interactions
 cppclass SocialSystem {
@@ -514,6 +518,10 @@ cppclass TrickTraining {
 Each session improves a trick by an amount that is larger for intelligent pets and pets that like
 training and smaller for harder tricks. Training needs energy of at least 0.25 and is subject to
 interaction validation (section 3.4.1).
+Skill decay: training or performing a trick records the pet's age. 120 game days after that, the
+skill falls by 0.25 per 120 game days. A trick the pet has learned (reached 1.0) never falls below
+0.75 and is then rusty: it cannot be performed until training brings it back to 1.0, which is
+reported as remembering it rather than learning it. Progress on a trick never learned falls to 0.
 3.8.2 Hide and Seek
 The pet hides in one of four places and the player has two guesses. Finding it counts as play
 and earns a 5-point game bonus at most once per reward cooldown. The player can stop the game at
@@ -539,6 +547,12 @@ the pet warier of exploring. An injured pet asks to be healed and cannot explore
 A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
 cared for while away. A pet that enjoys exploring investigates at home on its own (the
 INVESTIGATING state); only the player starts a trip.
+Places: a trip goes to one of the environment's locations: park, beach, farm, forest, city or
+mountain, discovered after 0, 2, 4, 6, 9 and 12 finished trips (a trip called home early does not
+count). A place adds (danger - 0.1) x 30 points to the injury chance and multiplies the treasure
+chance by exploration value / 0.7 x (0.3 + 0.7 x resources), up to 90%. Each place's resources
+(1.0 when untouched) fall by 0.3 when the pet finds a souvenir there and 0.1 when it finds nothing,
+and grow back by 0.05 per game day.
 
 3.9 Requests, Reactions and Preferences
 cppstruct PetRequest {
@@ -657,6 +671,9 @@ pets. The active pet is saved automatically (every minute by default), when the 
 Save, when switching or creating pets, and when the program exits. The previous five saves of
 each pet are kept as backups. On startup the most recently saved pet is restored; a damaged save
 is replaced by its newest working backup.
+Saves read or written are kept in an in-memory cache (least recently used first out, up to 32 MB
+of pet data) along with the file's modification time and size; a load or pet list entry uses the
+cache only while the file is unchanged, so a damaged or replaced file is always read and checked.
 4.2 Cloud Integration
 cppclass CloudService {
     void uploadPetData(string userId, DigitalPet pet);
@@ -676,6 +693,10 @@ The API works on copies of the saved pets and follows the game's rules: refused 
 status 409 with the reason, and pets cannot be deleted through it (deletion needs the
 confirmations in section 3.10.3). Social features that need other players and cloud sync are not
 available without a cloud service.
+Rate limiting: each client (by IP address) may make api_rate_limit requests (default 120) in any
+minute, counted with a sliding window before authentication, so failed token guesses count. A
+client over the limit gets status 429; responses carry X-RateLimit-Limit, X-RateLimit-Remaining
+and, when limited, X-RateLimit-Reset. Clients with no requests in the window are forgotten.
 
 5. Advanced Features
 5.1 Environmental Simulation
@@ -689,6 +710,16 @@ day, which advance with that pet's game time (and so pause with it); weather cha
 game hours. The environment multiplies the rates at which hunger, thirst and energy change,
 nudges mood and stress, sets sleep quality (section 3.1.2) and changes exploring outcomes
 (section 3.8.3). The page shows the surroundings under the pet's name.
+A new season blends in from the previous one over its first 5 days. Each pet has a favorite
+season from its personality (the highest of curiosity for spring, energy for summer, adaptability
+for fall, and the mean of affection and 1 - energy for winter); its mood modifier rises by 0.1 in
+that season and falls by 0.08 in the opposite one. The season also scales breeding (section 3.5.1).
+Events: each server tick compares a snapshot of the active pet before and after the update and
+records what changed on its own (hunger, thirst, a new warning sign, illness or recovery, a trip
+ending, a trick getting rusty, hibernation, death) in an event system that keeps the last 100
+events and passes them to registered handlers (the server logs illness, hibernation and death).
+GET /api/events?after=n returns the active pet's events after event n; the page lists the latest
+under "Recently". Care the player gives is reported in its response, not as an event.
 
 5.2 Augmented Reality Integration
 
@@ -742,6 +773,8 @@ Biological system calculations
 AI behavior transitions
 Data persistence integrity
 Social interaction mechanics
+Benchmarks: pet creation, a one-second update at the default pace, saving and loading a pet, a
+server tick, and saving and loading through the save store
 
 7.2 Integration Testing
 

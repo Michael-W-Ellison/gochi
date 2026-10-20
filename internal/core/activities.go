@@ -14,6 +14,7 @@ import (
 var (
 	ErrUnknownTrick  = errors.New("unknown trick")
 	ErrTrickNotKnown = errors.New("pet has not learned this trick yet")
+	ErrTrickRusty    = errors.New("pet is rusty at this trick")
 	ErrTooTired      = errors.New("pet is too tired")
 	ErrExploring     = errors.New("pet is out exploring")
 	ErrNeedsCare     = errors.New("pet needs food, water and energy first")
@@ -66,8 +67,75 @@ const minTrainingEnergy = 0.25
 // TrickProgress is a trick with the pet's skill at it
 type TrickProgress struct {
 	Trick
-	Skill   float64 `json:"skill"` // 0.0 to 1.0
-	Learned bool    `json:"learned"`
+	Skill   float64 `json:"skill"`   // 0.0 to 1.0
+	Learned bool    `json:"learned"` // Can perform it now
+	Rusty   bool    `json:"rusty"`   // Learned it once, but needs practice before performing it again
+}
+
+// Trick skills fade without practice. A trick practiced within
+// trickRustGrace game days keeps its skill; after that the skill falls by
+// trickRustRate per game day. A trick the pet has learned never falls below
+// rustyTrickFloor, so a session or two of practice brings it back. At the
+// default pace (one game day per real minute, counted only while the game
+// is running) a trick stays sharp for two hours of play and is rusty after
+// about four.
+const (
+	trickRustGrace  = 120.0
+	trickRustRate   = 0.25 / 120
+	rustyTrickFloor = 0.75
+)
+
+// decayTricksLocked lets unpracticed tricks get rusty over deltaTime game
+// days. Caller must hold p.mu.
+func (p *DigitalPet) decayTricksLocked(deltaTime float64) {
+	if len(p.TrickSkills) == 0 {
+		return
+	}
+	age := p.Biology.GetAgeInDays()
+	if p.TrickPracticedAge == nil {
+		p.TrickPracticedAge = make(map[string]float64)
+	}
+	for id, skill := range p.TrickSkills {
+		if skill >= 1.0 {
+			p.markTrickLearnedLocked(id) // Saved before learning was recorded
+		}
+		practiced, ok := p.TrickPracticedAge[id]
+		if !ok {
+			// Saved before practice was recorded: the grace period starts now
+			p.TrickPracticedAge[id] = age
+			continue
+		}
+		// Only the part of deltaTime past the grace period counts
+		rusting := min(deltaTime, age-practiced-trickRustGrace)
+		if rusting <= 0 {
+			continue
+		}
+		floor := 0.0
+		if p.TricksLearned[id] {
+			floor = rustyTrickFloor
+		}
+		if skill > floor {
+			p.TrickSkills[id] = max(skill-trickRustRate*rusting, floor)
+		}
+	}
+}
+
+// markTrickLearnedLocked records that the pet has learned a trick. Caller
+// must hold p.mu.
+func (p *DigitalPet) markTrickLearnedLocked(id string) {
+	if p.TricksLearned == nil {
+		p.TricksLearned = make(map[string]bool)
+	}
+	p.TricksLearned[id] = true
+}
+
+// practiceTrickLocked records that the pet practiced a trick now. Caller
+// must hold p.mu.
+func (p *DigitalPet) practiceTrickLocked(id string) {
+	if p.TrickPracticedAge == nil {
+		p.TrickPracticedAge = make(map[string]float64)
+	}
+	p.TrickPracticedAge[id] = p.Biology.GetAgeInDays()
 }
 
 // TrickResult reports a training session or performance
@@ -97,7 +165,8 @@ func (p *DigitalPet) Tricks() []TrickProgress {
 	progress := make([]TrickProgress, len(tricks))
 	for i, t := range tricks {
 		skill := p.TrickSkills[t.ID]
-		progress[i] = TrickProgress{Trick: t, Skill: skill, Learned: skill >= 1.0}
+		progress[i] = TrickProgress{Trick: t, Skill: skill, Learned: skill >= 1.0,
+			Rusty: skill < 1.0 && p.TricksLearned[t.ID]}
 	}
 	return progress
 }
@@ -178,9 +247,21 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	before := p.TrickSkills[t.ID]
 	result.Skill = min(before+p.trainingProgressLocked(t, result.ReactionMultiplier)*speed, 1.0)
 	p.TrickSkills[t.ID] = result.Skill
-	result.JustLearned = before < 1.0 && result.Skill >= 1.0
+	p.practiceTrickLocked(t.ID)
+	if before >= 1.0 {
+		p.markTrickLearnedLocked(t.ID) // Learned before learning was recorded
+	}
+	relearned := p.TricksLearned[t.ID] && before < 1.0
+	result.JustLearned = before < 1.0 && result.Skill >= 1.0 && !relearned
+	if result.Skill >= 1.0 {
+		p.markTrickLearnedLocked(t.ID)
+	}
 
 	switch {
+	case relearned && result.Skill >= 1.0:
+		result.Text = fmt.Sprintf("%s remembers %s again! %s", p.Name, t.Name, t.Icon)
+	case relearned:
+		result.Text = fmt.Sprintf("%s is brushing up on %s (%.0f%%).", p.Name, t.Name, result.Skill*100)
 	case result.JustLearned:
 		result.Text = fmt.Sprintf("%s learned %s! %s", p.Name, t.Name, t.Icon)
 	case before >= 1.0:
@@ -201,6 +282,9 @@ func (p *DigitalPet) PerformTrick(trickID string) (TrickResult, error) {
 		return TrickResult{}, ErrUnknownTrick
 	}
 	if p.TrickSkills[t.ID] < 1.0 {
+		if p.TricksLearned[t.ID] {
+			return TrickResult{}, ErrTrickRusty
+		}
 		return TrickResult{}, ErrTrickNotKnown
 	}
 	if err := p.checkActiveLocked(); err != nil {
@@ -212,6 +296,7 @@ func (p *DigitalPet) PerformTrick(trickID string) (TrickResult, error) {
 	if !result.Applied {
 		return TrickResult{}, RefusedError{result.Refusal}
 	}
+	p.practiceTrickLocked(t.ID)
 	result.Text = fmt.Sprintf(t.Performed, p.Name)
 	return result, nil
 }
@@ -377,6 +462,7 @@ const (
 // Adventure records a finished exploring trip
 type Adventure struct {
 	Outcome      string        `json:"outcome"`
+	Place        string        `json:"place"`    // Where the pet went
 	Souvenir     *Souvenir     `json:"souvenir"` // Only for OutcomeTreasure
 	Text         string        `json:"text"`
 	ReactionText string        `json:"reaction_text"`
@@ -395,12 +481,25 @@ const (
 	minExploreLevel = 0.4
 )
 
-// SendExploring sends the pet out on a trip. It returns home on its own
-// after exploreDuration with a souvenir.
+// SendExploring sends the pet out on a trip to the park. It returns home
+// on its own after exploreDuration.
 func (p *DigitalPet) SendExploring() error {
+	return p.SendExploringTo(defaultPlace)
+}
+
+// SendExploringTo sends the pet out on a trip to a place it has discovered
+// (see Places). It returns home on its own after exploreDuration.
+func (p *DigitalPet) SendExploringTo(place string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	loc, ok := p.placeLocked(place)
+	if !ok {
+		return ErrUnknownPlace
+	}
+	if !p.discoveredLocked(place, loc) {
+		return ErrPlaceLocked
+	}
 	if err := p.checkActiveLocked(); err != nil {
 		return err
 	}
@@ -413,6 +512,7 @@ func (p *DigitalPet) SendExploring() error {
 	}
 
 	p.game = nil
+	p.ExploringTo = place
 	p.ExploringUntilAge = p.Biology.GetAgeInDays() + exploreDuration
 	p.CurrentBehavior = types.BehaviorExploring
 	return nil
@@ -477,6 +577,12 @@ func (p *DigitalPet) exploreOutcomeLocked() string {
 	injuryChance += extraInjury
 	treasureChance = int(float64(treasureChance) * treasureFactor)
 
+	// Wilder places are more dangerous and hold more, and a place others
+	// have picked over holds less
+	placeInjury, findFactor := p.placeOddsLocked()
+	injuryChance = max(injuryChance+placeInjury, 0)
+	treasureChance = min(int(float64(treasureChance)*findFactor), maxFindChance)
+
 	roll := randIntn(100)
 	switch {
 	case roll < injuryChance:
@@ -491,11 +597,13 @@ func (p *DigitalPet) exploreOutcomeLocked() string {
 // finishExploringLocked brings the pet home. Caller must hold p.mu.
 func (p *DigitalPet) finishExploringLocked() {
 	p.ExploringUntilAge = 0
-	adventure := &Adventure{Outcome: p.exploreOutcomeLocked()}
+	place, _ := p.tripPlaceLocked()
+	adventure := &Adventure{Outcome: p.exploreOutcomeLocked(), Place: place}
+	where := p.placePhraseLocked()
 
 	switch adventure.Outcome {
 	case OutcomeInjured:
-		adventure.Text = fmt.Sprintf("%s got hurt while exploring and came home limping. 🩹 It needs to be healed.", p.Name)
+		adventure.Text = fmt.Sprintf("%s got hurt at %s and came home limping. 🩹 It needs to be healed.", p.Name, where)
 		adventure.Changes = p.injureLocked()
 		adventure.Reaction = ReactionReluctant
 	default:
@@ -510,13 +618,14 @@ func (p *DigitalPet) finishExploringLocked() {
 			souvenir := p.pickSouvenirLocked()
 			p.Souvenirs = append(p.Souvenirs, souvenir.ID)
 			adventure.Souvenir = &souvenir
-			adventure.Text = fmt.Sprintf("%s came home from exploring with %s! %s", p.Name, souvenir.Name, souvenir.Icon)
+			adventure.Text = fmt.Sprintf("%s came home from %s with %s! %s", p.Name, where, souvenir.Name, souvenir.Icon)
 		} else if junk := junkFinds[randIntn(len(junkFinds))]; junk != "" {
-			adventure.Text = fmt.Sprintf("%s came home with %s. Not much of a treasure!", p.Name, junk)
+			adventure.Text = fmt.Sprintf("%s came home from %s with %s. Not much of a treasure!", p.Name, where, junk)
 		} else {
-			adventure.Text = fmt.Sprintf("%s came home empty-handed.", p.Name)
+			adventure.Text = fmt.Sprintf("%s came home from %s empty-handed.", p.Name, where)
 		}
 	}
+	adventure.Text += p.takeFromPlaceLocked(adventure.Outcome)
 
 	adventure.ReturnedAge = p.Biology.GetAgeInDays()
 	p.LastAdventure = adventure

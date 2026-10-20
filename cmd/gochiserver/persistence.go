@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,22 @@ type petStore struct {
 	mu    sync.Mutex // Serializes saves and loads
 	dm    *data.DataManager
 	saves map[string]*data.SaveData // Save metadata per slot
+	cache *data.Cache               // *cachedSave per slot
+}
+
+// saveCacheSize is how much pet data (in bytes) the store keeps in memory,
+// so listing pets and loading partners for breeding and introductions
+// doesn't read and check every save file each time
+const saveCacheSize = 32 << 20
+
+// cachedSave is a save file's contents as last read or written, with the
+// file's modification time and size then, which tell whether it changed
+type cachedSave struct {
+	modTime  time.Time
+	fileSize int64
+	saveData *data.SaveData
+	petData  []byte
+	summary  savedPet
 }
 
 // savedPet summarizes a saved pet for the pet list
@@ -46,7 +63,41 @@ func newPetStore(dir string) (*petStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &petStore{dm: dm, saves: make(map[string]*data.SaveData)}, nil
+	return &petStore{dm: dm, saves: make(map[string]*data.SaveData), cache: data.NewCache(saveCacheSize, 0)}, nil
+}
+
+// cached returns the cached contents of slot's save file, if it hasn't
+// changed since they were cached
+func (ps *petStore) cached(slot string) (*cachedSave, bool) {
+	value, ok := ps.cache.Get(slot)
+	if !ok {
+		return nil, false
+	}
+	entry := value.(*cachedSave)
+	info, err := os.Stat(ps.SavePath(slot))
+	if err != nil || !info.ModTime().Equal(entry.modTime) || info.Size() != entry.fileSize {
+		ps.cache.Delete(slot)
+		return nil, false
+	}
+	return entry, true
+}
+
+// cacheLocked caches the contents of slot's save file, just read or
+// written. Caller must hold ps.mu.
+func (ps *petStore) cacheLocked(slot string, saveData *data.SaveData) {
+	info, err := os.Stat(ps.SavePath(slot))
+	if err != nil {
+		ps.cache.Delete(slot)
+		return
+	}
+	petData := bytes.Clone(saveData.PetData)
+	summary, err := summarize(slot, petData, saveData.LastSaveTime)
+	if err != nil {
+		ps.cache.Delete(slot)
+		return
+	}
+	ps.cache.Set(slot, &cachedSave{modTime: info.ModTime(), fileSize: info.Size(), saveData: saveData,
+		petData: petData, summary: summary}, int64(len(petData)))
 }
 
 // Load restores the pet in slot from its most recent valid save or backup.
@@ -56,6 +107,13 @@ func newPetStore(dir string) (*petStore, error) {
 func (ps *petStore) Load(slot string) (pet *core.DigitalPet, path string, warning error, err error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+
+	if entry, ok := ps.cached(slot); ok {
+		if pet, err := core.Load(entry.petData); err == nil {
+			ps.saves[slot] = entry.saveData
+			return pet, ps.SavePath(slot), nil, nil
+		}
+	}
 
 	saveData, path, err := ps.dm.LoadLatest(slot)
 	if err != nil {
@@ -69,6 +127,9 @@ func (ps *petStore) Load(slot string) (pet *core.DigitalPet, path string, warnin
 	}
 
 	ps.saves[slot] = saveData
+	if path == ps.SavePath(slot) && warning == nil {
+		ps.cacheLocked(slot, saveData) // Not a backup, which the next save replaces
+	}
 	return pet, path, warning, nil
 }
 
@@ -116,7 +177,12 @@ func (ps *petStore) Save(slot string, petData []byte) error {
 	if err := saveData.SetPetData(json.RawMessage(petData)); err != nil {
 		return err
 	}
-	return ps.dm.Save(saveData, slot)
+	if err := ps.dm.Save(saveData, slot); err != nil {
+		ps.cache.Delete(slot)
+		return err
+	}
+	ps.cacheLocked(slot, saveData)
+	return nil
 }
 
 // List returns all saved pets, most recently saved first. Saves that
@@ -129,7 +195,7 @@ func (ps *petStore) List() ([]savedPet, error) {
 
 	pets := make([]savedPet, 0, len(files))
 	for _, file := range files {
-		pet, err := readSummary(strings.TrimSuffix(file.Filename, ".json"), file.Path)
+		pet, err := ps.readSummary(strings.TrimSuffix(file.Filename, ".json"), file.Path)
 		if err != nil {
 			continue
 		}
@@ -140,11 +206,17 @@ func (ps *petStore) List() ([]savedPet, error) {
 
 // Summary returns the list entry for the pet saved in slot
 func (ps *petStore) Summary(slot string) (savedPet, error) {
-	return readSummary(slot, ps.SavePath(slot))
+	return ps.readSummary(slot, ps.SavePath(slot))
 }
 
-// readSummary reads only the fields the pet list shows, not the whole pet
-func readSummary(slot, path string) (savedPet, error) {
+// readSummary returns the list entry for the pet saved at path, from the
+// cache if the file hasn't changed
+func (ps *petStore) readSummary(slot, path string) (savedPet, error) {
+	if path == ps.SavePath(slot) {
+		if entry, ok := ps.cached(slot); ok {
+			return entry.summary, nil
+		}
+	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return savedPet{}, err
@@ -153,7 +225,12 @@ func readSummary(slot, path string) (savedPet, error) {
 	if err != nil {
 		return savedPet{}, err
 	}
+	return summarize(slot, saveData.PetData, saveData.LastSaveTime)
+}
 
+// summarize reads only the fields the pet list shows from a saved pet's
+// data, not the whole pet
+func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error) {
 	var summary struct {
 		Name        string `json:"name"`
 		Species     string `json:"species"`
@@ -165,7 +242,7 @@ func readSummary(slot, path string) (savedPet, error) {
 			}
 		} `json:"biology"`
 	}
-	if err := json.Unmarshal(saveData.PetData, &summary); err != nil {
+	if err := json.Unmarshal(petData, &summary); err != nil {
 		return savedPet{}, err
 	}
 
@@ -180,7 +257,7 @@ func readSummary(slot, path string) (savedPet, error) {
 		Age:         summary.Biology.Processes.Age,
 		IsAlive:     summary.Biology.IsAlive,
 		Hibernating: summary.Hibernating,
-		SavedAt:     saveData.LastSaveTime,
+		SavedAt:     savedAt,
 	}, nil
 }
 
@@ -190,6 +267,7 @@ func (ps *petStore) Delete(slot string) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
+	ps.cache.Delete(slot)
 	if err := ps.dm.DeleteWithBackups(slot); err != nil {
 		return err
 	}

@@ -56,6 +56,7 @@ type GeneticSystem struct {
 	CrossoverPoints int
 	Requirements    BreedingRequirements
 	BreedingHistory []BreedingResult
+	SeasonModifier  float64 // Multiplies the chance of success (spring above 1, winter below); 0 means 1
 }
 
 // NewGeneticSystem creates a new genetic system with default settings
@@ -293,8 +294,11 @@ func (gs *GeneticSystem) Breed(parent1, parent2 *Genome) BreedingResult {
 		return result
 	}
 
-	// Breeding success chance based on compatibility
+	// Breeding success chance based on compatibility and the season
 	successChance := 0.5 + result.CompatibilityScore*0.5
+	if gs.SeasonModifier > 0 {
+		successChance = math.Min(successChance*gs.SeasonModifier, 1.0)
+	}
 	if rand.Float64() > successChance {
 		result.FailureReason = FailureChance
 		// Record failed attempt in history

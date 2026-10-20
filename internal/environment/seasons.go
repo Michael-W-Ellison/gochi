@@ -54,6 +54,7 @@ func NewSeasonalCycle() *SeasonalCycle {
 		SeasonProgress: 0.0,
 		StartDate:      time.Now(),
 	}
+	sc.updateTransition()
 	sc.Effects = sc.calculateSeasonalEffects()
 	return sc
 }
@@ -86,20 +87,20 @@ func (sc *SeasonalCycle) Update(gameDaysPassed float64) {
 	// Calculate progress within season
 	sc.SeasonProgress = float64(sc.DayOfSeason) / float64(sc.DaysPerSeason)
 
-	// Calculate transition phase (smooth transition in last/first 5 days)
-	transitionDays := 5.0
-	if float64(sc.DayOfSeason) <= transitionDays {
-		// Beginning of season - transitioning from previous
-		sc.TransitionPhase = float64(sc.DayOfSeason) / transitionDays
-	} else if float64(sc.DaysPerSeason-sc.DayOfSeason) <= transitionDays {
-		// End of season - transitioning to next
-		sc.TransitionPhase = float64(sc.DaysPerSeason-sc.DayOfSeason) / transitionDays
-	} else {
-		sc.TransitionPhase = 1.0 // Fully in current season
-	}
-
 	// Recalculate effects
+	sc.updateTransition()
 	sc.Effects = sc.calculateSeasonalEffects()
+}
+
+// seasonTransitionDays is how long a new season takes to replace the
+// previous one's effects
+const seasonTransitionDays = 5.0
+
+// updateTransition sets how far the season has moved on from the previous
+// one: a new season blends in over its first days, then holds until the
+// next begins, so effects change smoothly across the boundary
+func (sc *SeasonalCycle) updateTransition() {
+	sc.TransitionPhase = min(float64(sc.DayOfSeason)/seasonTransitionDays, 1.0)
 }
 
 // advanceSeason moves to the next season
@@ -281,6 +282,7 @@ func (sc *SeasonalCycle) SetSeason(season Season, dayOfSeason int) {
 		sc.DayOfSeason = sc.DaysPerSeason
 	}
 	sc.SeasonProgress = float64(sc.DayOfSeason) / float64(sc.DaysPerSeason)
+	sc.updateTransition()
 	sc.Effects = sc.calculateSeasonalEffects()
 }
 
