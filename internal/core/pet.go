@@ -236,7 +236,7 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	p.Memory.ConsolidateMemories()
 
 	// Update relationships
-	p.Relationships.UpdateAll(deltaTime)
+	p.updateRelationshipsLocked(deltaTime)
 
 	// Loneliness and neglect change the pet's personality
 	p.evolveFromNeglectLocked(deltaTime)

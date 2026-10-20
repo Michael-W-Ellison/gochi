@@ -341,6 +341,32 @@ Several kinds of care come in variants, each with its own effect and lesson:
   both pets and shown under **About**. The page explains how to introduce cats, dogs, or a cat and
   a dog.
 
+  Under **Spend time together** in the same panel, tick up to three of your other pets and choose
+  **Play**, **Nap** or, if your pet is a dog, **Walk** (dogs only). Every pair in the group gets on
+  according to their personalities, species and history: dogs enjoy a walk as a pack, close
+  companions curl up for a nap together while strangers won't, cooperative (agreeable) pets get on
+  better, and territorial cats get on worse the bigger the group.
+
+  - **Signals**: the pets talk to each other the way real ones do: dogs play-bow, wag and lick, or
+    sniff and circle warily; cats slow-blink, rub and touch noses, or watch and keep their
+    distance. The result lists what each pair did.
+  - **Pecking order**: each pet has a rank from its personality (outgoing, territorial, confident
+    pets rank higher, and young ones lower). The result shows the order and who leads the pack or
+    is top cat.
+  - **Conflicts**: two pets that don't get along clash. If one clearly outranks the other, the
+    lower one backs down after a growl or hiss and is a little stressed; if they are close in rank
+    they scuffle, which stresses and frightens both and makes them rivals. The page explains how to
+    handle a clash between cats, dogs, or a cat and a dog.
+  - **Group happiness**: the result gives how happy the group is together: the pets' average
+    happiness, lowered when they don't get along.
+
+  Everyone in the group is saved with what happened: good company lifts their mood and calms them,
+  a walk or play exercises them and a good nap rests them, and each pair's relationship records the
+  time together. Your pet takes it as care, like a meeting. **About** shows, for each pet yours
+  knows, what they last did together. A friendship or rivalry fades slowly once two pets have
+  spent 100 game days (about 1 hour 40 minutes of play) apart; family bonds never fade below a
+  certain level.
+
 ### Activities
 
 - **🎓 Train**: teach tricks (Sit, Shake a paw, Spin, Roll over, Play dead). Each session

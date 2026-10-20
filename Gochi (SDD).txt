@@ -536,6 +536,31 @@ cppclass SocialSystem {
     float calculateGroupHappiness();
     void handleConflict(DigitalPet& pet1, DigitalPet& pet2);
 };
+
+Implementation (core/group.go, social.go): introduceAnotherPet is section 3.4.3.
+processGroupActivity(activity, pets) has the active pet and one to three other saved pets play,
+nap or (all dogs) walk together; each needs energy above the activity's cost + 0.1 and must be
+awake, home and not hibernating. For each pair, harmony = meeting quality (section 3.4.3, with
+history (bond - rivalry - 0.2) x 0.25 from each side, or -0.05 for strangers) + the activity
+(play: 0.1 x (mean playfulness - 0.5); walk: +0.1; nap: +0.1 if both scores are at least 0.5,
+otherwise -0.15) + cooperation 0.1 x (mean agreeableness - 0.5) - territorial crowding (each cat
+loses 0.05 x (group size - 2) x territoriality), limited to 0.0 - 1.0. A pair below 0.45 clashes
+(handleConflict): if their dominance differs by 0.15 or more, the lower pet backs down after a
+growl or hiss (stress +0.05; bond change harmony - 0.45); otherwise they scuffle (both stress
++0.15, happiness -0.1, a hardship of 0.2; bond change 3 x (harmony - 0.45)) and the clash halves
+the pair's harmony. Dominance = 0.35 x extraversion + 0.3 x territoriality + 0.2 x (1 -
+neuroticism) + 0.15 x (1 - agreeableness), -0.2 for young pets; the group's pecking order and leader
+are reported. Pairs that don't clash signal by species and harmony (friendly at 0.6 or more,
+wary below), as text. Each pet's harmony is its mean over its pairs: the active pet takes the
+activity as SOCIAL_INTRODUCTION care, the others as a meeting; good company (0.6 or more) releases
+oxytocin and develops extraversion and agreeableness; the activity uses its energy, play and walks
+exercise (one and 1.2 play sessions) and a nap relieves 0.15 x harmony fatigue. Every pair's
+relationships record the shared experience (what they did, at each pet's age) and bond change
+(harmony - 0.45) x 2. calculateGroupHappiness = mean happiness x (0.6 + 0.4 x harmony), where
+harmony = 0.5 + (mean relationship score among pets that know each other - 0.2), limited to
+0.0 - 1.0. updateRelationships(deltaTime): relationships fade only after 100 game days without
+shared time (bond, affection and rivalry -0.002, trust -0.001 per game day), family bonds no lower
+than 0.3. The server saves every pet in the group (POST /api/group).
 3.7 Care Rewards and Shop
 3.7.1 Friendship Points
 cppclass CareRewards {

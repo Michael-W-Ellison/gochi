@@ -2,7 +2,6 @@ package social
 
 import (
 	"testing"
-	"time"
 
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -409,14 +408,15 @@ func TestRelationshipDecay(t *testing.T) {
 	rel.Affection = 0.8
 	rel.Trust = 0.8
 
-	// Simulate time passing (set last interaction to 2 days ago)
-	rel.LastInteraction = time.Now().Add(-48 * time.Hour)
+	// The pets last spent time together long ago
+	rel.LastSharedAge = 10
+	rel.Rivalry = 0.5
 
 	initialBond := rel.BondStrength
 	initialAffection := rel.Affection
 	initialTrust := rel.Trust
 
-	rel.Decay(1.0) // 1 unit of time
+	rel.Decay(10+FadeGrace+5, 1.0) // 1 game day, well past the grace period
 
 	if rel.BondStrength >= initialBond {
 		t.Error("BondStrength should decay after no interaction")
@@ -429,6 +429,24 @@ func TestRelationshipDecay(t *testing.T) {
 	if rel.Trust >= initialTrust {
 		t.Error("Trust should decay after no interaction")
 	}
+	if rel.Rivalry >= 0.5 {
+		t.Error("Grudges should fade too")
+	}
+
+	// Family bonds fade only so far
+	family := NewRelationship(types.PetID("parent"), types.RelationshipParent)
+	family.BondStrength, family.LastSharedAge = 0.5, 1
+	family.Decay(10000, 5000)
+	if family.BondStrength != FamilyBondFloor {
+		t.Errorf("Family bond = %.2f, want %.2f", family.BondStrength, FamilyBondFloor)
+	}
+
+	// With no record of shared time, the grace period starts now
+	unknown := NewRelationship(types.PetID("old"), types.RelationshipFriend)
+	unknown.Decay(500, 1)
+	if unknown.LastSharedAge != 500 || unknown.BondStrength != 0.3 {
+		t.Errorf("Unknown history: %+v", unknown)
+	}
 }
 
 // TestRelationshipNoDecayRecent tests no decay for recent interactions
@@ -440,14 +458,14 @@ func TestRelationshipNoDecayRecent(t *testing.T) {
 	rel.Affection = 0.8
 	rel.Trust = 0.8
 
-	// Last interaction is now (recent)
-	rel.LastInteraction = time.Now()
+	// They spent time together recently
+	rel.RecordShared("played together", 50, 0.2)
 
 	initialBond := rel.BondStrength
 	initialAffection := rel.Affection
 	initialTrust := rel.Trust
 
-	rel.Decay(1.0)
+	rel.Decay(50+FadeGrace-1, 1.0)
 
 	// Should not decay with recent interaction
 	if rel.BondStrength != initialBond {
@@ -616,13 +634,13 @@ func TestUpdateAll(t *testing.T) {
 	sr.AddRelationship(types.PetID("pet_1"), types.RelationshipFriend)
 	sr.AddRelationship(types.PetID("pet_2"), types.RelationshipFriend)
 
-	// Set old interaction times
+	// They last spent time together long ago
 	for _, rel := range sr.Relationships {
-		rel.LastInteraction = time.Now().Add(-48 * time.Hour)
+		rel.LastSharedAge = 1
 		rel.BondStrength = 0.8
 	}
 
-	sr.UpdateAll(1.0)
+	sr.UpdateAll(1+FadeGrace+10, 1.0)
 
 	// All should have decayed
 	for id, rel := range sr.Relationships {

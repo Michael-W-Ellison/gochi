@@ -117,3 +117,47 @@ func TestIntroductionThroughServer(t *testing.T) {
 		t.Errorf("A pet can't meet itself: %d", rec.Code)
 	}
 }
+
+func TestGroupActivityThroughServer(t *testing.T) {
+	server := newTestServer(t)
+	var slots []string
+	for _, name := range []string{"Max", "Bella"} {
+		if err := server.createPet(name, core.SpeciesDog, false, false); err != nil {
+			t.Fatal(err)
+		}
+		slots = append(slots, server.slot)
+	}
+	if err := server.createPet("Rex", core.SpeciesDog, false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"activity":"walk","partner_slots":["` + slots[0] + `","` + slots[1] + `"]}`
+	rec := post(t, server.handleGroup, body)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Rex, Max and Bella went for a walk together") ||
+		!strings.Contains(rec.Body.String(), `"order":[`) {
+		t.Fatalf("A group walk: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Every pet was saved knowing the others
+	for _, slot := range slots {
+		partner, _, _, err := server.store.Load(slot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if relations := partner.Relations(); len(relations) != 2 || relations[0].LastShared != "went for a walk together" {
+			t.Errorf("%s's save should record the walk: %+v", partner.Name, relations)
+		}
+	}
+
+	for _, bad := range []string{
+		`{"activity":"walk","partner_slots":[]}`,
+		`{"activity":"walk","partner_slots":["` + slots[0] + `","` + slots[0] + `"]}`,
+		`{"activity":"walk","partner_slots":["a","b","c","d"]}`,
+		`{"activity":"walk","partner_slots":["` + server.slot + `"]}`,
+		`{"activity":"dance","partner_slots":["` + slots[0] + `"]}`,
+	} {
+		if rec := post(t, server.handleGroup, bad); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %d %s", bad, rec.Code, rec.Body.String())
+		}
+	}
+}

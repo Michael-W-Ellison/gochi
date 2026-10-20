@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
@@ -258,5 +259,87 @@ func (s *Server) handleIntroduce(w http.ResponseWriter, r *http.Request) {
 	data["text"] = meeting.Text
 	data["quality"] = meeting.Quality
 	data["relationship"] = meeting.Relationship
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
+}
+
+// handleGroup handles POST /api/group with {"activity": "play", "walk" or
+// "nap", "partner_slots": [slot, ...]}: the active pet spends time with up
+// to three other saved pets, and all of them are saved
+func (s *Server) handleGroup(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Activity     string   `json:"activity"`
+		PartnerSlots []string `json:"partner_slots"`
+	}
+	if !decodePost(w, r, &req) {
+		return
+	}
+	if s.store == nil || len(req.PartnerSlots) == 0 || len(req.PartnerSlots) > 3 {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose one to three other pets"})
+		return
+	}
+	for i, slot := range req.PartnerSlots {
+		if !ValidSlot(slot) || slices.Contains(req.PartnerSlots[:i], slot) {
+			writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid partner"})
+			return
+		}
+	}
+
+	// Hold the save lock so every pet is saved together
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	s.markActiveLocked(time.Now())
+
+	pets := []*core.DigitalPet{s.pet}
+	for _, slot := range req.PartnerSlots {
+		if slot == s.slot {
+			writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: s.pet.Name + " is already in the group"})
+			return
+		}
+		partner, _, _, err := s.store.Load(slot)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No saved pet in that slot"})
+			return
+		}
+		pets = append(pets, partner)
+	}
+
+	result, err := core.ProcessGroupActivity(req.Activity, pets...)
+	switch {
+	case errors.Is(err, core.ErrUnknownGroup):
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown activity"})
+		return
+	case errors.Is(err, core.ErrDogsOnlyWalk):
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: "Only dogs go for walks together"})
+		return
+	case err != nil:
+		writeActivityError(w, s.pet.Name, err)
+		return
+	}
+
+	for i, partner := range pets[1:] {
+		if data, err := partner.Save(); err == nil {
+			if err := s.store.Save(req.PartnerSlots[i], data); err != nil {
+				log.Printf("Failed to save %s after a group activity: %v", partner.Name, err)
+			}
+		}
+	}
+	if err := s.saveActiveLocked(); err != nil {
+		log.Printf("Failed to save %s after a group activity: %v", s.pet.Name, err)
+	}
+
+	data := s.interactionData(result.InteractionResult)
+	data["text"] = result.Text
+	data["signals"] = result.Signals
+	data["conflicts"] = result.Conflicts
+	data["leader"] = result.Leader
+	data["order"] = result.Order
+	data["harmony"] = result.Harmony
+	data["group_happiness"] = result.Happiness
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/social"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -43,16 +44,24 @@ type socialInfo struct {
 	traits                     ai.Traits
 	alive, hibernating, asleep bool
 	exploring                  bool
+	energy                     float64
+	young                      bool
+	relations                  map[types.PetID]float64 // How it gets along with pets it knows (relationScore)
 }
 
 func (p *DigitalPet) socialInfo() socialInfo {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return socialInfo{
+	info := socialInfo{
 		id: p.ID, name: p.Name, species: p.speciesLocked(), traits: *p.Personality.Traits,
 		alive: p.Biology.IsAlive, hibernating: p.Hibernating, exploring: p.isExploringLocked(),
-		asleep: p.CurrentBehavior == types.BehaviorSleeping,
+		asleep: p.CurrentBehavior == types.BehaviorSleeping, energy: p.Biology.Vitals.Energy,
+		young: p.Biology.LifeStage() == biology.StageYoung, relations: make(map[types.PetID]float64),
 	}
+	for id, rel := range p.Relationships.Relationships {
+		info.relations[id] = relationScore(rel)
+	}
+	return info
 }
 
 // unavailable explains why a pet can't meet another now, or returns ""
@@ -139,11 +148,11 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 		return Meeting{}, RefusedError{result.Refusal}
 	}
 	bond := (quality - cautiousMeeting) * 2 * weight
-	description := a.recordMeetingLocked(infoB, bond)
+	description := a.recordMeetingLocked(infoB, bond, "met")
 	a.mu.Unlock()
 
 	b.mu.Lock()
-	b.recordMeetingLocked(infoA, bond)
+	b.recordMeetingLocked(infoA, bond, "met")
 	b.meetLocked(quality)
 	b.mu.Unlock()
 
@@ -163,10 +172,10 @@ func Introduce(a, b *DigitalPet) (Meeting, error) {
 	return meeting, nil
 }
 
-// recordMeetingLocked records a meeting with another pet in this pet's
-// relationships, and returns how they get along now. Caller must hold
-// p.mu.
-func (p *DigitalPet) recordMeetingLocked(other socialInfo, bond float64) string {
+// recordMeetingLocked records time spent with another pet (what they did)
+// in this pet's relationships, and returns how they get along now. Caller
+// must hold p.mu.
+func (p *DigitalPet) recordMeetingLocked(other socialInfo, bond float64, what string) string {
 	rel, ok := p.Relationships.GetRelationship(other.id)
 	if !ok {
 		kind := types.RelationshipFriend
@@ -180,6 +189,7 @@ func (p *DigitalPet) recordMeetingLocked(other socialInfo, bond float64) string 
 		rel.Clamp()
 	}
 	rel.Update(max(min(bond, 1), -1), p.Biology.GetAgeInDays())
+	rel.RecordShared(what, p.Biology.GetAgeInDays(), bond)
 
 	// Friends and rivals follow how the meetings go; family stays family
 	if rel.Type == types.RelationshipFriend || rel.Type == types.RelationshipRival {
@@ -260,6 +270,7 @@ type PetRelation struct {
 	Name        string `json:"name"`
 	Kind        string `json:"kind"` // friend, rival, mate, parent or baby
 	Description string `json:"description"`
+	LastShared  string `json:"last_shared,omitempty"` // What they last did together, such as "napped together"
 }
 
 // relationKinds name each relationship type
@@ -282,7 +293,11 @@ func (p *DigitalPet) Relations() []PetRelation {
 		if !ok {
 			continue
 		}
-		relations = append(relations, PetRelation{Name: name, Kind: relationKinds[rel.Type], Description: describeRelation(rel)})
+		relation := PetRelation{Name: name, Kind: relationKinds[rel.Type], Description: describeRelation(rel)}
+		if last, ok := rel.LastShared(); ok {
+			relation.LastShared = last.Description
+		}
+		relations = append(relations, relation)
 	}
 	sortRelations(relations)
 	return relations

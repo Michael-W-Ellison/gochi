@@ -263,6 +263,7 @@ func main() {
 	mux.HandleFunc("/api/supplies/buy", server.handleBuySupply)
 	mux.HandleFunc("/api/enrich", server.handleEnrich)
 	mux.HandleFunc("/api/introduce", server.handleIntroduce)
+	mux.HandleFunc("/api/group", server.handleGroup)
 	mux.HandleFunc("/api/introduce/partners", server.handleIntroducePartners)
 	mux.HandleFunc("/api/ar", server.handleARState)
 	mux.HandleFunc("/api/ar/session", server.handleARSession)
@@ -1486,7 +1487,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             setList('aboutChanges', 'Changed since adoption', status.personality_changes || [], 'not yet');
             setList('aboutTrends', 'Lately becoming', status.trends || [], 'no clear change');
             setList('aboutRewarded', 'Has learned you respond to', status.rewarded || [], 'nothing yet');
-            setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description + ')'),
+            setList('aboutRelations', 'Knows', (status.relations || []).map(r => r.name + ' (' + r.description +
+                (r.last_shared ? '; last: ' + r.last_shared : '') + ')'),
                 'no other pets yet');
             document.getElementById('activity').textContent =
                 status.is_alive ? status.name + ' ' + status.activity :
@@ -2008,9 +2010,74 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                                 })
                                 .catch(console.error);
                         })));
+                    if (data.data.length > 0) renderGroup(p, data.data);
                     p.classList.remove('hidden');
                 })
                 .catch(console.error);
+        }
+
+        // Group activities: the active pet and up to three others play, nap
+        // or (dogs) go for a walk together
+        const maxGroupPartners = 3;
+        function renderGroup(p, partners) {
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = 'Spend time together';
+            title.style.marginTop = '14px';
+            const intro = document.createElement('div');
+            intro.className = 'panel-text';
+            intro.textContent = 'Pick up to ' + maxGroupPartners + ' pets to join ' + lastStatus.name +
+                '. Pets that don\'t get along may clash, and the group sorts out who is in charge.';
+            p.append(title, intro);
+
+            const chosen = new Set();
+            partners.forEach(partner => {
+                const row = document.createElement('label');
+                row.className = 'method-row';
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.onchange = () => {
+                    if (box.checked && chosen.size >= maxGroupPartners) {
+                        box.checked = false;
+                        showPointsToast('At most ' + maxGroupPartners + ' other pets at a time.');
+                        return;
+                    }
+                    box.checked ? chosen.add(partner.slot) : chosen.delete(partner.slot);
+                };
+                row.append(box, ' ' + (partner.species === 'dog' ? '🐶 ' : '🐱 ') + partner.name);
+                p.append(row);
+            });
+
+            const buttons = document.createElement('div');
+            buttons.className = 'save-row';
+            const activities = [['play', '🎾 Play'], ['nap', '💤 Nap']];
+            if (lastStatus.species === 'dog') activities.push(['walk', '🦮 Walk']);
+            activities.forEach(([activity, label]) => {
+                const btn = document.createElement('button');
+                btn.className = 'save-btn';
+                btn.textContent = label;
+                btn.onclick = () => {
+                    if (chosen.size === 0) {
+                        showPointsToast('Pick at least one pet to join in.');
+                        return;
+                    }
+                    postJSON('/api/group', {activity: activity, partner_slots: [...chosen]})
+                        .then(data => {
+                            if (!data.success) {
+                                showPointsToast(data.error || 'Something went wrong');
+                                return;
+                            }
+                            const d = data.data;
+                            const lines = [d.text].concat(d.signals || [], (d.conflicts || []).map(c => '⚠️ ' + c.text));
+                            showResult(d, lines.join(' '));
+                            setTimeout(fetchStatus, 500);
+                            openMeet();
+                        })
+                        .catch(console.error);
+                };
+                buttons.append(btn);
+            });
+            p.append(buttons);
         }
 
         function openTricks() {
