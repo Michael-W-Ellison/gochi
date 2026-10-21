@@ -181,6 +181,13 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 // the save data and the path it was loaded from. If neither the save file
 // nor any backup exists, the error wraps os.ErrNotExist.
 func (dm *DataManager) LoadLatest(filename string) (*SaveData, string, error) {
+	return dm.LoadLatestUsable(filename, nil)
+}
+
+// LoadLatestUsable is LoadLatest that also skips saves usable rejects
+// (for one whose contents are damaged although the file is intact). A
+// nil usable accepts every save that reads.
+func (dm *DataManager) LoadLatestUsable(filename string, usable func(*SaveData) error) (*SaveData, string, error) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
@@ -198,6 +205,9 @@ func (dm *DataManager) LoadLatest(filename string) (*SaveData, string, error) {
 		saveData, err := dm.loadPathLocked(path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
+		}
+		if err == nil && usable != nil {
+			err = usable(saveData)
 		}
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", path, err))

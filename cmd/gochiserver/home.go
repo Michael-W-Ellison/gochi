@@ -37,8 +37,12 @@ func (s *Server) starsForTripLocked() {
 	if a := s.pet.LastAdventure; a != nil && a.Discovered != "" {
 		s.awardStarsLocked(starsNewPlace, "place:"+string(s.pet.ID)+":"+a.Discovered, true, "discovering a new place")
 	}
-	if a := s.pet.LastAdventure; a != nil && a.Souvenir != nil {
-		s.collectLocked(s.pet, []string{a.Souvenir.ID})
+	if a := s.pet.LastAdventure; a != nil {
+		found := a.Extra // A long trip's second find
+		if a.Souvenir != nil {
+			found = append([]string{a.Souvenir.ID}, found...)
+		}
+		s.collectLocked(s.pet, found)
 	}
 }
 

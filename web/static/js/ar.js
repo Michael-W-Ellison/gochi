@@ -584,7 +584,7 @@ const GochiAR = (function() {
         petContainer.classList.add('visible');
 
         // Copy pet sprite from main view
-        const mainPetSprite = document.getElementById('pet-sprite');
+        const mainPetSprite = document.getElementById('petSprite');
         if (config.petSprite) {
             // Sized like the drawn pet (200px) before the AR scale applies
             petElement.innerHTML = '<div class="pet-sprite" style="width: 200px; height: 200px; line-height: 0;"></div>';

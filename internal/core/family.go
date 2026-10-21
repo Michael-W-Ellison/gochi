@@ -155,3 +155,18 @@ func (p *DigitalPet) MarkAdultWarned() bool {
 	p.AdultWarned = true
 	return warned
 }
+
+// SetName renames the pet
+func (p *DigitalPet) SetName(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Name = name
+}
+
+// SetLocation records where the pet is (home or a place to explore), as
+// another client of the REST API sets it
+func (p *DigitalPet) SetLocation(location string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Location = location
+}
