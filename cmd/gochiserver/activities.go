@@ -480,6 +480,7 @@ func (s *Server) handleBreed(w http.ResponseWriter, r *http.Request) {
 	s.observePet(partner, false)
 
 	log.Printf("%s and %s had a baby: %s", s.pet.Name, partner.Name, baby.Name)
+	s.birthPopupLocked(baby)
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
 		"baby_name": baby.Name,
 		"baby_slot": babySlot,

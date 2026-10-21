@@ -613,28 +613,63 @@ before breeding again.
 Caring for a pet earns it Friendship Points: 5 points for each kind of care (including training
 and exploring), at most once every 3 minutes per kind (more clicks still help your pet but earn nothing extra). The
 3 minutes are of the game running, not of the computer's clock, so changing the clock doesn't
-hurry them. Points belong to the pet that earned them. Press **Shop** to spend them on items for that pet:
+hurry them. Points belong to the pet that earned them; a steady player earns about 250 an hour.
+Press **Shop** to spend them on things for that pet. The shop has five tabs: **Equipment**,
+**Decorations**, **Wardrobe**, **Pantry** and **House** (the last is bought with Home Stars, below).
 
-| Item | Price | Effect |
+Items come in rarities. Common ones are available from the start; uncommon, rare, epic and
+legendary ones unlock once the pet has earned 50, 150, 300 and 600 Friendship Points over its life.
+Buying every everyday item takes roughly 40 hours of play.
+
+**Equipment** is kept and works automatically. Items of the same kind replace each other: only the
+dearest one owned applies. Some are for one species only. A selection:
+
+| Kind | Items (price) | Effect |
 |---|---|---|
-| Sturdy Food Bowl | 100 | Hunger builds 20% slower |
-| Automatic Feeder | 250 | Hunger builds 40% slower |
-| Big Water Bowl | 100 | Thirst builds 20% slower |
-| Water Fountain | 250 | Thirst builds 40% slower |
-| Squeaky Toy | 80 | Playing is 25% more fun |
-| Puzzle Ball | 200 | Playing is 50% more fun |
-| Cozy Bed | 150 | Tiredness builds 25% slower |
-| Soft Brush | 80 | Grooming is 50% more effective |
-| Training Clicker | 40 | Needed for clicker training, which is 40% faster |
-| Balloon, Potted Plant, Night Lamp, Painting, Rainbow Mural | 30–120 | Decorations |
+| Food and water | Sturdy Food Bowl (160), Automatic Feeder (400), Big Water Bowl (160), Water Fountain (400) | Hunger or thirst builds 20% / 40% slower |
+| Toys, brush, training | Squeaky Toy (130), Puzzle Ball (320), Soft Brush (130), Training Clicker (65) | Play more fun, grooming more effective, clicker training 40% faster |
+| Beds | Cozy Bed (240), Orthopedic Bed (560) | Tiredness builds slower; the orthopedic bed also helps seniors |
+| Hygiene | Litter Mat (95), Second Litter Box (290) and Self-cleaning Litter Box (720) for cats; Potty Patch (190) for dogs | The living area gets dirty slower; fewer accidents |
+| Comfort and weather | Heated Bed (350), Cooling Mat (350), Hiding Cave (190, cats), Covered Crate (190, dogs) | Less weather stress in cold or heat; stress eases faster |
+| Safety and health | First-aid Kit (240), Travel Harness (290, dogs), Cat Carrier (290, cats), Flea and Tick Collar (240) | Treat trip injuries at home; fewer injuries and parasites on trips |
+| Things to do | Cat Tree (510) and Aquarium to Watch (640) for cats; Agility Set (510), Automatic Ball Launcher (640) and Snuffle Mat (145) for dogs | More stimulation and exercise, some while the pet is idle |
+| Old age | Pet Steps (960) | Seniors tire less from moving |
 
-Items work automatically once bought; if a pet owns two items of the same kind, the better one
-applies. Owned items are shown under the pet's name, with an **Active effects** list of the items
-currently working. When a toy or brush improves an action, the page says so after that action.
-Toys make play more fun without making it more tiring.
+Effects that reduce a rate are capped: together they bring it to no less than half.
 
-**Supplies** are sold in the same shop and are used up: food, treats and toys that wear out. They
-are kept in the pet's pantry, and the shop only shows those for the pet's species.
+**Upkeep.** Some equipment needs looking after, as real pets do: the Water Fountain's filter (every
+300 game days), the Cozy Bed's bedding (200), the Flea and Tick Collar (500) and the First-aid Kit's
+uses (3 per refill). When one lapses, the item works at half strength or stops; the pet screen
+lists what is due. Replacements are sold in the pantry. A **Vaccination** lowers the chance of
+illness from dirt or foul air for 1,000 game days, and is then due again.
+
+**Decorations** suit a personality (for example a Night Lamp halves night-time stress for a
+nervous pet). Apart from the Night Lamp, their effects are small: together they change anything by
+at most 6%.
+
+**Seasonal items** are sold only in their real season (Flower Box in spring, Paddling Pool and Ice
+Treat Mold in summer (for dogs and cats respectively), Leaf Pile in autumn, Knitted Sweater in winter) and work only in that season.
+Seasons follow the real calendar for the hemisphere chosen in **⚙️ Settings** (the game asks once).
+The game's weather and the breeding season follow the same calendar.
+
+**Holiday items.** 20 holidays from around the world each have 3 items (a decoration, a cosmetic
+and a treat or toy), sold from a week before the holiday to a week after it: New Year, Lunar New
+Year, Valentine's Day, Nowruz, Holi, Easter, Eid al-Fitr, Earth Day, Vesak, Eid al-Adha,
+International Cat Day, International Dog Day, the Mid-Autumn Festival, World Animal Day, Diwali,
+Halloween, the Day of the Dead, Hanukkah, Christmas and Kwanzaa. Dates that move each year are
+worked out from the astronomical or calendar rules for each holiday, not from a table, so they stay
+right in future years. At most one holiday item can be bought each time the game is started. A
+parent can turn any holiday, or all of them, off in **🔒 Privacy** (the parent PIN is needed if
+one is set); a holiday that is off has no shop and its decorations and cosmetics aren't shown.
+
+**Wardrobe.** 50 everyday cosmetics (plus seasonal and holiday ones) in six slots: head, eyes,
+neck, collar, tag and body. Cosmetics only change how the pet looks; it can wear one per slot, and
+what it takes off is kept. The outfit is drawn on the pet, and other players see it at
+[AR playdates](#ar-playdates) (only the item IDs from the game's list are sent).
+
+**Supplies** are sold in the Pantry tab and are used up: food, treats, toys that wear out, and care
+supplies. They are kept in the pet's pantry (up to 40 units), and the shop only shows those for the
+pet's species. Two supplies are on sale (25% off) each day.
 
 - **Food**: each species' dry food is always available and free, so a pet never goes hungry for
   lack of points. Wet food adds water, plain cooked fish or chicken is a tasty topper (not a
@@ -643,15 +678,45 @@ are kept in the pet's pantry, and the shop only shows those for the pet's specie
   dogs are lactose intolerant), table scraps (fatty and sometimes toxic), and chocolate for dogs.
   The page warns you before feeding them. Milk and table scraps upset the stomach; chocolate
   poisons a dog, which then needs medical care (**Heal**) before it gets worse.
-- **Treats**, used for treat and clicker training.
+- **Treats**, used for treat and clicker training. Freeze-dried treats make the next training
+  session count 50% more.
 - **Toys**: for cats a feather wand, a catnip mouse (about two cats in three react to catnip,
   depending on their genes) and a laser pointer; for dogs a tennis ball, a rope toy and a chew toy;
   and a puzzle feeder for either. Most toys wear out after a number of play sessions.
+- **Care**: fountain filters, fresh bedding, replacement flea collars, first-aid refills,
+  vaccinations, a dewormer, probiotics, joint supplements for seniors, dental chews (dogs) and cat
+  grass (cats). Press **Give** in the pantry to use one; some count once a day.
 - **Health**: the life-extension potion (see Health and Learning Real Care).
 
-Supplies come in rarities. Common ones are available from the start; uncommon, rare, epic and
-legendary ones unlock once the pet has earned 50, 150, 300 and 600 Friendship Points over its
-life. Two supplies are on sale (25% off) each day.
+### Home Stars and the House
+
+Home Stars belong to you, not to a pet, and are spent in the shop's **House** tab on things for the
+whole house. They are earned by playing: 3 for each trip, 10 for each new place discovered, 10 to
+50 for each achievement, 5 for finishing all of a day's goals, and 5 for each day with at least 10
+minutes of play (with 20 more after 7 days in a row and 60 more after 30).
+
+- **House upgrades** (2,400 Home Stars in all) help every pet: whole-house air filtration (its
+  filter needs replacing every 300 game days, for 20 Home Stars), climate control, a laundry room,
+  a playroom, a sunroom, a multi-pet feeding station, a pet door to a fenced yard, a catio, a home
+  vet corner and a quiet room for seniors.
+- **House looks** change the scene behind your pets: wallpaper, floors, the view from the window
+  and a nameplate.
+
+Home Stars and the house are kept in `<data-dir>/household.json`, which only your user account can
+read. With a [cloud hub](#cloud-backup-sync-and-sharing), they go to your other devices sealed with
+your account key like a pet's save, and stars earned on two devices are both counted, once.
+
+### Families: Giving Points and Inheritance
+
+A baby starts with no points and no belongings. While it is young (60 game days: about an hour of
+play while it is the active pet), its parents can give it Friendship Points: switch to a parent,
+open **Body**, and choose **👪 Family**. When a baby is born, a pop-up says how long it stays young.
+When it is the active pet and has 5 minutes of play left before it grows up, another pop-up says so
+and lists its parents' points. After it grows up, points can pass to it only when a parent dies.
+
+When a pet dies, its **Family** panel can pass its belongings (equipment, decorations, cosmetics
+and unopened supplies) and any of its Friendship Points on to one of its living children, once.
+Giving points and passing things on need the parent PIN if one is set.
 
 ### Hibernation (Gentle Mode)
 

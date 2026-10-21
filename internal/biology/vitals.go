@@ -161,6 +161,24 @@ type DecayMultipliers struct {
 	Hydration float64
 	Fatigue   float64
 	Energy    float64
+
+	// What the pet's belongings and home change besides needs: how fast
+	// cleanliness and happiness fall, stress eases and builds (and the
+	// most it can reach, 0 for no limit), fitness fades and builds (from
+	// walks and play), the airways are harmed and heal, sleep restores
+	// and sleep debt is repaid, and the gut recovers
+	Cleanliness       float64
+	HappinessDrop     float64
+	StressRecovery    float64
+	StressGain        float64
+	StressCap         float64
+	FitnessLoss       float64
+	FitnessGain       float64
+	AirDamage         float64
+	AirRecovery       float64
+	Rest              float64
+	SleepDebt         float64
+	DigestiveRecovery float64
 }
 
 // rate returns the multiplier to apply, treating 0 as the normal rate
@@ -201,6 +219,7 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 	b.EnsureCircadian()
 
 	// The sleep cycle, hormones, and the abilities age and hormones give
+	b.Circadian.DebtRepay = b.DecayMultipliers.SleepDebt
 	b.Circadian.Follow(deltaTime*24, b.Inputs.TimeOfDay, b.Inputs.Asleep)
 	b.updateHormones(deltaTime)
 	b.updateAging(deltaTime)
@@ -253,7 +272,7 @@ func (b *BiologicalSystems) ProcessRest(deltaTime, sleepQuality float64) {
 		return
 	}
 	quality := sleepQuality * b.SleepQualityFactor()
-	b.Vitals.Fatigue -= 0.5 * quality * deltaTime
+	b.Vitals.Fatigue -= 0.5 * quality * deltaTime * rate(b.DecayMultipliers.Rest)
 	b.Vitals.Energy += 0.15 * quality * b.agingFactor(0.3) * deltaTime
 	b.Vitals.Clamp()
 }
@@ -289,12 +308,12 @@ func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	}
 
 	// Cleanliness decreases slowly
-	b.Vitals.Cleanliness -= deltaTime * 0.01
+	b.Vitals.Cleanliness -= deltaTime * 0.01 * rate(b.DecayMultipliers.Cleanliness)
 
 	// Happiness slowly drifts towards the mood serotonin sets
 	setPoint := b.moodSetPoint()
 	if b.Vitals.Happiness > setPoint {
-		b.Vitals.Happiness = max(b.Vitals.Happiness-deltaTime*0.005, setPoint)
+		b.Vitals.Happiness = max(b.Vitals.Happiness-deltaTime*0.005*rate(b.DecayMultipliers.HappinessDrop), setPoint)
 	} else {
 		b.Vitals.Happiness = min(b.Vitals.Happiness+deltaTime*0.005, setPoint)
 	}
@@ -302,11 +321,14 @@ func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	// Stress slowly decreases if conditions are good, faster with
 	// oxytocin from affection
 	if b.Vitals.GetOverallWellbeing() > 0.7 {
-		b.Vitals.Stress -= deltaTime * (0.02 + 0.03*b.Hormones.Oxytocin)
+		b.Vitals.Stress -= deltaTime * (0.02 + 0.03*b.Hormones.Oxytocin) * rate(b.DecayMultipliers.StressRecovery)
 	} else {
 		// Stress increases if wellbeing is poor, faster with a worn
 		// nervous system
-		b.Vitals.Stress += deltaTime * 0.01 * b.StressSensitivity()
+		b.Vitals.Stress += deltaTime * 0.01 * b.StressSensitivity() * rate(b.DecayMultipliers.StressGain)
+	}
+	if limit := b.DecayMultipliers.StressCap; limit > 0 {
+		b.Vitals.Stress = min(b.Vitals.Stress, limit)
 	}
 
 	// Health is affected by other vital stats

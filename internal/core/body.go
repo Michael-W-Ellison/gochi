@@ -250,7 +250,8 @@ func (p *DigitalPet) selfExerciseScoreLocked() float64 {
 		return 0
 	}
 	p.ensureNeedsLocked()
-	return 0.5*(1-p.Needs.GetNeedLevel(types.NeedExercise)) + 0.5*p.Personality.Traits.EnergyLevel
+	return 0.5*(1-p.Needs.GetNeedLevel(types.NeedExercise)) + 0.5*p.Personality.Traits.EnergyLevel +
+		p.effectLocked(effSelfExercise)
 }
 
 // selfCareLocked applies what the pet does on its own over deltaTime game

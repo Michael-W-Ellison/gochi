@@ -80,12 +80,13 @@ func roundLevel(v, lowest float64) float64 {
 
 // CardRequest is what a player's game says about its pet
 type CardRequest struct {
-	PetKey      string  `json:"pet_key"` // The pet's hub key (PetKey)
-	Species     string  `json:"species"`
-	Young       bool    `json:"young"`
-	Sociability float64 `json:"sociability"`
-	Unavailable string  `json:"unavailable,omitempty"` // A core Unavailable code, or ""
-	Look        string  `json:"look"`                  // One of core.SpriteStates
+	PetKey      string            `json:"pet_key"` // The pet's hub key (PetKey)
+	Species     string            `json:"species"`
+	Young       bool              `json:"young"`
+	Sociability float64           `json:"sociability"`
+	Unavailable string            `json:"unavailable,omitempty"` // A core Unavailable code, or ""
+	Look        string            `json:"look"`                  // One of core.SpriteStates
+	Outfit      map[string]string `json:"outfit,omitempty"`      // Cosmetic IDs from the game's list, by slot
 }
 
 // Card is a pet at a playdate as every member sees it. The hub fills in
@@ -98,6 +99,8 @@ type Card struct {
 	Sociability float64 `json:"sociability"`
 	Unavailable string  `json:"unavailable,omitempty"`
 	Look        string  `json:"look"`
+	// What the pet wears: a cosmetic ID from the game's list per slot
+	Outfit map[string]string `json:"outfit,omitempty"`
 }
 
 // unavailableCodes are the reasons a card can give
@@ -108,13 +111,14 @@ var unavailableCodes = []string{"", core.UnavailableGone, core.UnavailableHibern
 func makeCard(accountID, handle string, req CardRequest) (Card, error) {
 	species := core.Species(req.Species)
 	if !keyPattern.MatchString(req.PetKey) || !species.Known() || !contains(core.SpriteStates, req.Look) ||
-		!contains(unavailableCodes, req.Unavailable) || math.IsNaN(req.Sociability) {
+		!contains(unavailableCodes, req.Unavailable) || math.IsNaN(req.Sociability) ||
+		len(req.Outfit) > len(core.CosmeticSlots) || !core.ValidOutfit(req.Outfit) {
 		return Card{}, ErrBadCard
 	}
 	sum := sha256.Sum256([]byte("playmate:" + accountID + ":" + req.PetKey))
 	return Card{ID: "playmate_" + hex.EncodeToString(sum[:12]), Name: handle + "'s " + strings.ToLower(species.Def().Name),
 		Species: req.Species, Young: req.Young, Sociability: roundLevel(req.Sociability, 0),
-		Unavailable: req.Unavailable, Look: req.Look}, nil
+		Unavailable: req.Unavailable, Look: req.Look, Outfit: req.Outfit}, nil
 }
 
 // PlaydateMember is a player at a playdate

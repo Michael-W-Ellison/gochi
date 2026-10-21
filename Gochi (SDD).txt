@@ -578,34 +578,82 @@ earned them.
 3.7.2 Shop
 cppstruct ShopItem {
     ItemId id;
-    ItemCategory category;   // FOOD_BOWL, WATER_BOWL, TOY, BED, BRUSH, DECORATION
+    ItemCategory category;   // Food and water, toys, beds, grooming, training, hygiene, comfort,
+                             // safety and health, things to do, old age, decoration, seasonal, holiday
     int price;
-    float effect;            // Decay multiplier (bowls, bed) or effectiveness multiplier (toys, brush)
+    Rarity rarity;           // Unlocks by lifetime points: uncommon 50, rare 150, epic 300, legendary 600
+    Species species[];       // Empty for both
+    string group;            // Items in a group replace each other: the dearest owned applies
+    Effect effects[];        // Each a kind, a value and an optional condition
+    map<Upkeep, Days> upkeep;
+    Season season;           // Sold only in this real season
+    HolidayId holiday;       // Sold only around this holiday
 };
 
-Item                      Price   Effect
-Sturdy Food Bowl          100     Hunger builds 20% slower
-Automatic Feeder          250     Hunger builds 40% slower
-Big Water Bowl            100     Thirst builds 20% slower
-Water Fountain            250     Thirst builds 40% slower
-Squeaky Toy               80      Playing is 25% more fun
-Puzzle Ball               200     Playing is 50% more fun
-Cozy Bed                  150     Tiredness builds 25% slower; sleep is 25% more restful
-Soft Brush                80      Grooming is 50% more effective
-Decorations (5)           30-120  Cosmetic only
+struct Effect {
+    EffectKind kind;         // A decay rate (hunger, thirst, tiredness, mess, stress, ...) or a care boost
+    float value;
+    Condition when;          // A trait, senior, cold, hot, a season, night, upkeep fresh or lapsed, ...
+};
 
-Items apply automatically once bought. Within a category only the strongest owned item applies.
-Toys make play more fun without making it more tiring. The Training Clicker (40 points) enables
-clicker training.
+Prices are set for about 250 points an hour of steady play; the everyday items take about 40
+hours of play to buy. Equipment covers food and water bowls, toys, beds, a brush and clicker,
+hygiene (litter mats and boxes, a potty patch), comfort (heated bed, cooling mat, hiding cave or
+covered crate), safety and health (first-aid kit, travel harness or cat carrier, flea and tick
+collar), things to do (cat tree, aquarium, agility set, ball launcher, snuffle mat) and old age
+(pet steps); some are for one species. Reductions are capped so that together they bring a rate to
+no less than half. Decorations suit a personality and together change anything by at most 6%,
+except effects marked uncapped (the night lamp halves night-time stress for a nervous pet).
+
+Upkeep: the water fountain's filter (300 game days), the bed's bedding (200), the flea collar (500)
+and the first-aid kit's uses (3) run out; a lapsed item works at reduced strength. Replacements,
+vaccinations (1,000 game days), a dewormer, probiotics, joint supplements, freeze-dried treats,
+dental chews and cat grass are care supplies (3.7.3).
+
+Seasonal items are sold, and work, only in their real season. Seasons follow the real calendar for
+the hemisphere the player chooses (northern or southern), and the game's weather and breeding
+season follow the same calendar.
+
+Holidays: 20 holidays (New Year, Lunar New Year, Valentine's Day, Nowruz, Holi, Easter, Eid
+al-Fitr, Earth Day, Vesak, Eid al-Adha, International Cat Day, International Dog Day, Mid-Autumn
+Festival, World Animal Day, Diwali, Halloween, Day of the Dead, Hanukkah, Christmas, Kwanzaa), each
+with a decoration, a cosmetic and a treat or toy, sold from 7 days before to 7 days after. Movable
+dates are computed (astronomical new and full moons, solar longitude, the Gregorian and Julian
+Easter rules, the Hebrew calendar and the tabular Islamic calendar) rather than read from a table.
+At most one holiday item may be bought per game session. A parent can turn any or all holidays off
+(parent PIN; this computer only); a holiday that is off has no shop and its items are hidden.
+
+Cosmetics: 50 everyday, plus seasonal and holiday ones, in six slots (head, eyes, neck, collar, tag,
+body), one worn per slot. They change only appearance and are shown at playdates as IDs from the
+game's list, which the hub checks (no free text).
+
 3.7.3 Supplies
 Supplies are consumables built on the interaction package's item system: Item templates with
 rarities, an ItemCatalog per pet, an Inventory as the pet's pantry (quantities; toys with uses),
 and a Shop that applies discounts and takes payment from the pet's Friendship Points. Each
 species has its own foods, treats and toys (a few, such as milk, table scraps and the puzzle
 feeder, are for both). Rarities unlock by lifetime points earned: uncommon 50, rare 150, epic 300,
-legendary 600. Two unlocked supplies are 25% off each calendar day, chosen from the date. A
+legendary 600. The pantry holds 40 units. Two unlocked supplies are 25% off each calendar day, chosen from the date. A
 purchase buys a pack (for example 3 meals or 10 treats). The life-extension potion (legendary, 1,000
 points) is a health supply kept in the pantry and given with POST /api/potion (section 3.1.2).
+
+3.7.4 Home Stars and the House
+Home Stars belong to the player, not a pet: 3 per trip, 10 per new place, 10 to 50 per
+achievement, 5 for a day's goals, 5 for a day with 10 minutes of play, and 20 and 60 more for 7 and
+30 such days in a row. They buy house upgrades (2,400 in all) that apply to every pet (air
+filtration, which needs a 20-star filter every 300 game days; climate control; laundry room;
+playroom; sunroom; multi-pet feeding station; pet door to a fenced yard; catio; home vet corner;
+quiet room) and house looks (wallpaper, floor, window view, nameplate). They are kept as a ledger in
+household.json: each entry has an ID (random for repeatable earnings, a hash of what it was for
+when it can happen once), so devices merge by taking every entry from both. The household is synced
+through the hub as a sealed record, like a pet's save.
+
+3.7.5 Families: Points and Inheritance
+A baby starts with no points and no belongings. While a child is young (60 game days), a living
+parent can give it Friendship Points; after it grows up, only once the parent has died. A dead
+pet's equipment, decorations, cosmetics and unopened supplies, and any of its points, can be passed
+on to one living child, once. Pop-ups tell the player how long a newborn stays young, and again when
+the active pet has 5 minutes of real play left before it grows up (with its parents' points).
 
 3.8 Activities
 3.8.1 Tricks
@@ -1095,7 +1143,8 @@ Performance on older devices
 Alpha Phase: Core biological simulation and basic care
 Beta Phase: Social features and advanced AI
 Launch Version: Full feature set with AR integration
-Post-Launch: Regular content updates and seasonal events
+Post-Launch: Regular content updates and seasonal events (seasonal and holiday items, 3.7.2,
+already follow the real calendar and computed holiday dates, so they recur without an update)
 
 8.2 Player Statistics (No Monitoring or Analytics)
 

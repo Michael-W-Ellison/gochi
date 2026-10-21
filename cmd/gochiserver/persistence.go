@@ -69,6 +69,7 @@ type savedPet struct {
 	Hibernating bool      `json:"hibernating"`
 	SavedAt     time.Time `json:"saved_at"`
 	Unreadable  bool      `json:"unreadable,omitempty"` // Neither the save nor its backups can be read
+	Outfit      string    `json:"outfit,omitempty"`     // Icons of what it wears
 }
 
 // newPetStore creates a store that keeps saves and backups under dir
@@ -278,10 +279,11 @@ func (ps *petStore) readSummary(slot, path string) (savedPet, error) {
 // data, not the whole pet
 func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error) {
 	var summary struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Species     string `json:"species"`
-		Hibernating bool   `json:"hibernating"`
+		ID          string            `json:"id"`
+		Name        string            `json:"name"`
+		Species     string            `json:"species"`
+		Hibernating bool              `json:"hibernating"`
+		Outfit      map[string]string `json:"outfit"`
 		Biology     struct {
 			IsAlive   bool
 			Processes struct {
@@ -306,6 +308,7 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		IsAlive:     summary.Biology.IsAlive,
 		Hibernating: summary.Hibernating,
 		SavedAt:     savedAt,
+		Outfit:      outfitIcons(summary.Outfit),
 	}, nil
 }
 
@@ -464,4 +467,15 @@ func (ps *petStore) NewSlotFor(id string) string {
 		slot = fmt.Sprintf("%s-%d", base, i)
 	}
 	return slot
+}
+
+// outfitIcons returns the icons of what a pet wears, head to body
+func outfitIcons(outfit map[string]string) string {
+	icons := ""
+	for _, slot := range core.CosmeticSlots {
+		if c, ok := core.FindCosmetic(outfit[slot]); ok && c.Slot == slot && (c.Holiday == "" || core.HolidayOn(c.Holiday)) {
+			icons += c.Icon
+		}
+	}
+	return icons
 }

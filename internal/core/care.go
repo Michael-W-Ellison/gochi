@@ -55,7 +55,7 @@ func (p *DigitalPet) sleepQualityLocked() float64 {
 	if p.Environment != nil {
 		quality = p.Environment.GetEffects().SleepQuality
 	}
-	if _, ok := p.bestItemLocked(CategoryBed, true); ok {
+	if _, ok := p.bestInGroupLocked("bed"); ok {
 		quality *= 1.25
 	}
 	return quality

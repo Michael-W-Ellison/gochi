@@ -36,15 +36,16 @@ const maxPlaydateLog = 8
 
 // Playmate is a pet at the playdate, as the page sees it
 type Playmate struct {
-	Handle   string     `json:"handle"` // Its owner, as the hub calls them
-	Slot     int        `json:"slot"`
-	You      bool       `json:"you"`
-	Name     string     `json:"name"` // As the hub names it, such as "Blue Otter 42's dog"
-	Species  string     `json:"species"`
-	Young    bool       `json:"young"`
-	Look     string     `json:"look"` // One of core.SpriteStates
-	Position hub.Offset `json:"position"`
-	Relation string     `json:"relation"` // How your pet gets along with it, or ""
+	Handle   string                   `json:"handle"` // Its owner, as the hub calls them
+	Slot     int                      `json:"slot"`
+	You      bool                     `json:"you"`
+	Name     string                   `json:"name"` // As the hub names it, such as "Blue Otter 42's dog"
+	Species  string                   `json:"species"`
+	Young    bool                     `json:"young"`
+	Look     string                   `json:"look"`   // One of core.SpriteStates
+	Outfit   map[string]core.Cosmetic `json:"outfit"` // What it wears, by slot
+	Position hub.Offset               `json:"position"`
+	Relation string                   `json:"relation"` // How your pet gets along with it, or ""
 }
 
 // playdateSession is the playdate this server's player is at
@@ -103,7 +104,7 @@ func (s *Server) activeCard(look string) (hub.CardRequest, types.PetID, error) {
 	}
 	card := pet.PlaymateCard()
 	return hub.CardRequest{PetKey: hub.PetKey(string(card.ID)), Species: string(card.Species), Young: card.Young,
-		Sociability: card.Sociability, Unavailable: card.Unavailable, Look: look}, card.ID, nil
+		Sociability: card.Sociability, Unavailable: card.Unavailable, Look: look, Outfit: pet.OutfitIDs()}, card.ID, nil
 }
 
 // playmateCard turns a hub card into the game's
@@ -126,7 +127,13 @@ func (s *Server) playdateStatusLocked() PlaydateStatus {
 	s.mu.RUnlock()
 	for _, m := range pd.members {
 		mate := Playmate{Handle: m.Handle, Slot: m.Slot, You: m.Handle == pd.you, Name: m.Card.Name,
-			Species: m.Card.Species, Young: m.Card.Young, Look: m.Card.Look, Position: m.Position}
+			Species: m.Card.Species, Young: m.Card.Young, Look: m.Card.Look, Position: m.Position,
+			Outfit: map[string]core.Cosmetic{}}
+		for slot, id := range m.Card.Outfit {
+			if c, ok := core.FindCosmetic(id); ok && c.Slot == slot && (c.Holiday == "" || core.HolidayOn(c.Holiday)) {
+				mate.Outfit[slot] = c
+			}
+		}
 		if pet != nil && !mate.You {
 			mate.Relation = pet.RelationTo(types.PetID(m.Card.ID))
 		}

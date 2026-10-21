@@ -549,7 +549,7 @@ func TestShopThroughServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if rec := post(t, server.handleBuy, `{"item":"balloon"}`); rec.Code != http.StatusBadRequest ||
+	if rec := post(t, server.handleBuy, `{"item":"balloon"}`); rec.Code != http.StatusConflict ||
 		!strings.Contains(rec.Body.String(), "Not enough Friendship Points") {
 		t.Errorf("Buying without points: status %d, body %s", rec.Code, rec.Body.String())
 	}
@@ -559,7 +559,7 @@ func TestShopThroughServer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Buy: status %d, body %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"friendship_points":70`) {
+	if !strings.Contains(rec.Body.String(), `"friendship_points":50`) {
 		t.Errorf("Response should show the new balance: %s", rec.Body.String())
 	}
 
@@ -575,8 +575,8 @@ func TestShopThroughServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !saved.Owns("balloon") || saved.FriendshipPoints != 70 {
-		t.Errorf("Saved pet: owns balloon=%v, points %d; want true, 70", saved.Owns("balloon"), saved.FriendshipPoints)
+	if !saved.Owns("balloon") || saved.FriendshipPoints != 50 {
+		t.Errorf("Saved pet: owns balloon=%v, points %d; want true, 50", saved.Owns("balloon"), saved.FriendshipPoints)
 	}
 
 	shopRec := httptest.NewRecorder()
@@ -594,7 +594,7 @@ func TestShopThroughServer(t *testing.T) {
 	if err := json.Unmarshal(shopRec.Body.Bytes(), &shop); err != nil {
 		t.Fatal(err)
 	}
-	if shop.Data.Points != 70 || len(shop.Data.Items) != len(core.ShopCatalog()) {
+	if shop.Data.Points != 50 || len(shop.Data.Items) != len(server.pet.ShopOffers()) || len(shop.Data.Items) < 30 {
 		t.Errorf("Shop: %d points, %d items", shop.Data.Points, len(shop.Data.Items))
 	}
 	for _, item := range shop.Data.Items {
@@ -609,7 +609,7 @@ func TestInteractionEffectsThroughServer(t *testing.T) {
 	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
-	server.pet.FriendshipPoints = 500
+	server.pet.FriendshipPoints, server.pet.PointsEarned = 500, 500
 	if err := server.pet.BuyItem("puzzle_ball"); err != nil {
 		t.Fatal(err)
 	}

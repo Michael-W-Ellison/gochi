@@ -165,6 +165,17 @@ func (p *DigitalPet) takeFromPlaceLocked(outcome string) string {
 	return ""
 }
 
+// lastDiscoveredLocked returns the place the pet's trips opened up most
+// recently. Caller must hold p.mu.
+func (p *DigitalPet) lastDiscoveredLocked() string {
+	for _, id := range environment.TripDestinations() {
+		if placeDetails[id].tripsNeeded == p.TripsTaken {
+			return id
+		}
+	}
+	return ""
+}
+
 // placePhrase names where the current or last trip went, e.g. "the park".
 // Caller must hold p.mu.
 func (p *DigitalPet) placePhraseLocked() string {
@@ -198,7 +209,7 @@ func (p *DigitalPet) visitPlaceLocked() string {
 		note = fmt.Sprintf(" %s made some friends along the way.", p.Name)
 	}
 	resistance := max(1.2-p.Biology.ImmuneResponse(), 0.1)
-	p.ParasiteExposure += effects.HealthRisk * resistance
+	p.ParasiteExposure += effects.HealthRisk * resistance * p.effectLocked(effParasites)
 	if p.Illness == nil && p.ParasiteExposure >= 1 {
 		p.ParasiteExposure = 0
 		p.Illness = &Illness{Kind: IllnessParasites, Severity: 0.1, SinceAge: age}

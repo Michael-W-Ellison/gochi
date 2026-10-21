@@ -87,8 +87,10 @@ func (e *Environment) Update(deltaTimeHours float64) {
 	// Calculate game days passed (for seasonal update)
 	gameDaysPassed := deltaTimeHours / 24.0
 
-	// Update seasonal cycle
-	e.Seasons.Update(gameDaysPassed)
+	// Update seasonal cycle: from the real date, or with game time
+	if !e.Seasons.followCalendar() {
+		e.Seasons.Update(gameDaysPassed)
+	}
 
 	// Update weather
 	e.Weather.Update(deltaTimeHours, e.Seasons.GetSeason(), e.TimeOfDay)

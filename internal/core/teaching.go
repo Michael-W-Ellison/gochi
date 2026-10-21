@@ -72,6 +72,8 @@ func (p *DigitalPet) symptomsLocked() []Symptom {
 	p.Biology.EnsurePhysiology()
 	def := p.defLocked()
 	ph := p.Biology.Physiology
+	e := p.effectsLocked()
+	early := 0.05 * e[effEarlyWarnings] // A home vet corner shows signs sooner
 
 	if p.Illness != nil {
 		symptoms = append(symptoms, def.IllnessSigns[p.Illness.Kind])
@@ -83,28 +85,28 @@ func (p *DigitalPet) symptomsLocked() []Symptom {
 		}
 	}
 
-	if p.LivingAreaWaste >= 0.5 {
+	if p.LivingAreaWaste >= 0.5-early {
 		symptoms = append(symptoms, def.MessSymptom)
 	}
 	if def.Toilet == ToiletOutside && max(ph.Bowel, ph.Bladder) >= 0.5 {
 		symptoms = append(symptoms, Symptom{"Waiting by the door",
 			"Your " + strings.ToLower(def.Name) + " needs to go outside. Take it for a walk.", "bathroom", false})
 	}
-	if ph.RespiratoryHealth < 0.7 && (p.Illness == nil || p.Illness.Kind != IllnessRespiratory) {
+	if ph.RespiratoryHealth < 0.7+early && (p.Illness == nil || p.Illness.Kind != IllnessRespiratory) {
 		symptoms = append(symptoms, Symptom{"Sneezing now and then",
 			"Foul air irritates the airways. Keep the living area clean.", "breathing", false})
 	}
-	if ph.CardiovascularHealth < 0.5 {
+	if ph.CardiovascularHealth < 0.5+early {
 		symptoms = append(symptoms, Symptom{"Tires quickly", def.ExerciseHint, "exercise", false})
 	}
-	if ph.NervousHealth < 0.6 {
+	if ph.NervousHealth < 0.6+early {
 		symptoms = append(symptoms, Symptom{def.StressSign, "Signs of long-term stress. A calm routine, play and rest help.", "stress", false})
 	}
 	// Old age
 	if b := p.Biology; b.LifeStage() == biology.StageSenior {
 		remaining := b.CalculateLifespan()
 		switch {
-		case b.OldAgeDeath && remaining < frailDays:
+		case b.OldAgeDeath && remaining < frailDays-e[effFrailLater]:
 			symptoms = append(symptoms, Symptom{"Very old and frail",
 				fmt.Sprintf("%s is near the end of its life (about %.0f game days left). A life-extension potion from the shop "+
 					"gives it about %.0f more.", p.Name, remaining, lifePotionDays), "senior", false})
@@ -114,7 +116,7 @@ func (p *DigitalPet) symptomsLocked() []Symptom {
 				"senior", false})
 		}
 	}
-	if ph.DigestiveHealth < 0.6 && (p.Illness == nil || p.Illness.Kind != IllnessParasites) {
+	if ph.DigestiveHealth < 0.6+early && (p.Illness == nil || p.Illness.Kind != IllnessParasites) {
 		symptoms = append(symptoms, Symptom{"Upset stomach",
 			"From too much food or too many treats at once. Smaller, measured meals help.", "feeding", false})
 	}

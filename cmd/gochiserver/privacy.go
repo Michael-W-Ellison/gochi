@@ -218,13 +218,18 @@ func capitalize(text string) string {
 
 // privacyStatus is what GET /api/privacy returns
 type privacyStatus struct {
-	LearnSchedule bool   `json:"learn_schedule"`
-	PlaySchedule  string `json:"play_schedule"` // What has been learned, or ""
-	ParentLock    bool   `json:"parent_lock"`   // A parent PIN is set
+	LearnSchedule  bool            `json:"learn_schedule"`
+	PlaySchedule   string          `json:"play_schedule"` // What has been learned, or ""
+	ParentLock     bool            `json:"parent_lock"`   // A parent PIN is set
+	Holidays       []holidayStatus `json:"holidays"`
+	AllHolidaysOff bool            `json:"all_holidays_off"`
 }
 
 func (s *Server) privacyStatus() privacyStatus {
-	status := privacyStatus{ParentLock: s.parental.Locked()}
+	status := privacyStatus{ParentLock: s.parental.Locked(), Holidays: holidaysStatus()}
+	if s.house != nil {
+		status.AllHolidaysOff = s.house.snapshot().AllHolidaysOff
+	}
 	if s.owner != nil {
 		status.LearnSchedule, status.PlaySchedule = s.owner.Learning(), s.owner.Summary()
 	}
@@ -241,11 +246,13 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		LearnSchedule *bool   `json:"learn_schedule"`
-		EraseSchedule bool    `json:"erase_schedule"`
-		NewPIN        *string `json:"new_pin"`
-		RemovePIN     bool    `json:"remove_pin"`
-		ParentPIN     string  `json:"parent_pin"`
+		LearnSchedule *bool    `json:"learn_schedule"`
+		EraseSchedule bool     `json:"erase_schedule"`
+		NewPIN        *string  `json:"new_pin"`
+		HolidaysOff   []string `json:"holidays_off"`     // Holidays to turn off; others are turned on
+		AllHolidays   *bool    `json:"all_holidays_off"` // Turn every holiday off (or back on)
+		RemovePIN     bool     `json:"remove_pin"`
+		ParentPIN     string   `json:"parent_pin"`
 	}
 	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) {
 		return
@@ -265,6 +272,20 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if !s.parentAllows(w, req.ParentPIN) {
 		return
+	}
+	if (req.HolidaysOff != nil || req.AllHolidays != nil) && s.house != nil {
+		d := s.house.snapshot()
+		allOff, off := d.AllHolidaysOff, d.HolidaysOff
+		if req.AllHolidays != nil {
+			allOff = *req.AllHolidays
+		}
+		if req.HolidaysOff != nil {
+			off = req.HolidaysOff
+		}
+		if err := s.house.setHolidays(allOff, off); err != nil {
+			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the setting"})
+			return
+		}
 	}
 	if s.owner != nil {
 		if req.LearnSchedule != nil {

@@ -362,7 +362,12 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 		}
 	}
 	remoteByKey := make(map[string]hub.PetInfo)
+	var householdInfo *hub.PetInfo
 	for _, info := range remote {
+		if info.Key == householdKey {
+			householdInfo = &info // Synced on its own, below
+			continue
+		}
 		remoteByKey[info.Key] = info
 	}
 	keys := make([]string, 0, len(localByKey)+len(remoteByKey))
@@ -481,6 +486,12 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 					report.Conflicts = append(report.Conflicts, name)
 				}
 			}
+		}
+	}
+
+	if s.house != nil {
+		if err := s.syncHousehold(ctx, client, householdInfo); err != nil {
+			report.Errors = append(report.Errors, "Home Stars: "+err.Error())
 		}
 	}
 

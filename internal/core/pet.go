@@ -69,6 +69,31 @@ type DigitalPet struct {
 	PointsEarned     int                                 `json:"points_earned"` // Over its whole life, which unlocks rarer supplies
 	Supplies         *interaction.Inventory              `json:"supplies"`      // Pantry of food, treats and toys
 
+	// Upkeep: when (pet age, game days) each upkeep timer runs out, such as
+	// a fountain filter or flea collar (upkeep.go); first-aid kit uses left;
+	// the calendar day each once-a-day supply was last given; the day the
+	// living area was last cleaned; and whether freeze-dried treats are
+	// waiting to make the next training count more
+	Upkeep         map[string]float64 `json:"upkeep,omitempty"`
+	FirstAidUses   int                `json:"first_aid_uses,omitempty"`
+	DailyUse       map[string]string  `json:"daily_use,omitempty"`
+	LastCleanedDay string             `json:"last_cleaned_day,omitempty"`
+	TrainingBoost  bool               `json:"training_boost,omitempty"`
+
+	// How the pet looks: cosmetics owned, and what it wears in each slot
+	// (cosmetics.go)
+	Cosmetics []string          `json:"cosmetics,omitempty"`
+	Outfit    map[string]string `json:"outfit,omitempty"`
+
+	// Family (family.go): the pet's parents, Friendship Points given by a
+	// parent (spent like any, but not counted towards unlocking rarer
+	// items), the child its belongings were passed on to after it died,
+	// and whether the player was warned that it is about to grow up
+	Parents      []types.PetID `json:"parents,omitempty"`
+	GiftedPoints int           `json:"gifted_points,omitempty"`
+	PassedOnTo   types.PetID   `json:"passed_on_to,omitempty"`
+	AdultWarned  bool          `json:"adult_warned,omitempty"`
+
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`
@@ -233,8 +258,10 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	// Tricks the pet hasn't practiced in a while get rusty
 	p.decayTricksLocked(deltaTime)
 
-	// Grooming itself and running around do the pet some good
+	// Grooming itself and running around do the pet some good, and so do
+	// things to watch and play with on its own
 	p.selfCareLocked(deltaTime)
+	p.idleEnrichmentLocked(deltaTime)
 
 	// Needs build up over time, and the weather and season affect the pet
 	p.updateNeedsLocked(deltaTime)
@@ -368,6 +395,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 
 	p.TotalInteractions++
 	p.countCareLocked(interactionType)
+	p.cleanedLocked(interactionType)
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
 	treated := ""
 	if interactionType == types.InteractionMedicalCare {
@@ -392,13 +420,14 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	boost := result.ReactionMultiplier
 
 	// Belongings such as toys and brushes make care more effective
-	if item, ok := p.careBoostLocked(interactionType); ok {
-		boost *= item.Effect
-		result.BoostedBy = &item
+	if extra, item := p.careBoostLocked(interactionType); extra != 1 {
+		boost *= extra
+		result.BoostedBy = item
 	}
 
 	// Apply biological effects; the boost strengthens the benefits only
 	p.applyInteractionEffects(interactionType, intensity, boost)
+	p.careStimulationLocked(interactionType)
 	p.careHormonesLocked(interactionType, boost, unwanted)
 	choiceLesson := p.applyChoiceLocked(boost) // The variant chosen, such as the food or toy
 	intensity *= boost

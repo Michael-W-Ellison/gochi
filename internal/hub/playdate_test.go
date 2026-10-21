@@ -116,6 +116,11 @@ func TestPlaydatesCarryNoText(t *testing.T) {
 		"look":    {PetKey: PetKey("a"), Species: "cat", Look: "call 555 0100"},
 		"reason":  {PetKey: PetKey("a"), Species: "cat", Look: "idle", Unavailable: "at the park"},
 		"pet key": {PetKey: "Biscuit", Species: "cat", Look: "idle"},
+		"outfit":  {PetKey: PetKey("a"), Species: "cat", Look: "idle", Outfit: map[string]string{"head": "meet me at 4"}},
+		"outfit slot": {PetKey: PetKey("a"), Species: "cat", Look: "idle",
+			Outfit: map[string]string{"call 555 0100": "beret"}},
+		"outfit slot mismatch": {PetKey: PetKey("a"), Species: "cat", Look: "idle",
+			Outfit: map[string]string{"body": "beret"}},
 	} {
 		if _, err := alice.StartPlaydate(ctx, bad); !strings.Contains(errString(err), "invalid pet card") {
 			t.Errorf("A card with a bad %s should be refused: %v", name, err)
@@ -126,7 +131,9 @@ func TestPlaydatesCarryNoText(t *testing.T) {
 	if _, err := makeCard("x", "Blue Otter 42", nan); err == nil {
 		t.Error("A card whose sociability isn't a number should be refused")
 	}
-	pd, err := alice.StartPlaydate(ctx, card("Biscuit"))
+	dressed := card("Biscuit")
+	dressed.Outfit = map[string]string{"head": "beret", "neck": "bow_tie"}
+	pd, err := alice.StartPlaydate(ctx, dressed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +221,9 @@ func TestPlaydateLimits(t *testing.T) {
 func TestPlaydateRateLimitIsPerPlayer(t *testing.T) {
 	_, server := testHub(t)
 	alice, bob := register(t, server), register(t, server)
-	pd, err := alice.StartPlaydate(ctx, card("Biscuit"))
+	dressed := card("Biscuit")
+	dressed.Outfit = map[string]string{"head": "beret", "neck": "bow_tie"}
+	pd, err := alice.StartPlaydate(ctx, dressed)
 	if err != nil {
 		t.Fatal(err)
 	}

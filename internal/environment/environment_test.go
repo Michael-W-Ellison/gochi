@@ -705,3 +705,42 @@ func TestEnvironmentExtremeValues(t *testing.T) {
 		t.Errorf("Day of season after a very long time = %d", huge.DayOfSeason)
 	}
 }
+
+func TestSeasonsFollowTheCalendar(t *testing.T) {
+	for _, c := range []struct {
+		date              time.Time
+		north, south      Season
+		day, daysInSeason int
+	}{
+		{time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), SeasonSpring, SeasonFall, 1, 92},
+		{time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC), SeasonSummer, SeasonWinter, 45, 92},
+		{time.Date(2026, 11, 30, 9, 0, 0, 0, time.UTC), SeasonFall, SeasonSpring, 91, 91},
+		{time.Date(2027, 1, 10, 9, 0, 0, 0, time.UTC), SeasonWinter, SeasonSummer, 41, 90},
+		{time.Date(2028, 2, 29, 9, 0, 0, 0, time.UTC), SeasonWinter, SeasonSummer, 91, 91},
+	} {
+		if got := SeasonOn(c.date, Northern); got != c.north {
+			t.Errorf("%v north: %v", c.date, got)
+		}
+		if got := SeasonOn(c.date, Southern); got != c.south {
+			t.Errorf("%v south: %v", c.date, got)
+		}
+		sc := NewSeasonalCycle()
+		sc.FollowDate(c.date, Northern)
+		if sc.DayOfSeason != c.day || sc.DaysPerSeason != c.daysInSeason {
+			t.Errorf("%v: day %d of %d", c.date, sc.DayOfSeason, sc.DaysPerSeason)
+		}
+	}
+
+	// With the calendar in use, game time doesn't change the season
+	date := time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC)
+	UseCalendar(Southern, func() time.Time { return date })
+	defer StopCalendar()
+	env := NewEnvironment()
+	env.Update(24 * 400)
+	if env.GetSeason() != SeasonWinter {
+		t.Errorf("July in the Southern Hemisphere is winter: %v", env.GetSeason())
+	}
+	if season, h, ok := CalendarSeason(); !ok || season != SeasonWinter || h != Southern {
+		t.Errorf("CalendarSeason = %v %v %v", season, h, ok)
+	}
+}
