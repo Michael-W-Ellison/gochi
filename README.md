@@ -692,6 +692,29 @@ Several kinds of care come in variants, each with its own effect and lesson:
     met. The souvenir moves to the other pet, who becomes a little happier and closer to the giver.
     Pets are chosen from your saved pets; nothing is sent anywhere.
 
+### Home happenings
+
+Now and then something happens at home while you play: a thunderstorm, chocolate left within
+reach, a cat climbing the curtains, a dog stealing socks. A pop-up describes it and offers two or
+three choices; afterwards it says what happened and explains the real care behind it. There are
+44 happenings: 16 for cats and dogs, 10 for cats only, 10 for dogs only, and 8 that come only in
+a season or around a holiday (fireworks at New Year, Lunar New Year and Diwali, a festive tree at
+Christmas, sweets at Easter, Halloween and Valentine's Day, candles at Hanukkah, Diwali, Kwanzaa
+and Vesak, hot pavement in summer, salt on paws in winter, pollen in spring and moldy leaves in
+fall). A holiday turned off in **🔒 Privacy**
+brings no happenings. Some come only when they
+make sense: a bad smell when the living area is dirty, a pet that won't eat when its teeth are
+sore, a tangled coat for long-haired pets, a pet hiding when it shows a warning sign.
+
+- At most one happening every 20 minutes of play, only while you are using the page and your pet
+  is home, awake and well. The same happening comes at most once a week.
+- The right choice makes your pet happier and calmer and earns 5 Friendship Points (at most 25 a
+  day from happenings). 25 right choices earn the **Happy Helper** achievement.
+- A wrong choice has a mild effect (a frightened or frustrated pet, an upset stomach, a small
+  hurt), except that letting your pet eat something toxic (chocolate, a toxic houseplant, holiday
+  sweets, moldy leaves) poisons it, as eating chocolate does: give it medical care (**Heal**).
+- Pressing **Not now**, or leaving it for 10 minutes, changes nothing.
+
 ### Breeding
 
 Press **💞 Breed** to have a baby with one of your other saved pets. The panel lists each saved

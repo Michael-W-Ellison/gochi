@@ -395,6 +395,29 @@ function showPopups(popups) {
     }]]);
 }
 
+// Home happenings: a choice to make, then what it led to and why. Closing
+// without choosing changes nothing.
+function showHappening(h) {
+    if (popupShowing || !h) return;
+    popupShowing = 'happening:' + h.id;
+    const done = () => { popupShowing = null; };
+    const buttons = h.choices.map(c => [c.label, () => {
+        postJSON('/api/happening', {choice: c.id}).then(data => {
+            if (!data.success) {
+                done();
+                showPointsToast(data.error || 'Something went wrong');
+                return;
+            }
+            const r = data.data;
+            showModal(r.right ? '👍' : '💡', r.right ? 'Good call!' : 'Something to know',
+                r.text + '\n\n' + r.lesson + (r.points ? '\n\n+' + r.points + ' ❤️' : ''),
+                [['OK', () => { done(); fetchStatus(); }]]);
+        }).catch(done);
+    }]);
+    buttons.push(['Not now', () => { postJSON('/api/happening', {choice: ''}).finally(done); }]);
+    showModal(h.icon, h.title, h.text, buttons);
+}
+
 // How the home looks: wallpaper, floor, window view and nameplate
 function pattern(style) {
     const [kind, a, b] = style.split(':');

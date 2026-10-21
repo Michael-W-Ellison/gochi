@@ -128,6 +128,7 @@ type PetStatus struct {
 	Weekly       core.WeeklyGoal  `json:"weekly"`
 	Titles       []string         `json:"titles"`
 	Shelf        []core.Souvenir  `json:"shelf"`
+	Happening    *core.Happening  `json:"happening"`
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
 	PlaySchedule string           `json:"play_schedule"`
@@ -432,6 +433,7 @@ func main() {
 	mux.HandleFunc("/api/breeds", server.handleBreeds)
 	mux.HandleFunc("/api/shows", server.handleShows)
 	mux.HandleFunc("/api/shows/enter", server.handleEnterShow)
+	mux.HandleFunc("/api/happening", server.handleHappening)
 	mux.HandleFunc("/api/collection", server.handleCollection)
 	mux.HandleFunc("/api/home/shelf", server.handleShelf)
 	mux.HandleFunc("/api/souvenirs/gift", server.handleGiveSouvenir)
@@ -635,6 +637,7 @@ func (s *Server) tick(now time.Time) {
 		}
 	}
 	s.householdAwardsLocked(now)
+	s.checkHappeningLocked(now)
 	s.announceAchievementsLocked()
 	s.observePet(s.pet, false)
 	s.checkGrowingUpLocked()
@@ -1027,7 +1030,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .modal-box h3 { color: #333; margin-bottom: 10px; overflow-wrap: anywhere; }
         .modal-box p { color: #555; font-size: 0.95em; margin-bottom: 14px; overflow-wrap: anywhere; }
         .modal-box input { width: 100%; padding: 10px 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 1em; margin-bottom: 14px; }
-        .modal-actions { display: flex; gap: 10px; justify-content: center; }
+        .modal-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        #popupText { white-space: pre-line; }
         .danger-btn { padding: 8px 16px; border: none; border-radius: 20px; background: #d9534f; color: white; font-weight: bold; cursor: pointer; }
         .danger-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .back-btn { margin-top: 12px; background: none; border: none; color: #667eea; cursor: pointer; font-size: 0.95em; }
@@ -1815,6 +1819,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             renderHouseLook(status.house_look, status.name);
             renderUpkeep(status);
             showPopups(status.popups);
+            showHappening(status.happening);
             updatePauseUI(status);
 
             const hibernating = status.is_alive && status.hibernating;
@@ -3821,6 +3826,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	petStatus.Happening = s.pet.CurrentHappening()
 	petStatus.Popups = append([]popup{}, s.popups...)
 	if s.owner != nil {
 		petStatus.PlaySchedule = s.owner.Summary()

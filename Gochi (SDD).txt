@@ -753,6 +753,30 @@ pet's happiness falls at 0.98 times its rate, as a decoration. A gift moves a so
 active pet to a saved pet that has a relationship with it: bond +0.05, a shared memory, and
 happiness +0.05. Gifts only pass between saved pets on this computer.
 
+3.8.4 Home Happenings
+Happenings (happenings.go) are 44 events at home, each with 2 or 3 choices, of which exactly one
+is right: 16 for both species, 10 for cats, 10 for dogs and 8 for seasons and holidays (fireworks
+around New Year, Lunar New Year and Diwali; a festive tree at Christmas; sweets at Easter,
+Halloween and Valentine's Day; candles at Hanukkah, Diwali, Kwanzaa and Vesak, all only while
+the holiday is turned on and within a week of it; hot pavement in summer and salt on paws in
+winter for dogs; pollen in spring and moldy leaves in fall). Some need a condition: a smell or an
+avoided litter box needs living area waste above 0.3, refusing food needs dental health below
+0.6, a coat tangle a long, semi-long or shaggy coat, and hiding a warning sign.
+The game server asks for one on each tick while time runs and the page was used in the last 2
+minutes. A happening starts only when the pet is alive, home, awake, not hibernating, ill or
+injured, none is waiting, 20 minutes of play have passed since the last, and a minute since the
+last try; each try succeeds with chance 0.1. It is picked at random from those that fit and that
+haven't come in the last 7 days. It waits 10 minutes of play for a choice; closing it, or letting
+it pass, changes nothing. The choices are listed from a starting point set by a hash of its ID.
+The right choice: happiness +0.05, stress -0.03, 5 Friendship Points (at most 25 a calendar
+day), its own effect, and counts toward Happy Helper (25 right choices). Effects: calm (stress
+-0.08, happiness +0.03), play (happiness +0.06, play needs met at 0.5), stimulation (mental
+stimulation +0.3), cleaning (living area waste 0, stress -0.03), grooming (cleanliness +0.1).
+Wrong choices: frightened (stress +0.12, happiness -0.05), frustrated (stress +0.06), upset
+stomach (health -0.02, happiness -0.05, stress +0.05), hurt (health -0.05, stress +0.1), or
+poisoning (chocolate, a toxic plant, holiday sweets, moldy leaves), the same illness as eating
+chocolate, treated with Heal. Every choice shows what happened and the lesson.
+
 3.9 Requests, Reactions and Preferences
 cppstruct PetRequest {
     string action;      // Care that fulfils it: feed, drink, groom, pet, play, medic, train, explore, revive

@@ -125,6 +125,13 @@ type DigitalPet struct {
 	LastGoalDay      string   `json:"last_goal_day,omitempty"`
 	IllnessesTreated int      `json:"illnesses_treated,omitempty"`
 
+	// Home happenings (happenings.go): the one waiting for a choice, when
+	// the last came on the play clock, and when one was last tried for
+	// (not saved)
+	Happening        *PendingHappening `json:"happening,omitempty"`
+	LastHappening    time.Time         `json:"last_happening,omitempty"`
+	happeningChecked time.Time
+
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`
