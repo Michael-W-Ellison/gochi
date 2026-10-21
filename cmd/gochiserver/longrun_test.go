@@ -56,7 +56,10 @@ func TestLongPlayStaysWithinTargets(t *testing.T) {
 				s.mu.Lock()
 				s.markActiveLocked(clock)
 				if s.pet.IsHibernating() {
-					s.pet.Revive()
+					if err := s.pet.Revive(); err != nil {
+						s.mu.Unlock()
+						t.Fatal(err)
+					}
 				}
 				v := s.pet.Biology.Vitals
 				v.Nutrition, v.Hydration = max(v.Nutrition, 0.5), max(v.Hydration, 0.5)

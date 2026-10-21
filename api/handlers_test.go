@@ -96,9 +96,12 @@ func makeRequest(handler http.HandlerFunc, method, path string, body interface{}
 	return rr
 }
 
-func parseResponse(rr *httptest.ResponseRecorder) APIResponse {
+func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) APIResponse {
+	t.Helper()
 	var response APIResponse
-	json.Unmarshal(rr.Body.Bytes(), &response)
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 	return response
 }
 
@@ -128,7 +131,7 @@ func TestWriteSuccess(t *testing.T) {
 
 	writeSuccess(w, data)
 
-	response := parseResponse(w)
+	response := parseResponse(t, w)
 	if !response.Success {
 		t.Error("Expected success to be true")
 	}
@@ -143,7 +146,7 @@ func TestWriteError(t *testing.T) {
 		t.Errorf("Expected status 400, got %d", w.Code)
 	}
 
-	response := parseResponse(w)
+	response := parseResponse(t, w)
 	if response.Success {
 		t.Error("Expected success to be false")
 	}
@@ -170,7 +173,7 @@ func TestHandleCreatePet(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", rr.Code)
 	}
 
-	response := parseResponse(rr)
+	response := parseResponse(t, rr)
 	if !response.Success {
 		t.Error("Expected success to be true")
 	}
@@ -189,7 +192,7 @@ func TestHandleCreatePetMissingName(t *testing.T) {
 		t.Errorf("Expected status 400, got %d", rr.Code)
 	}
 
-	response := parseResponse(rr)
+	response := parseResponse(t, rr)
 	if response.Success {
 		t.Error("Expected success to be false")
 	}
@@ -221,7 +224,7 @@ func TestHandleGetPets(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", rr.Code)
 	}
 
-	response := parseResponse(rr)
+	response := parseResponse(t, rr)
 	if !response.Success {
 		t.Error("Expected success to be true")
 	}

@@ -292,8 +292,12 @@ func sameJSON(a, b []byte) bool {
 // objects
 func jsonDiff(a, b []byte) string {
 	var x, y map[string]interface{}
-	json.Unmarshal(a, &x)
-	json.Unmarshal(b, &y)
+	if err := json.Unmarshal(a, &x); err != nil {
+		return "first document: " + err.Error()
+	}
+	if err := json.Unmarshal(b, &y); err != nil {
+		return "second document: " + err.Error()
+	}
 	var diffs []string
 	for k := range x {
 		if !reflect.DeepEqual(x[k], y[k]) {

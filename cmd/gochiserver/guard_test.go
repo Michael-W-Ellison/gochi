@@ -117,7 +117,11 @@ func TestOtherDevicesNeedPairing(t *testing.T) {
 		t.Errorf("A device asking for a code: %d", rec.Code)
 	}
 	rec := request(h, http.MethodGet, "/api/pairing", local, "", nil)
-	status := getJSON(t, func(w http.ResponseWriter, r *http.Request) { w.Write(rec.Body.Bytes()) }, "/")
+	status := getJSON(t, func(w http.ResponseWriter, r *http.Request) {
+		if _, err := w.Write(rec.Body.Bytes()); err != nil {
+			t.Error(err)
+		}
+	}, "/")
 	code, _ := status["code"].(string)
 	if len(code) != pairingCodeLength {
 		t.Fatalf("Pairing status: %v", status)
@@ -239,7 +243,9 @@ func TestSettingsOnlyOnThisComputer(t *testing.T) {
 	mux.HandleFunc("/api/cloud/disconnect", s.handleCloudDisconnect)
 	mux.HandleFunc("/api/cloud/profile", s.handleCloudProfile)
 	h := s.guard(mux)
-	s.pairing.NewCode()
+	if _, _, err := s.pairing.NewCode(); err != nil {
+		t.Fatal(err)
+	}
 	token, err := s.pairing.Pair(s.pairing.code, "192.168.1.20")
 	if err != nil {
 		t.Fatal(err)

@@ -42,13 +42,20 @@ func TestDamagedSettingsAreSetAside(t *testing.T) {
 func TestOldTempFilesAreRemoved(t *testing.T) {
 	dir := t.TempDir()
 	old, fresh, save := filepath.Join(dir, "saves", "a.json.tmp-123"), filepath.Join(dir, "stats.json.tmp"), filepath.Join(dir, "saves", "a.json")
-	os.MkdirAll(filepath.Join(dir, "saves"), 0o700)
+	if err := os.MkdirAll(filepath.Join(dir, "saves"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for _, path := range []string{old, fresh, save} {
-		os.WriteFile(path, []byte("x"), 0o600)
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	long := time.Now().Add(-2 * tempFileAge)
-	os.Chtimes(old, long, long)
-	os.Chtimes(save, long, long)
+	for _, path := range []string{old, save} {
+		if err := os.Chtimes(path, long, long); err != nil {
+			t.Fatal(err)
+		}
+	}
 	removeTempFiles(dir)
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Error("An old temporary file should be removed")
