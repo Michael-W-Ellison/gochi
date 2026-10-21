@@ -27,8 +27,8 @@ func TestPlacesAreDiscoveredByTrips(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 
 	places := pet.Places()
-	if len(places) != 6 || places[0].ID != "park" || !places[0].Discovered || places[1].Discovered {
-		t.Fatalf("A new pet should know only the park: %+v", places)
+	if len(places) != 11 || places[0].ID != "park" || !places[0].Discovered || places[1].Discovered {
+		t.Fatalf("A new cat should know only the park, of every place but the dog park: %+v", places)
 	}
 	if err := pet.SendExploringTo("beach"); !errors.Is(err, ErrPlaceLocked) {
 		t.Errorf("The beach should be undiscovered: %v", err)
@@ -53,7 +53,7 @@ func TestPlacesAreDiscoveredByTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	pet.Update(exploreDuration + 0.1)
-	if a := pet.LastAdventure; a.Place != "beach" || !strings.Contains(a.Text, "from the beach") {
+	if a := pet.LastAdventure; a.Place != "beach" || !strings.Contains(a.Text, "at the beach") {
 		t.Errorf("The trip should go to the beach: %+v", a)
 	}
 }

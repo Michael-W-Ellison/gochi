@@ -162,6 +162,18 @@ treated with medical care) and **Attentive Carer** (an adult's care record at 80
 listed under **About** and announced under **Recently** when earned. Care achievements also unlock
 more breeds (see [Breeds](#breeds)).
 
+More achievements reward long-term care and family:
+
+| Kind | Achievements |
+|---|---|
+| Care | Clean Teeth (brushed on 7 days), Clear Eyes (a breed prone to sore eyes kept them healthy for 1,000 game days), Well Kept (no upkeep ran out for 500 game days), Calm Companion (stress under 20% for 300 game days in a row), Kidney Care (90% of its lifespan with inherited kidney disease), Vet's Friend (3 illnesses treated early) |
+| Training | Six Tricks, Signal Master (3 tricks while hard of hearing), No Rust (every trick sharp for 500 game days), Patient Trainer (50 sessions with rewards and no scolding) |
+| Family | Three Generations, Five Generations, Family Reunion (a group activity with its parent or child), Mixed Blessings (a mixed breed of two different breeds) |
+| Seasons | Four Seasons (lived through all four real seasons), Holiday Spirit (things from 5 holidays) |
+| Household | Full House (5 living pets), Dream Home (every house upgrade), Cat Fancier and Dog Lover (5 breeds raised); earned by the active pet when the household qualifies |
+
+Each achievement earns Home Stars by rarity: 10 (common), 25 (rare) or 50 (epic and legendary).
+
 ### Cloud: Backup, Sync and Sharing
 
 A Gochi server can also run as a **cloud hub** that other Gochi servers connect to, so you can back up
@@ -299,7 +311,14 @@ Pets need regular care, so time only passes while you are playing:
 - **Program closed**: no time passes while the program is not running. A restored pet continues
   exactly where it was saved.
 
-Only the active pet's time passes; pets that are not loaded wait in their save files.
+While time passes for the active pet, your other pets **live on with the household**: they age at
+the same rate, and the household looks after them, keeping them fed, watered, rested, clean and
+content, so they don't fall ill from neglect (and don't earn points). Pets that have met grow a
+little closer living together. Their upkeep runs, young pets grow up (with the same warning before
+a young pet with a living parent grows up), and old pets reach the end of their lives on schedule;
+a pop-up says when one has died. Saved pets are brought up to date every 5 minutes of play. To
+keep a pet as it is, press **⏸ Pause** next to it in the pet list (**Switch Pet**); **▶ Live on**
+lets it live with the household again. Hibernating pets and pets away exploring stay as they are.
 
 ### Caring for Your Pet
 
@@ -349,9 +368,20 @@ worth bonus Friendship Points when you complete it.
 
 - one asks for the part of the daily routine you have given least over the past week (for
   example brushing, if you rarely brush your cat);
-- one asks for an activity: playing, practicing tricks, exploring or, at the highest levels,
-  teaching a new trick;
-- one asks you to raise your pet's happiness to a level above where it is now.
+- one asks for an activity. On a pet's first day it is playing, practicing tricks, exploring or, at
+  the highest levels, teaching a new trick. After that it is whichever suits your pet best and
+  wasn't asked for in the last three days: practicing a trick that has got rusty, renewing upkeep
+  that is due (a fountain filter, bedding, a flea collar, a vaccination), brushing its teeth (more
+  often for breeds prone to dental disease), wiping its eyes (for breeds prone to sore eyes),
+  something new at home, a trip to the place it has visited least, meeting another of your pets, or
+  a group activity;
+- one is about how your pet feels: raising its happiness, or keeping a stressed pet calm (stress
+  under 30% for 20 minutes of play), keeping a pet that feels the heat or cold comfortable in hot or
+  cold weather, or at level 3 and above keeping its food and water above half for 30 minutes.
+
+Each week also has a larger goal, such as brushing your pet's teeth on 5 days, 7 trips, 2 new
+tricks, finishing all of a day's goals on 3 days or 20 play sessions. It earns 100 Friendship Points
+and 15 Home Stars.
 
 Goals start at level 1 and adapt to how you are doing: completing two or three of a day's goals
 makes the next day's goals one half-level harder (up to level 5), and trying but completing none
@@ -578,41 +608,213 @@ Several kinds of care come in variants, each with its own effect and lesson:
 
 ### Activities
 
-- **🎓 Train**: teach tricks (Sit, Shake a paw, Spin, Roll over, Play dead). Each session
-  improves the trick; harder tricks take longer, and clever pets learn faster. Once a trick is
+- **🎓 Train**: teach tricks. Cats and dogs learn different ones, and harder tricks build on easier
+  ones (the panel shows what must be learned first):
+
+  | Trick | Cats | Dogs | Needs first |
+  |---|---|---|---|
+  | Sit, Come when called | ✓ | ✓ | – |
+  | Touch (nose to hand) | ✓ | ✓ | – |
+  | Shake a paw | ✓ | ✓ | Sit |
+  | Down | | ✓ | Sit |
+  | Stay, Bow | | ✓ | Down |
+  | High five | ✓ | ✓ | Shake a paw |
+  | Spin, Jump through a hoop | ✓ | ✓ | Touch |
+  | Ring a bell | ✓ | | Touch |
+  | Fetch | ✓ | ✓ | Come when called |
+  | Sit pretty (not for seniors or breeds with joint problems) | ✓ | | Sit |
+  | Weave through legs | | ✓ | Spin |
+  | Roll over | ✓ (special) | ✓ | Down (dogs), Sit (cats) |
+  | Play dead | ✓ (special) | ✓ | Roll over |
+  | Wave | ✓ | | High five |
+
+  A cat can learn to roll over and play dead only if it starts young (before 600 game days old)
+  and is playful (playfulness above 0.6) and relaxed (nervousness at most 0.5); these don't count
+  in shows or for "every trick". Each session improves the trick; harder tricks take longer, and
+  clever pets learn faster. Once a trick is
   learned, press **Do it!** to have your pet perform it. A tired pet can't train. Tricks need
   practice to stay sharp: a trick that hasn't been trained or performed for 120 game days (two
   hours of play at the default speed) starts to fade. A learned trick that fades becomes
   **rusty**; your pet can't perform it until you **Practice** it, which takes a session or two,
   because it never forgets more than a quarter of a trick it has learned. Progress on a trick that
   was never learned fades away completely.
-- **🙈 Hide & Seek**: your pet hides in one of four places and you get two guesses. Finding it
+- **🏅 Shows**: enter your pet in a local show against five other entrants the game makes up
+  (named from a fixed list, such as "Willow the Birman"). Shows judge care, training and
+  wellbeing, never looks against a breed standard, so a mixed breed can win anything:
+
+  | Show | For | Judged on | Entry |
+  |---|---|---|---|
+  | Trick Show | Both | A routine of three different tricks you choose, in order; ending on the hardest earns 5 more points | 20 points |
+  | Grooming Show | Both | A clean, recently brushed coat, clear eyes and clean teeth | 20 points |
+  | Agility Course | Dogs | Fitness, energy, and the tricks weave, jump through a hoop and come | 30 points |
+  | Playtime Challenge | Cats | A busy, curious mind, playfulness, and the tricks fetch and touch | 30 points |
+  | Happiest Pet | Both | Happiness, calm and its care record | Free, once a day |
+
+  Each show has three levels, Novice, Open and Champion; winning a level opens the next. Scores
+  (out of 100) also depend on how focused the pet is (energy, calm and sleep). The top three win a
+  rosette, Friendship Points (60/30/15 at Novice, 120/60/30 at Open, 200/100/50 at Champion, at most
+  300 a day from shows) and Home Stars (5/2/0, 10/5/2, 20/10/5). Winning three different shows at
+  Champion level makes a pet a **Grand Champion** (👑 by its name). A show tires and stresses a pet a
+  little, so it must rest a game day before the next; young, ill, injured and very old pets can't
+  enter. Achievements: First Ribbon, Blue Rosette, Champion, Grand Champion, Best in Grooming (a
+  Champion grooming win with a long coat) and Underdog (a mixed breed's Champion win).
+- **🙈 Hide & Seek**: your pet hides in one of six places and you get two guesses. Finding it
   counts as play and earns a 5-point game bonus (at most once every 3 minutes). Press **Stop
   playing** (or close the panel) to end the game early; an unfinished game earns nothing.
+- **🎮 Games**: short games to play with your pet, with a mouse, a finger or the keyboard. There
+  are no scores: afterwards the game says how much your pet enjoyed it (loved it, enjoyed it, had
+  some fun, or lost interest), and it counts as the matching care, with its points under the usual
+  3-minute limit. A game opens once your pet has had that kind of care, and the list says why a
+  game can't be played now (asleep, too tired, already clean). **Relaxed mode** removes the time
+  limit from the feather wand and slows the marker in fetch; it is remembered on this device.
+
+  | Game | For | How it plays | Counts as |
+  |---|---|---|---|
+  | 🎾 Fetch | Dogs | Press **Throw!** when the moving marker is in the green; five throws | Play |
+  | 🪶 Feather wand | Cats | Move the wand like prey, mixing quick dashes and slow creeping (arrow keys, Shift for a dash), then let your cat catch it; 30 seconds | Play |
+  | 🧩 Puzzle feeder | Both | Lift tiles to find the kibble before your pet loses patience; 3 to 6 tiles, more for cleverer pets; your pet's nose can give a hint | Enrichment |
+  | 👃 Scent trail | Both | Find three treats hidden around the house; your pet's tail and ears say warmer or colder | Enrichment |
+  | 🪮 Gentle grooming | Both | Brush each part of the coat the way its fur lies, gently where your pet is sensitive (it watches your hand warily there) | Grooming |
+
+  Each game ends with a lesson, such as letting a cat catch the toy so it doesn't get frustrated,
+  or throwing a ball rather than a stick, which splinters.
 - **🧭 Explore**: send your pet out for about 2 minutes. Once it has discovered more than the
-  park, pick where it goes: the park, then the beach (discovered after 2 trips), the farm (4),
-  the forest (6), the city (9) and the mountain (12). Wilder places hold more to find and are more
+  park, pick where it goes. Places are discovered by finishing trips:
+
+  | Place | Discovered after | Notes |
+  |---|---|---|
+  | 🌳 Park | – | |
+  | 🏖️ Beach | 2 trips | |
+  | 🌼 Meadow | 3 | |
+  | 🚜 Farm | 4 | |
+  | 🌷 Garden | 5 | Cats only: a quiet, safe garden |
+  | 🐕 Dog park | 5 | Dogs only |
+  | 🌲 Forest | 6 | |
+  | 🏞️ River | 7 | Not in winter |
+  | 🏔️ Snowy hill | 8 | Winter only |
+  | 🏙️ City | 9 | |
+  | 🛶 Lakeside | 10 | Summer only |
+  | ⛰️ Mountain | 12 | |
+
+  Cats go everywhere except the dog park on a **harness walk** with you: most vets advise keeping
+  cats indoors or giving them supervised time outdoors. Wilder places hold more to find and are more
   dangerous. What your pet finds is taken from the place (a souvenir takes more than looking
   around and finding nothing), shown as a bar of what is left to find; a place grows back over
   about 20 game days (faster in summer and fall, when food is plentiful, and slower in winter), so
   going to the same place again and again finds less. Places differ in other ways too: the park and
   the city have the most animals and people around, so trips there do the most for your pet's need
   for company (and a sociable pet comes home happier, having made friends), while wilder places do
-  more for its need for adventure. Every place carries some risk of parasites, lowest at the park
-  and the farm and highest on the mountain; it builds up over visits (faster for a pet with a weak
+  more for its need for adventure. Every place carries some risk of parasites, lowest in the garden,
+  the park and the farm and highest on the mountain; it builds up over visits (faster for a pet with a weak
   immune system) until the pet catches them and needs medical care. It needs energy, water and food to go,
   and can't be cared for while it is away, though you can still clean its living area. Pausing
   time pauses the trip too. Trips don't always go well:
-  - a little over half the time your pet brings home a souvenir for its treasure collection (curious
-    pets find souvenirs, including rare crystals, more often);
+  - a little over half the time your pet brings home a souvenir from the place it went (curious
+    pets find souvenirs, and each place's rare one, more often);
   - about a third of the time it finds nothing of value, though the trip is still fun;
   - about one trip in nine it gets hurt: it loses health, comes home frightened and becomes warier
     of exploring. An injured pet asks to be healed and can't explore again until you press
     **Heal**. Adaptable pets get hurt less often. A badly hurt pet can die, or hibernates if gentle mode is on.
 
   Press **Call home early** to bring your pet back before the trip ends; it comes home with
-  nothing from the trip. A pet that enjoys exploring sniffs around the house on its own; it only
+  nothing from the trip.
+
+  - **Long trips** (about 5 minutes) give two chances to find a souvenir, but are a little riskier
+    and more tiring. Only a grown-up pet that isn't a senior, and that comes reliably when called
+    (the **Come** trick learned and not rusty), can go: recall keeps a pet safe.
+  - **A friend** can come along: another of your saved pets of the same species that your pet is
+    close to (a bond of at least 50%) and that is well, fed and rested. When the trip ends, the
+    friend gets a copy of each souvenir found, the trip's fun and exercise, and the two grow closer.
+    The friend's save changes only then; nothing leaves the computer.
+  - **Trip choices**: one trip in three ends with a choice about something that happened there,
+    such as your pet wanting to drink from a still pond at the river, or a loud truck in the city.
+    There are 30 of them, 2 or 3 for each place. A good choice cheers your pet up, sometimes finds
+    something extra, and earns points like a home happening (see below); a poor one has a mild
+    effect, and each explains why. A pet that enjoys exploring sniffs around the house on its own; it only
   goes on a trip when you press **Explore**.
+- **🧺 Collection**: every place has a set of five souvenirs, four common and one rare (the park's
+  is a four-leaf clover, the beach's a pearl), 60 in all. The collection belongs to the household:
+  a souvenir counts once any of your pets has found it, and finds from your other devices merge
+  in when the household syncs. Completing a place's set (its four common souvenirs) earns 10 Home
+  Stars, and each rare souvenir another 10. Two souvenirs teach a lesson: the forest's mushroom
+  (never let a pet eat wild mushrooms) and the snowy hill's red berries (many winter berries are
+  poisonous to pets). Achievements: Rare Find (a pet holds 3 rare souvenirs), Set Collector (the
+  household completes a set) and Curator (every set; 50 Home Stars).
+  - **Shelf**: choose up to five collected souvenirs to show on a shelf in the house. All five of
+    one place's souvenirs on the shelf work like a decoration: every pet's happiness falls 2% slower.
+  - **Gifts**: your pet can give one of its souvenirs to another of your saved pets that it has
+    met. The souvenir moves to the other pet, who becomes a little happier and closer to the giver.
+    Pets are chosen from your saved pets; nothing is sent anywhere.
+
+### Home happenings
+
+Now and then something happens at home while you play: a thunderstorm, chocolate left within
+reach, a cat climbing the curtains, a dog stealing socks. A pop-up describes it and offers two or
+three choices; afterwards it says what happened and explains the real care behind it. There are
+46 happenings: 18 for cats and dogs, 10 for cats only, 10 for dogs only, and 8 that come only in
+a season or around a holiday (fireworks at New Year, Lunar New Year and Diwali, a festive tree at
+Christmas, sweets at Easter, Halloween and Valentine's Day, candles at Hanukkah, Diwali, Kwanzaa
+and Vesak, hot pavement in summer, salt on paws in winter, pollen in spring and moldy leaves in
+fall). A holiday turned off in **🔒 Privacy**
+brings no happenings. Some come only when they
+make sense: a bad smell when the living area is dirty, a pet that won't eat when its teeth are
+sore, a tangled coat for long-haired pets, a pet hiding when it shows a warning sign, stiffness on
+the stairs for seniors.
+
+- At most one happening every 20 minutes of play, only while you are using the page and your pet
+  is home, awake and well. The same happening comes at most once a week.
+- The right choice makes your pet happier and calmer and earns 5 Friendship Points (at most 25 a
+  day from happenings). 25 right choices earn the **Happy Helper** achievement.
+- A wrong choice has a mild effect (a frightened or frustrated pet, an upset stomach, a small
+  hurt), except that letting your pet eat something toxic (chocolate, a toxic houseplant, holiday
+  sweets, moldy leaves) poisons it, as eating chocolate does: give it medical care (**Heal**).
+- Pressing **Not now**, or leaving it for 10 minutes, changes nothing.
+
+### Help and sound
+
+- **Tour**: the first time the game is played, an 8-step tour points out the pet, its bars, the
+  care buttons, the Body panel, the daily checklist, Friendship Points and Home Stars, the
+  activities, and saving and pausing. **Next** moves on and **Skip** ends it.
+- **First-time tips**: the first time the shop, the house, breeding, shows, the collection, the
+  family, games or exploring is opened, a short tip explains it. The household remembers which
+  tips have been shown (only their names, from a fixed list), so each is shown once, whichever pet
+  is played.
+- **❓ Help**: take the tour again, read any tip again, open the care guide, and look up words used
+  in the game (Friendship Points, Home Stars, body systems, warning signs, tendencies, upkeep and
+  game days).
+- **Sound** is on at half volume to start. The 19 sounds (a purr and meows for cats, barks and a
+  whine for dogs, munching, lapping, a toy squeak, a bell for home happenings, a fanfare for a show
+  ribbon, a chime for points, a page turn for the care guide, an alert for a new warning sign, and
+  sounds in the games) are made in the browser: there are no sound files and nothing is
+  downloaded. In **⚙️ Settings**, sound can be turned off, made louder or quieter, and given quiet
+  hours; these settings are kept on that device. A parent can turn sound off for the household in
+  **🔒 Privacy** (with the parent PIN if one is set); players can't then turn it back on.
+
+### Theme of the week, projects and books
+
+- **Theme of the week**: each real week has a care theme, shown under the daily checklist with a
+  link to the matching care guide topic: Dental, Enrichment, Grooming, Hydration, Training, Senior
+  care, Calm & comfort, Explorer, Friendship, Nutrition, Safety at home and Paw care, in that order.
+  Hydration and Paw care weeks swap places when that puts Hydration in summer and Paw care in winter
+  (for your hemisphere). The week's goal follows the theme when it can (teeth brushing in Dental
+  week, trips in Explorer week, new tricks in Training week, play in Enrichment week, finished days
+  in Nutrition week), and one home happening that week is about it. Five topics were added to the
+  care guide for the themes: Training, Outdoors safely, Company and friends, A safe home and Paw care.
+- **🎯 Projects**: long-term goals for the household, with progress bars: raise a Grand Champion,
+  complete the collection, furnish the house, raise five generations, and raise every breed of a
+  care tier (the tier nearest done is shown). They are worked out from what you have done already.
+- **📔 Book**: each pet has a book of its life. A page is added when it comes home or is born, grows
+  up, becomes a senior, learns its first trick, goes on its first trip, discovers a place, wins a
+  ribbon, completes a set of souvenirs for the household, has its first baby, gets a best friend
+  (a bond of at least 80%), and for each holiday you play together. Each page shows how the pet
+  looked then (its look and outfit, kept as drawing settings, not a picture) and a line of text
+  from a fixed list. The book shows its family (grandparents, parents and children, each opening
+  their own book). When a pet dies, its book gets a gentle closing page: how long it lived, its
+  tricks, places and ribbons, what it loved most and who it was closest to, with a candle you can
+  light. **All books** lists every pet's book. Books are files on this computer
+  (`<data dir>/books`); if you back up pets to your own cloud hub, the pages travel inside each
+  pet's encrypted save. A book stays after its pet is deleted, unless you tick **Delete its book
+  too** when deleting the pet; a deleted pet's book can be deleted from All books.
 
 ### Breeding
 

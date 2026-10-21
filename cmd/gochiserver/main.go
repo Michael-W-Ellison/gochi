@@ -57,6 +57,14 @@ type Server struct {
 	// Messages the page shows in front of everything until dismissed
 	popups []popup
 
+	// When the household achievements were last checked
+	lastHouseholdAwards time.Time
+
+	// Game days played since the saved pets were last brought up to date,
+	// and when that was (householdtime.go)
+	householdDays     float64
+	lastHouseholdTime time.Time
+
 	// The AR playdate the player is at, through the cloud hub
 	playdates playdateState
 
@@ -101,6 +109,7 @@ type APIResponse struct {
 
 // PetStatus represents the pet's current state for the frontend
 type PetStatus struct {
+	ID       types.PetID      `json:"id"`
 	Name     string           `json:"name"`
 	Age      float64          `json:"age"`
 	IsAlive  bool             `json:"is_alive"`
@@ -122,6 +131,13 @@ type PetStatus struct {
 	// Today's goals and their difficulty (1 to 5), what the pet will soon
 	// need, and when the player usually plays ("" until it is known)
 	Goals        []core.Goal      `json:"goals"`
+	Weekly       core.WeeklyGoal  `json:"weekly"`
+	Titles       []string         `json:"titles"`
+	Shelf        []core.Souvenir  `json:"shelf"`
+	Happening    *core.Happening  `json:"happening"`
+	TipsSeen     []string         `json:"tips_seen"`
+	Theme        core.Theme       `json:"theme"`     // This week's care theme
+	SoundOff     bool             `json:"sound_off"` // A parent has turned the game's sounds off
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
 	PlaySchedule string           `json:"play_schedule"`
@@ -404,6 +420,11 @@ func main() {
 	mux.HandleFunc("/api/create", server.handleCreate)
 	mux.HandleFunc("/api/save", server.handleSave)
 	mux.HandleFunc("/api/saves", server.handleListSaves)
+	mux.HandleFunc("/api/saves/pause", server.handlePausePet)
+	mux.HandleFunc("/api/books", server.handleBooks)
+	mux.HandleFunc("/api/projects", server.handleProjects)
+	mux.HandleFunc("/api/books/candle", server.handleBookCandle)
+	mux.HandleFunc("/api/books/delete", server.handleDeleteBook)
 	mux.HandleFunc("/api/load", server.handleLoad)
 	mux.HandleFunc("/api/pause", server.handlePause)
 	mux.HandleFunc("/api/revive", server.handleRevive)
@@ -424,6 +445,15 @@ func main() {
 	mux.HandleFunc("/api/guide", server.handleGuide)
 	mux.HandleFunc("/api/species", server.handleSpecies)
 	mux.HandleFunc("/api/breeds", server.handleBreeds)
+	mux.HandleFunc("/api/shows", server.handleShows)
+	mux.HandleFunc("/api/shows/enter", server.handleEnterShow)
+	mux.HandleFunc("/api/happening", server.handleHappening)
+	mux.HandleFunc("/api/games", server.handleMiniGames)
+	mux.HandleFunc("/api/games/finish", server.handleFinishMiniGame)
+	mux.HandleFunc("/api/tips/seen", server.handleTipSeen)
+	mux.HandleFunc("/api/collection", server.handleCollection)
+	mux.HandleFunc("/api/home/shelf", server.handleShelf)
+	mux.HandleFunc("/api/souvenirs/gift", server.handleGiveSouvenir)
 	mux.HandleFunc("/api/privacy", server.handlePrivacy)
 	mux.HandleFunc("/api/stats", server.handleStats)
 	mux.HandleFunc("/api/home", server.handleHome)
@@ -592,6 +622,8 @@ func (s *Server) safeTick(now time.Time) {
 		}
 	}()
 	s.tick(now)
+	s.shareTripWithFriend()
+	s.householdTime(now)
 }
 
 // tick advances the active pet to now, unless the game is paused
@@ -612,6 +644,7 @@ func (s *Server) tick(now time.Time) {
 	if paused {
 		return
 	}
+	s.householdDays += gameSeconds / secondsPerGameDay
 
 	// The pet's simulation counts time in game days
 	before := s.pet.Conditions()
@@ -623,6 +656,8 @@ func (s *Server) tick(now time.Time) {
 			s.starsForTripLocked()
 		}
 	}
+	s.householdAwardsLocked(now)
+	s.checkHappeningLocked(now)
 	s.announceAchievementsLocked()
 	s.observePet(s.pet, false)
 	s.checkGrowingUpLocked()
@@ -834,7 +869,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; color: #333; }
         .panel-close { background: none; border: none; font-size: 1.2em; cursor: pointer; color: #888; }
         .panel-text { text-align: center; color: #444; margin-bottom: 10px; }
-        .trick-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .trick-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
         .trick-name { width: 120px; font-size: 0.9em; }
         .trick-bar { flex: 1; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
         .trick-fill { height: 100%; background: linear-gradient(90deg, #9775fa, #7048e8); }
@@ -952,6 +987,31 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .upkeep.due { color: #c92a2a; }
         .family-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
         .family-name { flex: 1 1 160px; }
+        .scene-shelf { position: absolute; top: 10px; left: 10px; z-index: 1; font-size: 1.2em; background: #c8a27a; border-bottom: 4px solid #8d6e4c; border-radius: 4px; padding: 0 4px; letter-spacing: 2px; }
+        .collection-set { border: 1px solid #eee; border-radius: 10px; padding: 6px 8px; margin: 6px 0; text-align: left; }
+        .collection-set.complete { border-color: #8bc34a; background: #f4fbec; }
+        .collection-items { font-size: 1.5em; letter-spacing: 4px; }
+        .collection-items .missing { filter: grayscale(1); opacity: 0.25; }
+        .shelf-pick { display: inline-flex; align-items: center; gap: 2px; margin: 2px 6px 2px 0; font-size: 1.1em; }
+        .show-box { border: 1px solid #eee; border-radius: 10px; padding: 8px; margin: 8px 0; text-align: left; }
+        .game-box { margin: 8px 0; }
+        .game-meter { position: relative; height: 22px; border-radius: 11px; background: #eee; margin: 8px 0; overflow: hidden; }
+        .game-zone { position: absolute; left: 55%; width: 25%; top: 0; bottom: 0; background: #b7e4b0; }
+        .game-marker { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: #667eea; }
+        .game-field { min-height: 2.6em; margin: 6px 0; }
+        .game-area { position: relative; height: 180px; border-radius: 10px; background: #f6f3ea; touch-action: none; overflow: hidden; }
+        .game-area:focus { outline: 2px solid #667eea; }
+        .game-sprite { position: absolute; font-size: 1.6em; pointer-events: none; }
+        .game-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+        .game-tile { font-size: 1.5em; padding: 10px 0; border-radius: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+        .game-tile.wide { font-size: 0.95em; }
+        .show-title { font-weight: 600; }
+        .show-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+        .show-row select { padding: 4px; border-radius: 6px; border: 1px solid #ccc; max-width: 100%; }
+        .show-results { text-align: left; margin: 6px 0; padding-left: 22px; }
+        .show-results li.you { font-weight: 700; color: #5a4fcf; }
+        .trick-locked { flex-basis: 100%; font-size: 0.8em; }
+        .goal-item.weekly { border-top: 1px dashed #ddd; margin-top: 4px; padding-top: 4px; }
         .pet-display svg { display: block; margin: 0 auto; }
         #petSprite { width: fit-content; margin-left: auto; margin-right: auto; }
         .breed-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; margin: 12px 0 6px; }
@@ -1001,7 +1061,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .modal-box h3 { color: #333; margin-bottom: 10px; overflow-wrap: anywhere; }
         .modal-box p { color: #555; font-size: 0.95em; margin-bottom: 14px; overflow-wrap: anywhere; }
         .modal-box input { width: 100%; padding: 10px 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 1em; margin-bottom: 14px; }
-        .modal-actions { display: flex; gap: 10px; justify-content: center; }
+        .modal-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        #popupText { white-space: pre-line; }
+        .tour-box { position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 420px; margin: 0 auto; z-index: 10002;
+            background: #fff; border-radius: 14px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); }
+        .theme-line { margin: 8px 0; padding: 8px 10px; border-radius: 10px; background: #f3f0ff; font-size: 0.9em; text-align: left; }
+        .book-cover { text-align: center; }
+        .book-page { display: flex; gap: 10px; align-items: center; border-top: 1px solid #eee; padding: 6px 0; text-align: left; }
+        .book-family { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+        .book-relative { border: 1px solid #ddd; border-radius: 10px; background: #fff; padding: 2px 8px; cursor: pointer; }
+        .book-memorial { margin-top: 10px; padding: 10px; border-radius: 10px; background: #f7f5ef; text-align: center; }
+        .tour-highlight { outline: 3px solid #667eea; outline-offset: 4px; border-radius: 10px; }
         .danger-btn { padding: 8px 16px; border: none; border-radius: 20px; background: #d9534f; color: white; font-weight: bold; cursor: pointer; }
         .danger-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .back-btn { margin-top: 12px; background: none; border: none; color: #667eea; cursor: pointer; font-size: 0.95em; }
@@ -1100,6 +1170,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="speech hidden" id="speech"></div>
             <div class="pet-scene" id="petScene">
                 <div class="scene-window" id="sceneWindow" aria-hidden="true"></div>
+                <div class="scene-shelf hidden" id="sceneShelf"></div>
                 <div class="pet-figure">
                     <div class="pet-display" id="petSprite"></div>
                 </div>
@@ -1116,7 +1187,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn" onclick="openBreeding()">💞 Breed</button>
                 <button class="activity-btn enrich" onclick="openChoices('enrich')">🏠 Enrich</button>
                 <button class="activity-btn" onclick="openMeet()">🤝 Meet</button>
-                <button class="activity-btn ar" onclick="openAR()" style="grid-column: span 2;">📷 See in your room (AR)</button>
+                <button class="activity-btn" onclick="openShows()">🏅 Shows</button>
+                <button class="activity-btn" onclick="openCollection()">🧺 Collection</button>
+                <button class="activity-btn" onclick="openGames()">🎮 Games</button>
+                <button class="activity-btn ar" onclick="openAR()">📷 See in your room (AR)</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -1184,6 +1258,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div class="illness hidden" id="illnessLine"></div>
                 <div id="symptoms"></div>
             </div>
+            <div class="theme-line" id="themeLine"></div>
             <div class="checklist" id="checklist"></div>
             <div class="goals hidden" id="goals"></div>
             <div class="forecast hidden" id="forecast"></div>
@@ -1202,6 +1277,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" onclick="openPrivacy()">🔒 Privacy</button>
                 <button class="save-btn" onclick="openStats()">📊 My stats</button>
                 <button class="save-btn" onclick="openSettings()">⚙️ Settings</button>
+                <button class="save-btn" onclick="openBook()">📔 Book</button>
+                <button class="save-btn" onclick="openProjects()">🎯 Projects</button>
+                <button class="save-btn" onclick="openHelp()">❓ Help</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
@@ -1267,6 +1345,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <h3>Are you sure?</h3>
                 <p id="deletePrompt"></p>
                 <input type="text" id="deleteConfirmInput" autocomplete="off" oninput="updateDeleteButton()">
+                <label class="setting"><input type="checkbox" id="deleteBookInput"> <span>Delete its book too</span></label>
                 <div class="modal-actions">
                     <button class="save-btn" onclick="closeDeleteModal()">Cancel</button>
                     <button class="danger-btn" id="deleteFinalBtn" onclick="confirmDelete()" disabled>Delete forever</button>
@@ -1280,6 +1359,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/ar-link.js?v={{static}}"></script>
     <script src="/static/js/shop.js?v={{static}}"></script>
     <script src="/static/js/breeds.js?v={{static}}"></script>
+    <script src="/static/js/shows.js?v={{static}}"></script>
+    <script src="/static/js/collection.js?v={{static}}"></script>
+    <script src="/static/js/minigames.js?v={{static}}"></script>
+    <script src="/static/js/sounds.js?v={{static}}"></script>
+    <script src="/static/js/book.js?v={{static}}"></script>
     <script>
         // The kinds of pet the game has (from /api/species): their names and
         // icons, and which care buttons each uses. The cat, the default species, is
@@ -1414,7 +1498,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         meta.className = 'saved-pet-meta';
                         const state = pet.unreadable ? 'This save is damaged and can\'t be loaded' :
                             !pet.is_alive ? 'Passed away' :
-                            pet.hibernating ? 'Hibernating · ' + formatAge(pet.age) : formatAge(pet.age);
+                            pet.hibernating ? 'Hibernating · ' + formatAge(pet.age) :
+                            formatAge(pet.age) + (pet.paused ? ' · paused' : '');
                         meta.textContent = state + ' · saved ' + new Date(pet.saved_at).toLocaleString();
                         info.append(name, meta);
 
@@ -1431,7 +1516,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
                         const actions = document.createElement('div');
                         actions.className = 'saved-pet-actions';
-                        actions.append(btn, del);
+                        actions.append(btn);
+                        // While it isn't the active pet, a pet lives on with the household
+                        // unless it is paused
+                        if (pet.is_alive && !pet.unreadable) {
+                            const pause = document.createElement('button');
+                            pause.className = 'save-btn';
+                            pause.textContent = pet.paused ? '▶ Live on' : '⏸ Pause';
+                            pause.title = pet.paused ? 'Let it age and be looked after by the household while you play another pet' :
+                                'Keep it as it is while you play another pet';
+                            pause.onclick = () => postJSON('/api/saves/pause', {slot: pet.slot, paused: !pet.paused})
+                                .then(() => loadSavedPets()).catch(console.error);
+                            actions.append(pause);
+                        }
+                        actions.append(del);
 
                         item.append(info, actions);
                         list.append(item);
@@ -1478,6 +1576,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('deleteWarning').textContent =
                 'This permanently deletes ' + pet.name + ' and all of its saved backups. It cannot be undone.';
             document.getElementById('deleteStep1').classList.remove('hidden');
+            document.getElementById('deleteBookInput').checked = false;
             document.getElementById('deleteStep2').classList.add('hidden');
             document.getElementById('deleteModal').classList.remove('hidden');
         }
@@ -1510,7 +1609,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             postJSON('/api/delete', {
                 slot: deleteTarget.slot,
-                confirm_name: document.getElementById('deleteConfirmInput').value
+                confirm_name: document.getElementById('deleteConfirmInput').value,
+                delete_book: document.getElementById('deleteBookInput').checked
             })
             .then(data => {
                 closeDeleteModal();
@@ -1662,7 +1762,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function updateUI(status) {
-            document.getElementById('petName').textContent = status.name;
+            document.getElementById('petName').textContent = status.name +
+                ((status.titles || []).includes('grand_champion') ? ' 👑' : '');
             // The pet's request: speech bubble, highlighted button, tab title
             const speech = document.getElementById('speech');
             const request = status.request;
@@ -1779,9 +1880,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             document.getElementById('petView').classList.toggle('dead', !status.is_alive);
             drawPet(spriteState(status), status);
+            renderShelf(status.shelf);
             renderHouseLook(status.house_look, status.name);
             renderUpkeep(status);
             showPopups(status.popups);
+            showHappening(status.happening);
             updatePauseUI(status);
 
             const hibernating = status.is_alive && status.hibernating;
@@ -1920,14 +2023,28 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     text += ' (' + goal.progress + '/' + goal.target + ')';
                 } else if (!goal.done && goal.kind === 'happiness') {
                     text += ' (now ' + goal.progress + '%)';
+                } else if (!goal.done && goal.unit === 'seconds') {
+                    text += ' (' + Math.floor(goal.progress / 60) + '/' + Math.round(goal.target / 60) + ' min)';
                 }
                 line.textContent = text + ' ';
                 const reward = document.createElement('span');
                 reward.className = 'goal-reward';
-                reward.textContent = '+' + goal.reward + ' ⭐';
+                reward.textContent = '+' + goal.reward + ' ❤️';
                 line.append(reward);
                 box.append(line);
             });
+            const week = status.weekly && status.weekly.goal;
+            if (week && week.kind) {
+                const line = document.createElement('div');
+                line.className = 'goal-item weekly' + (week.done ? ' done' : '');
+                line.textContent = (week.done ? '✅ ' : '🏅 ') + 'This week: ' + week.text +
+                    (week.done ? ' ' : ' (' + week.progress + '/' + week.target + ') ');
+                const reward = document.createElement('span');
+                reward.className = 'goal-reward';
+                reward.textContent = '+' + week.reward + ' ❤️ +' + week.stars + ' ⭐';
+                line.append(reward);
+                box.append(line);
+            }
         }
 
         // What the pet will soon need, and when the player usually plays
@@ -2679,6 +2796,18 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 holidays_off: holidayBoxes.filter(b => !b.checked).map(b => b.dataset.id)}, 'Holidays saved.'));
             p.append(holidayRow);
 
+            const soundTitle = cloudText(p, 'Sound', 'section-title');
+            soundTitle.style.marginTop = '14px';
+            const soundRow = document.createElement('label');
+            soundRow.className = 'panel-text';
+            const soundOff = document.createElement('input');
+            soundOff.type = 'checkbox';
+            soundOff.checked = privacy.sound_off;
+            soundOff.onchange = () => privacyPost({sound_off: soundOff.checked},
+                soundOff.checked ? 'Sound is off for every pet.' : 'Sound is back on.');
+            soundRow.append(soundOff, document.createTextNode(' Turn the game\'s sounds off (players can\'t turn them back on)'));
+            p.append(soundRow);
+
             const devices = cloudText(p, 'Play on a phone or tablet', 'section-title');
             devices.style.marginTop = '14px';
             const pairing = cloudText(p, '', 'panel-text');
@@ -2742,8 +2871,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 row.className = 'trick-row';
                 const name = document.createElement('span');
                 name.className = 'trick-name';
-                name.textContent = trick.icon + ' ' + trick.name + (trick.rusty ? ' (rusty)' : '');
+                name.textContent = trick.icon + ' ' + trick.name + (trick.rusty ? ' (rusty)' : '') + (trick.locked ? ' 🔒' : '');
                 if (trick.rusty) name.title = lastStatus.name + ' needs practice before doing this trick again';
+                if (trick.locked) name.title = trick.locked;
                 const bar = document.createElement('div');
                 bar.className = 'trick-bar';
                 const fill = document.createElement('div');
@@ -2754,7 +2884,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 btn.className = 'save-btn';
                 btn.textContent = trick.learned ? 'Do it!' : (trick.rusty ? 'Practice' : 'Train');
                 btn.onclick = () => doTrick(trick.id, trick.learned);
+                if (trick.locked) {
+                    btn.disabled = true;
+                    btn.title = trick.locked;
+                }
                 row.append(name, bar, btn);
+                if (trick.locked) {
+                    const why = document.createElement('div');
+                    why.className = 'cloud-note trick-locked';
+                    why.textContent = trick.locked;
+                    row.append(why);
+                }
                 p.append(row);
             });
             p.classList.remove('hidden');
@@ -2851,43 +2991,75 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .catch(console.error);
         }
 
-        // Exploring: with only the park discovered, the pet goes straight
-        // there; otherwise the player picks a place
+        // Exploring: with only the park discovered and nothing else to
+        // choose, the pet goes straight there; otherwise the player picks
+        // a place, and can choose a long trip or a friend to take along
         function explore() {
-            fetch('/api/explore/places')
-                .then(r => r.json())
-                .then(data => {
+            Promise.all([fetch('/api/explore/places').then(r => r.json()), fetch('/api/saves').then(r => r.json())])
+                .then(([data, saves]) => {
                     if (!data.success) {
                         showPointsToast(data.error || 'Something went wrong');
                         return;
                     }
-                    const discovered = data.data.filter(place => place.discovered);
-                    if (discovered.length <= 1) exploreTo(discovered.length ? discovered[0].id : 'park');
-                    else renderPlaces(data.data);
+                    const places = data.data.places;
+                    const species = (lastStatus && lastStatus.species) || 'cat';
+                    const friends = ((saves.success && saves.data.pets) || []).filter(pet =>
+                        pet.slot !== saves.data.active_slot && pet.is_alive && !pet.unreadable && !pet.hibernating &&
+                        (pet.species || 'cat') === species);
+                    const discovered = places.filter(place => place.discovered);
+                    if (discovered.length <= 1 && data.data.long_trip && !friends.length) exploreTo('park');
+                    else renderPlaces(places, data.data.long_trip, friends);
                 })
                 .catch(console.error);
         }
 
-        function renderPlaces(places) {
+        function renderPlaces(places, longTrip, friends) {
             panelMode = 'places';
             const p = panel();
             p.replaceChildren(panelHeader('Explore'));
             const name = (lastStatus && lastStatus.name) || 'Your pet';
+            const cat = lastStatus && lastStatus.species !== 'dog';
             const intro = document.createElement('div');
             intro.className = 'panel-text';
             intro.textContent = 'Where should ' + name + ' explore? Wilder places hold more to find and more danger. ' +
-                'What ' + name + ' finds is taken from the place and grows back over time.';
+                'What ' + name + ' finds is taken from the place and grows back over time.' +
+                (cat ? ' Cats go exploring on a harness walk with you, the safe way for a cat to be outdoors.' : '');
             p.append(intro);
+
+            // A long trip and a friend
+            const options = el('div', 'show-row');
+            const length = el('select', 'show-level');
+            length.setAttribute('aria-label', 'Trip length');
+            [['short', 'Short trip'], ['long', 'Long trip (two chances to find something)']].forEach(([v, text]) => {
+                const o = el('option', '', text);
+                o.value = v;
+                o.disabled = v === 'long' && !!longTrip;
+                length.append(o);
+            });
+            const friend = el('select', 'show-level');
+            friend.setAttribute('aria-label', 'Friend');
+            const alone = el('option', '', 'On its own');
+            alone.value = '';
+            friend.append(alone);
+            friends.forEach(pet => {
+                const o = el('option', '', 'With ' + pet.name);
+                o.value = pet.slot;
+                friend.append(o);
+            });
+            options.append(length, friend);
+            p.append(options);
+            if (longTrip) cloudText(p, 'Long trips: ' + longTrip, 'panel-text cloud-note');
+
             places.forEach(place => {
                 const row = document.createElement('div');
                 row.className = 'trick-row';
                 const label = document.createElement('span');
                 label.className = 'trick-name';
                 label.textContent = place.icon + ' ' + place.name;
-                if (!place.discovered) {
+                if (!place.discovered || place.unavailable) {
                     const info = document.createElement('span');
                     info.style.cssText = 'flex: 1; font-size: 0.8em; color: #777;';
-                    info.textContent = 'Discovered after ' + place.trips_needed + ' trips';
+                    info.textContent = place.discovered ? place.unavailable : 'Discovered after ' + place.trips_needed + ' trips';
                     row.append(label, info);
                 } else {
                     const bar = document.createElement('div');
@@ -2901,7 +3073,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     const btn = document.createElement('button');
                     btn.className = 'save-btn';
                     btn.textContent = 'Go';
-                    btn.onclick = () => exploreTo(place.id);
+                    btn.onclick = () => exploreTo(place.id, length.value === 'long', friend.value);
                     row.append(label, bar, btn);
                 }
                 p.append(row);
@@ -2909,8 +3081,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             p.classList.remove('hidden');
         }
 
-        function exploreTo(place) {
-            postJSON('/api/explore', {place: place})
+        function exploreTo(place, long, friendSlot) {
+            postJSON('/api/explore', {place: place, long: !!long, friend_slot: friendSlot || ''})
                 .then(data => {
                     if (data.success) {
                         closePanel();
@@ -3132,6 +3304,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         startUpdates();
         watchBattery();
     </script>
+    <!-- Adds to functions in the script above -->
+    <script src="/static/js/help.js?v={{static}}"></script>
 </body>
 </html>`
 	w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion)))
@@ -3184,7 +3358,7 @@ func (s *Server) saveNow() (bool, error) {
 		s.mu.RUnlock()
 		return false, nil
 	}
-	slot := s.slot
+	slot, pet := s.slot, s.pet
 	petData, err := s.pet.Save()
 	record := s.pet.SaveRecord()
 	s.mu.RUnlock()
@@ -3194,6 +3368,9 @@ func (s *Server) saveNow() (bool, error) {
 
 	if err := s.store.SaveWithRecord(slot, petData, &record); err != nil {
 		return false, err
+	}
+	if err := s.store.books.write(pet); err != nil {
+		log.Printf("Could not write %s's book: %v", pet.Name, err)
 	}
 	return true, nil
 }
@@ -3538,6 +3715,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		Slot        string `json:"slot"`
 		ConfirmName string `json:"confirm_name"`
 		ParentPIN   string `json:"parent_pin"`
+		DeleteBook  bool   `json:"delete_book"` // Delete its keepsake book too
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !ValidSlot(req.Slot) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid save slot"})
@@ -3602,6 +3780,11 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not delete pet"})
 		return
+	}
+	if req.DeleteBook && petID != "" {
+		if err := s.store.books.remove(petID); err != nil {
+			log.Printf("Could not delete %s's book: %v", name, err)
+		}
 	}
 	if active {
 		s.pet, s.slot = nil, ""
@@ -3688,6 +3871,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.pet.GetCurrentStatus()
 
 	petStatus := PetStatus{
+		ID:          s.pet.ID,
 		Name:        s.pet.Name,
 		Age:         status.Age,
 		IsAlive:     status.IsAlive,
@@ -3736,6 +3920,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	petStatus.Checklist = s.pet.DailyChecklist()
 	petStatus.Goals, petStatus.GoalLevel = s.pet.DailyGoals()
+	petStatus.Weekly = s.pet.WeekGoal()
+	_, petStatus.Titles = s.pet.ShowRecord()
 	petStatus.Forecasts = s.forecastsLocked(now)
 	petStatus.Outfit = s.pet.Worn()
 	petStatus.Breed = s.pet.BreedInfo()
@@ -3754,7 +3940,16 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		petStatus.HomeStars = s.house.status(now).Stars
+		petStatus.TipsSeen, petStatus.SoundOff = d.TipsSeen, d.SoundOff
+		petStatus.Shelf = []core.Souvenir{}
+		for _, id := range d.Shelf {
+			if sv, ok := core.FindSouvenir(id); ok {
+				petStatus.Shelf = append(petStatus.Shelf, sv)
+			}
+		}
 	}
+	petStatus.Happening = s.pet.CurrentHappening()
+	petStatus.Theme = core.WeekTheme()
 	petStatus.Popups = append([]popup{}, s.popups...)
 	if s.owner != nil {
 		petStatus.PlaySchedule = s.owner.Summary()

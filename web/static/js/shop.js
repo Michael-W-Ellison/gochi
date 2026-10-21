@@ -362,6 +362,7 @@ function openSettings() {
             btn.disabled = h === data.data.hemisphere;
         });
         p.append(row);
+        renderSoundSettings(p);
         p.classList.remove('hidden');
     }).catch(console.error);
 }
@@ -393,6 +394,29 @@ function showPopups(popups) {
     showModal(p.icon, p.title, p.text, [['OK', () => {
         postJSON('/api/popup/dismiss', {id: p.id}).finally(() => { popupShowing = null; });
     }]]);
+}
+
+// Home happenings: a choice to make, then what it led to and why. Closing
+// without choosing changes nothing.
+function showHappening(h) {
+    if (popupShowing || !h) return;
+    popupShowing = 'happening:' + h.id;
+    const done = () => { popupShowing = null; };
+    const buttons = h.choices.map(c => [c.label, () => {
+        postJSON('/api/happening', {choice: c.id}).then(data => {
+            if (!data.success) {
+                done();
+                showPointsToast(data.error || 'Something went wrong');
+                return;
+            }
+            const r = data.data;
+            showModal(r.right ? '👍' : '💡', r.right ? 'Good call!' : 'Something to know',
+                r.text + '\n\n' + r.lesson + (r.points ? '\n\n+' + r.points + ' ❤️' : ''),
+                [['OK', () => { done(); fetchStatus(); }]]);
+        }).catch(done);
+    }]);
+    buttons.push(['Not now', () => { postJSON('/api/happening', {choice: ''}).finally(done); }]);
+    showModal(h.icon, h.title, h.text, buttons);
 }
 
 // How the home looks: wallpaper, floor, window view and nameplate

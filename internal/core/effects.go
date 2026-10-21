@@ -234,6 +234,9 @@ func (p *DigitalPet) effectsLocked() [effectKinds]float64 {
 	for _, e := range p.timedEffectsLocked() {
 		add(e, false)
 	}
+	if shelfSetShown() {
+		add(eff(effHappinessDrop, 0.98), true) // A full set on the shelf, as a decoration
+	}
 	upgrades, filterFresh := houseUpgrades()
 	for _, id := range upgrades {
 		if up, ok := findUpgrade(id); ok {

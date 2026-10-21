@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Michael-W-Ellison/gochi/internal/biology"
@@ -43,7 +44,7 @@ type GuideTopic struct {
 
 // CareGuide returns the care guide for a species
 func CareGuide(species Species) []GuideTopic {
-	return append(append([]GuideTopic(nil), species.Def().CareGuide...), senseGuide(species)...)
+	return slices.Concat(species.Def().CareGuide, senseGuide(species), themeGuide(species))
 }
 
 // Symptom is a warning sign the pet shows, with what it means and the

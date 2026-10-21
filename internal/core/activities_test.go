@@ -57,6 +57,8 @@ func TestTrainingLearnsTrick(t *testing.T) {
 func TestHarderTricksTakeLonger(t *testing.T) {
 	sessionsToLearn := func(trick string) int {
 		pet := NewDigitalPet("Biscuit", "user123")
+		pet.Species = SpeciesDog
+		pet.TricksLearned = map[string]bool{"roll_over": true} // Play dead builds on it
 		for n := 1; n <= 100; n++ {
 			setCalmHealthyState(pet)
 			if r, _ := pet.TrainTrick(trick); r.JustLearned {
@@ -66,7 +68,7 @@ func TestHarderTricksTakeLonger(t *testing.T) {
 		return 100
 	}
 
-	if easy, hard := sessionsToLearn("sit"), sessionsToLearn("play_dead"); hard <= easy {
+	if easy, hard := sessionsToLearn("sit"), sessionsToLearn("play_dead"); hard <= easy || hard == 100 {
 		t.Errorf("Play dead (%d sessions) should take longer than Sit (%d)", hard, easy)
 	}
 }
@@ -77,8 +79,8 @@ func TestSmarterPetsLearnFaster(t *testing.T) {
 	slow := NewDigitalPet("Slow", "user123")
 	slow.Personality.Traits.Intelligence = 0.0
 
-	a, _ := smart.TrainTrick("spin")
-	b, _ := slow.TrainTrick("spin")
+	a, _ := smart.TrainTrick("touch")
+	b, _ := slow.TrainTrick("touch")
 	if a.Skill <= b.Skill {
 		t.Errorf("An intelligent pet should learn faster: %f vs %f", a.Skill, b.Skill)
 	}
@@ -197,7 +199,7 @@ func TestExploringTrip(t *testing.T) {
 	}
 	if pet.LastAdventure == nil || pet.LastAdventure.Outcome != OutcomeTreasure ||
 		pet.LastAdventure.Souvenir == nil || pet.LastAdventure.Souvenir.ID != "pebble" ||
-		pet.LastAdventure.Text != "Biscuit came home from the park with a shiny pebble! 🪨 Biscuit made some friends along the way." {
+		pet.LastAdventure.Text != "Biscuit came home from a harness walk at the park with a shiny pebble! 🪨 Biscuit made some friends along the way." {
 		t.Errorf("Unexpected adventure: %+v", pet.LastAdventure)
 	}
 	if c := pet.SouvenirCollection(); len(c) != 1 || c[0].ID != "pebble" || c[0].Count != 1 {
@@ -290,7 +292,7 @@ func TestTripCanFindNothing(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 
 	a := exploreOnce(t, pet)
-	if a.Outcome != OutcomeNothing || a.Souvenir != nil || a.Text != "Biscuit came home from the park with a muddy stick. Not much of a treasure! Biscuit made some friends along the way." {
+	if a.Outcome != OutcomeNothing || a.Souvenir != nil || a.Text != "Biscuit came home from a harness walk at the park with a muddy stick. Not much of a treasure! Biscuit made some friends along the way." {
 		t.Errorf("Unexpected adventure: %+v", a)
 	}
 	if len(pet.SouvenirCollection()) != 0 {
@@ -301,7 +303,7 @@ func TestTripCanFindNothing(t *testing.T) {
 	}
 
 	useRandom(t, 99, 3) // Nothing at all; the second trip discovers the beach
-	if a := exploreOnce(t, pet); a.Text != "Biscuit came home from the park empty-handed. Biscuit made some friends along the way. 🗺️ Biscuit can now explore the beach!" {
+	if a := exploreOnce(t, pet); a.Text != "Biscuit came home from a harness walk at the park empty-handed. Biscuit made some friends along the way. 🗺️ Biscuit can now explore the beach!" {
 		t.Errorf("Text = %q", a.Text)
 	}
 }

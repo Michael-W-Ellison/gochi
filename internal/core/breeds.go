@@ -779,6 +779,7 @@ func (p *DigitalPet) setBreedLocked(b BreedDef, g *genetics.Genome) {
 	p.Breed = b.ID
 	look := lookFromGenes(b, g)
 	p.Look = &look
+	p.fillHomeLookLocked()
 	p.BreedLifespan = b.Lifespan
 	p.Tendencies = map[string]float64{}
 	for _, t := range b.Tendencies {

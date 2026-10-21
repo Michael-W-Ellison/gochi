@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 )
@@ -145,10 +146,15 @@ func (s *Server) noteAchievementsLocked(pet *core.DigitalPet) {
 			len(names), strings.ToLower(tierNames[tier]), strings.Join(names, ", "))})
 }
 
-// scanAchievements records the achievements of every saved pet once, for
-// pets saved before achievements unlocked breeds
+// scanAchievements records the achievements and souvenirs of every saved
+// pet once, for pets saved before they counted for the household
 func (s *Server) scanAchievements() {
-	if s.house == nil || s.store == nil || s.house.snapshot().AchievedScanned {
+	if s.house == nil || s.store == nil {
+		return
+	}
+	d := s.house.snapshot()
+	achievements, souvenirs := !d.AchievedScanned, !d.CollectedScanned
+	if !achievements && !souvenirs {
 		return
 	}
 	saved, err := s.store.List()
@@ -162,12 +168,71 @@ func (s *Server) scanAchievements() {
 		}
 		if pet, _, _, err := s.store.Load(entry.Slot); err == nil {
 			s.mu.Lock()
-			s.noteAchievementsLocked(pet)
+			if achievements {
+				s.noteAchievementsLocked(pet)
+			}
+			if souvenirs {
+				s.collectLocked(nil, souvenirIDs(pet))
+			}
 			s.mu.Unlock()
 		}
 	}
 	s.house.mu.Lock()
-	s.house.data.AchievedScanned = true
+	s.house.data.AchievedScanned, s.house.data.CollectedScanned = true, true
 	s.house.saveLocked()
 	s.house.mu.Unlock()
+}
+
+// householdAwardsEvery is how often the household achievements are checked
+const householdAwardsEvery = time.Minute
+
+// householdAwardsLocked awards the active pet the achievements that are
+// about the whole household: many pets, every house upgrade, and many
+// breeds raised. Caller must hold s.mu.
+func (s *Server) householdAwardsLocked(now time.Time) {
+	if s.pet == nil || s.store == nil || now.Sub(s.lastHouseholdAwards) < householdAwardsEvery {
+		return
+	}
+	s.lastHouseholdAwards = now
+	saved, err := s.store.List()
+	if err != nil {
+		return
+	}
+	alive := 0
+	breeds := map[core.Species]map[string]bool{}
+	for _, p := range saved {
+		if p.Unreadable {
+			continue
+		}
+		if p.IsAlive {
+			alive++
+		}
+		if b, ok := core.FindBreed(p.Breed); ok && !b.Mixed {
+			if breeds[b.Species] == nil {
+				breeds[b.Species] = map[string]bool{}
+			}
+			breeds[b.Species][b.ID] = true
+		}
+	}
+	var awards []string
+	if alive >= 5 {
+		awards = append(awards, "full_house")
+	}
+	if len(breeds[core.SpeciesCat]) >= 5 {
+		awards = append(awards, "cat_fancier")
+	}
+	if len(breeds[core.SpeciesDog]) >= 5 {
+		awards = append(awards, "dog_lover")
+	}
+	if s.house != nil {
+		s.house.mu.Lock()
+		owned := len(s.house.upgradesLocked())
+		s.house.mu.Unlock()
+		if owned == len(core.HouseUpgrades()) {
+			awards = append(awards, "dream_home")
+		}
+	}
+	if len(awards) > 0 {
+		s.pet.Award(awards...)
+	}
 }

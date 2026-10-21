@@ -276,7 +276,8 @@ cppclass TimeManager {
 };
 
 The server keeps one clock, chosen at startup (-time-scale game, 24x, 4x or realtime). Each
-update advances only the active pet, by the clock's game time converted to game days. While the
+update advances the active pet, by the clock's game time converted to game days (saved pets
+live on in the household's care, 3.10.1). While the
 game is paused (section 3.10) the clock records the time but advances nothing, so no game time
 passes and nothing is made up later.
 3.2.2 Needs Management System
@@ -678,7 +679,10 @@ the active pet has 5 minutes of real play left before it grows up (with its pare
 3.8 Activities
 3.8.1 Tricks
 cppclass TrickTraining {
-    enum Trick { SIT, SHAKE_A_PAW, SPIN, ROLL_OVER, PLAY_DEAD };   // Difficulty 1 - 5
+    // Cats: sit, come, touch, paw, high five, spin, hoop, bell, fetch, sit pretty, wave, and the
+    // special roll over and play dead. Dogs: sit, come, touch, paw, down, stay, high five, spin,
+    // bow, hoop, fetch, weave, roll over, play dead. Difficulty 1 - 5; most need an easier trick
+    // first (for example stay needs down, spin and hoop need touch, fetch needs come).
     
     float train(Trick trick);      // Returns progress; learned at 1.0
     string perform(Trick trick);   // Only learned tricks
@@ -691,10 +695,44 @@ Skill decay: training or performing a trick records the pet's age. 120 game days
 skill falls by 0.25 per 120 game days. A trick the pet has learned (reached 1.0) never falls below
 0.75 and is then rusty: it cannot be performed until training brings it back to 1.0, which is
 reported as remembering it rather than learning it. Progress on a trick never learned falls to 0.
+A trick can't be started until the trick it needs is learned. A cat can start rolling over or
+playing dead only before 600 game days old and with playfulness above 0.6 and neuroticism at most
+0.5; these special tricks don't count in shows or for the "every trick" achievement.
+Shows (shows.go): a pet that is an adult, well, awake, not frail, with energy of at least 0.4 and
+a game day since its last show enters against 5 made-up entrants (names from a fixed list, a
+random breed of its species) whose scores are uniform in 40-85, 50-90 or 65-95 at Novice, Open and
+Champion. Scores (0-100): Trick Show, for each of 3 different learned, non-special tricks, (20 + 4
+x difficulty) x focus x 0.9-1.1, scaled by 100/120, +5 if the last is harder than the others;
+Grooming, (40 cleanliness + 20 eyes + 20 teeth + 20 recent brushing) x (0.85 + 0.15 focus);
+Agility (dogs), (40 fitness + 20 energy + 40 x average skill at weave, hoop, come) x focus; Playtime
+(cats), (40 mental stimulation + 20 playfulness + 40 x average skill at fetch, touch) x focus;
+Happiest, 50 happiness + 30 (1 - stress) + 20 care record; focus = 0.5 energy + 0.4 (1 - stress) +
+0.1 (1 - sleep debt), from 0.3 to 1. Place = 1 + entrants scoring higher. Prizes for 1st-3rd:
+60/30/15, 120/60/30, 200/100/50 points (at most 300 a calendar day) and 5/2/0, 10/5/2, 20/10/5
+Home Stars, with a rosette; winning a level opens the next. Entry costs 20 (tricks, grooming) or
+30 points; Happiest is free once a day. A show costs 0.15 energy and adds 0.05 x (1 +
+neuroticism) stress. First places at Champion level in 3 different shows give the Grand Champion
+title. No show judges looks against a breed standard.
 3.8.2 Hide and Seek
-The pet hides in one of four places and the player has two guesses. Finding it counts as play
+The pet hides in one of six places and the player has two guesses. Finding it counts as play
 and earns a 5-point game bonus at most once per reward cooldown. The player can stop the game at
 any time; an unfinished game earns nothing.
+3.8.2a Mini-games
+Mini-games (minigames.go) are played on the page, which reports how well a game went as a number
+from 0 to 1; nothing else is sent and nothing is scored or kept. Fetch (dogs) and the feather
+wand (cats) count as playing, the puzzle feeder and the scent trail as environmental enrichment,
+and gentle grooming as grooming, applied at intensity 0.4 + 0.6 x quality under the usual care
+rules (refusals, the 3-minute points limit). A game opens once the pet has had its kind of care
+(for enrichment, a trip or a change to its surroundings), and the list gives the refusal reason
+before play. The pet's enjoyment is described from the quality: loved (0.8 or more), enjoyed
+(0.5), had some fun (0.2), lost interest. The page computes quality as: fetch, good throws of 5
+(the marker between 55% and 80%); feather wand, 0.3 x min(fast moves / 6, 1) + 0.3 x min(slow
+moves / 6, 1) + 0.4 if the cat catches it (30 seconds, no limit in relaxed mode); puzzle feeder,
+kibble found / kibble, with 3 + round(3 x intelligence) tiles, kibble under half (rounded up),
+and 3 empty tiles allowed; scent trail, min(1, 6 / guesses) for 3 treats in 6 rooms; gentle
+grooming, regions brushed with the fur (and gently where the pet's liking of the petting region
+is below 0) / regions.
+
 3.8.3 Exploring
 cppclass Exploring {
     const float TRIP_LENGTH = 2.0;       // Game days
@@ -709,19 +747,64 @@ cppclass Exploring {
 
 Outcome chances: injury 12% (5 - 20%, lower for adaptable pets), treasure 55% (40 - 70%, higher
 for curious pets), otherwise nothing of value. Unsafe weather adds 10 points to the injury
-chance; night adds 5 and multiplies the treasure chance by 0.6. Treasures are souvenirs for the
-pet's collection, including a rare crystal found more often by curious pets. An injury costs
+chance; night adds 5 and multiplies the treasure chance by 0.6. Treasures are souvenirs from the
+place visited (souvenirs.go): each of the 12 places has 4 common souvenirs (weight 3 each) and a
+rare one (weight 1 + 2 x curiosity). An injury costs
 health 0.25, happiness 0.15 and energy 0.15, adds stress 0.2 and fear, and is remembered, making
 the pet warier of exploring. An injured pet asks to be healed and cannot explore until it is.
 A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
 cared for while away. A pet that enjoys exploring investigates at home on its own (the
 INVESTIGATING state); only the player starts a trip.
-Places: a trip goes to one of the environment's locations: park, beach, farm, forest, city or
-mountain, discovered after 0, 2, 4, 6, 9 and 12 finished trips (a trip called home early does not
-count). A place adds (danger - 0.1) x 30 points to the injury chance and multiplies the treasure
+Places: a trip goes to one of the environment's locations: park, beach, meadow, farm, garden
+(cats only), dog park (dogs only), forest, river, snowy hill, city, lakeside and mountain,
+discovered after 0, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10 and 12 finished trips (a trip called home early
+does not count). The river can't be visited in winter, the snowy hill only in winter and the
+lakeside only in summer. Environments saved before a place existed get it added. Cats go on a
+harness walk with the owner. A long trip (longExploreDuration 5 game days) needs an adult that
+isn't a senior with the "come" trick learned and at skill 1; it adds 3 points to the injury
+chance, rolls the outcome a second time for a second souvenir, and costs 0.1 more energy. A friend
+(a saved pet of the same species, alive, home, well, energy, water and food at least 0.4, to
+which the pet's bond is at least 0.5, and fit for a long trip if it is long) is recorded with the
+trip; when the trip ends the server loads it and ShareTrip gives it a copy of each souvenir, a
+place visit, energy -0.1 (-0.2 on a long trip), happiness +0.05, exploration need +0.5, and both
+pets bond +0.05 with a shared experience. A trip that wasn't an injury ends with a trip event with
+chance 1/3 (tripevents.go): 30 events, 2 or 3 per place, handled like home happenings (3.8.4),
+some of whose right choices add a souvenir from the place. A place adds (danger - 0.1) x 30 points to the injury chance and multiplies the treasure
 chance by exploration value / 0.7 x (0.3 + 0.7 x resources), up to 90%. Each place's resources
 (1.0 when untouched) fall by 0.3 when the pet finds a souvenir there and 0.1 when it finds nothing,
 and grow back by 0.05 per game day.
+Collection (collection.go): the household file keeps every souvenir any pet has found (a union
+when devices merge; at startup the saved pets' souvenirs are added once). A place's set is complete
+when its 4 common souvenirs are collected: 10 Home Stars, and 10 more for each rare souvenir; all
+12 sets give the Curator achievement and 50 stars. The shelf holds up to 5 collected souvenirs (a
+household setting; the newer wins on merge); while it holds all 5 of one place's souvenirs, every
+pet's happiness falls at 0.98 times its rate, as a decoration. A gift moves a souvenir from the
+active pet to a saved pet that has a relationship with it: bond +0.05, a shared memory, and
+happiness +0.05. Gifts only pass between saved pets on this computer.
+
+3.8.4 Home Happenings
+Happenings (happenings.go) are 46 events at home, each with 2 or 3 choices, of which exactly one
+is right: 18 for both species, 10 for cats, 10 for dogs and 8 for seasons and holidays (fireworks
+around New Year, Lunar New Year and Diwali; a festive tree at Christmas; sweets at Easter,
+Halloween and Valentine's Day; candles at Hanukkah, Diwali, Kwanzaa and Vesak, all only while
+the holiday is turned on and within a week of it; hot pavement in summer and salt on paws in
+winter for dogs; pollen in spring and moldy leaves in fall). Some need a condition: a smell or an
+avoided litter box needs living area waste above 0.3, refusing food needs dental health below
+0.6, a coat tangle a long, semi-long or shaggy coat, and hiding a warning sign.
+The game server asks for one on each tick while time runs and the page was used in the last 2
+minutes. A happening starts only when the pet is alive, home, awake, not hibernating, ill or
+injured, none is waiting, 20 minutes of play have passed since the last, and a minute since the
+last try; each try succeeds with chance 0.1. It is picked at random from those that fit and that
+haven't come in the last 7 days. It waits 10 minutes of play for a choice; closing it, or letting
+it pass, changes nothing. The choices are listed from a starting point set by a hash of its ID.
+The right choice: happiness +0.05, stress -0.03, 5 Friendship Points (at most 25 a calendar
+day), its own effect, and counts toward Happy Helper (25 right choices). Effects: calm (stress
+-0.08, happiness +0.03), play (happiness +0.06, play needs met at 0.5), stimulation (mental
+stimulation +0.3), cleaning (living area waste 0, stress -0.03), grooming (cleanliness +0.1).
+Wrong choices: frightened (stress +0.12, happiness -0.05), frustrated (stress +0.06), upset
+stomach (health -0.02, happiness -0.05, stress +0.05), hurt (health -0.05, stress +0.1), or
+poisoning (chocolate, a toxic plant, holiday sweets, moldy leaves), the same illness as eating
+chocolate, treated with Heal. Every choice shows what happened and the lesson.
 
 3.9 Requests, Reactions and Preferences
 cppstruct PetRequest {
@@ -753,11 +836,57 @@ training and walks given to a reluctant pet are unwanted attention: stress rises
 falls 0.12, the emotional response is annoyance and fear instead of pleasure, and the lesson shown
 explains the signs that a cat or dog has had enough.
 
+3.9a Help and Sound
+The page holds the 8-step tour and 8 first-time tips (shop, house, breeding, shows, collection,
+family, games, explore). The household file records the IDs shown (TipsSeen, from a fixed list,
+merged as a union; POST /api/tips/seen refuses any other), so each is shown once per household;
+the status carries the list. Sound (sounds.js) is synthesized with the Web Audio API from 19
+recipes of oscillators and filtered noise; nothing is downloaded. The player's sound settings (on,
+volume, quiet hours) are kept in the browser's local storage, defaulting to on at 0.5. A parent
+setting, SoundOff in the household file (PIN-protected like the other parental settings, merged
+with the other settings by time), silences every sound and hides the player's sound settings.
+
+3.9b Themes, Projects and Keepsake Books
+Themes (themes.go): ISO week number mod 12 picks dental, enrichment, grooming, hydration, training,
+senior, calm, explorer, friendship, nutrition, safety or paws. Hydration and paws (8 weeks apart
+in a round) swap when the hydration week is in winter or the paw care week in summer, by the real
+season for the household's hemisphere. Each has a care guide topic (teeth, exercise, grooming,
+water, training, senior, stress, outdoors, company, feeding, safety, paws; the five not in the
+species guides are added to both), a preferred weekly goal kind (used when it is among the week's
+options) and a list of happenings: the first that fits comes as the week's first happening, once
+a week. Two happenings were added for themes: a stale water bowl, and a senior stiff on the
+stairs (seniors only).
+Projects (projects.go, GET /api/projects): Grand Champion (Champion wins of the active pet, 3, or
+done if the household has the achievement), the collection (complete sets of 12), the house
+(upgrades owned of all), generations (highest genome generation among saved pets, of 5), and the
+care tier of one species with the largest share of its purebred breeds among saved pets.
+Keepsakes (keepsakes.go): pages are added to the pet's save (at most 120) for: home (made, or
+"born"), grew up, senior, first trick, first trip, each place discovered, each ribbon
+(show/level/place), each set completed, first baby (its name), first best friend (bond 0.8, its
+name), and each holiday played (once a year, checked once a day). Each page keeps the age, date,
+look and outfit. The text comes from fixed templates. When the pet is saved, the server writes
+<data dir>/books/<pet ID>.json with its name, species, breed, look, parents, pages, a memorial for
+a pet that has died (age, cause, tricks learned, places visited, ribbons, its strongest like, the
+pet it was closest to) and whether the memorial candle is lit (kept between writes). GET
+/api/books lists books; ?id= returns one with page text, outfit cosmetics and its family
+(parents, their parents, and children, from the other books). A book stays after its pet is
+deleted, unless delete_book is set when deleting; POST /api/books/delete removes the book of a pet
+no longer saved. Book IDs must match [A-Za-z0-9_-]{1,80}.
+
 3.10 Session and Lifecycle Management
 3.10.1 Pausing
 Time passes only while the player is playing. Time stops when the player presses Pause, when the
 player has not used the page for the away-pause period (2 minutes by default), and while the
-program is not running. Only the active pet's time passes; other pets wait in their save files.
+program is not running. While time passes, the other living saved pets live on in the
+household's care (householdtime.go): the server adds up the game days played and every 5 minutes
+loads each saved pet that is alive, not hibernating, not away exploring and not paused by the
+player (HouseholdPaused), adds the days to its age, raises its food, water, energy and
+cleanliness to at least 0.8, happiness to at least 0.7, lowers stress and fatigue to at most 0.2,
+empties its living area, keeps its needs at 0.8 or more, checks for death of old age, and saves
+it. It earns no points and doesn't progress an illness. Every pair of pets that have met, both
+alive and living on (the active pet always is), grows 0.002 closer a game day, up to 0.8, both
+ways. A saved young pet with a living parent gets the growing-up warning, and a saved pet that
+dies of old age is announced with a pop-up.
 3.10.2 Hibernation (Gentle Mode)
 cppclass Hibernation {
     const float CRITICAL_LEVEL = 0.1;
@@ -1059,6 +1188,18 @@ happiness + 10%), 95%), where steps = floor(level - 1). Each goal pays round(lev
 Points when completed, and is announced as an event. At the start of each day, the level rises by
 0.5 if at least two thirds of the last day's goals were completed and falls by 0.5 if none were
 completed but some were tried. Goals are part of the pet's save.
+After a pet's first day the activity goal is the best-scoring of: the first-day activity (1.0),
+practice a rusty trick (1.5), renew upkeep due within 50 game days (1.3), brush teeth (0.6, +0.6
+x teeth tendency, +0.6 if dental health is below 0.6), wipe eyes (0.8, +0.5 below 0.6 eye health;
+eye tendency or eye health below 0.8), a home change not made for 5 game days (0.8), a trip to
+the least-visited discovered place (0.8), meet another pet (0.6) and a group activity (0.5), less
+1 for any kind asked for in the last 3 days. The wellbeing goal is happiness, or calm (stress
+under 0.3 for 20 minutes of play) when stress is above 0.4, comfort (stress under 0.4 for 20
+minutes) in heat above 27 C or cold below 10 C for pets with a matching tendency, or steady care
+(food and water above 0.5 for 30 minutes) from level 3 on days after a happiness goal. Minutes are
+of the play clock, in steps of at most 10 seconds. A weekly goal (ISO week) rotates through teeth
+on 5 days, 7 trips, 2 tricks, all goals on 3 days and 20 play sessions; it pays 100 points and 15
+Home Stars.
 
 
 6. Technical Implementation Details

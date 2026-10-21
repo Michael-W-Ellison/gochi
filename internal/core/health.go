@@ -260,6 +260,9 @@ func (p *DigitalPet) treatIllnessLocked() string {
 		return ""
 	}
 	kind := p.Illness.Kind
+	if p.Illness.Severity < 0.3 {
+		p.countLocked("early_treated", 1)
+	}
 	ph := p.Biology.Physiology
 	switch kind {
 	case IllnessDental: // A cleaning at the vet

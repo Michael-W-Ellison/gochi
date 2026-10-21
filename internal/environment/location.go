@@ -18,6 +18,12 @@ const (
 	LocationTundra
 	LocationTropical
 	LocationFarm
+	LocationMeadow
+	LocationRiver
+	LocationDogPark
+	LocationGarden
+	LocationSnowyHill
+	LocationLakeside
 )
 
 // String returns the string representation of LocationType
@@ -25,6 +31,7 @@ func (l LocationType) String() string {
 	return [...]string{
 		"Home", "Park", "Beach", "Forest", "Mountain",
 		"City", "Desert", "Tundra", "Tropical", "Farm",
+		"Meadow", "River", "Dog Park", "Garden", "Snowy Hill", "Lakeside",
 	}[l]
 }
 
@@ -88,7 +95,8 @@ func (lm *LocationManager) RegenerateResources(gameDays float64) {
 }
 
 // tripOrder lists the places a pet can explore, nearest first
-var tripOrder = []string{"park", "beach", "farm", "forest", "city", "mountain"}
+var tripOrder = []string{"park", "beach", "meadow", "farm", "garden", "dog_park", "forest", "river",
+	"snowy_hill", "city", "lakeside", "mountain"}
 
 // TripDestinations returns the IDs of the places a pet can explore (every
 // place but home), nearest first
@@ -334,6 +342,115 @@ func (lm *LocationManager) initializeLocations() {
 		},
 		Climate:  ClimateTemperate,
 		Unlocked: false,
+	}
+
+	// Meadow - gentle, with flowers and insects
+	lm.Locations["meadow"] = &Location{
+		Type:        LocationMeadow,
+		Name:        "Meadow",
+		Description: "A sunny meadow of long grass, wildflowers and buzzing insects",
+		Features: LocationFeatures{
+			HasWater: false, HasShelter: false, HasFood: false, HasToys: false,
+			SocialOpportunity: 0.3, ExplorationValue: 0.7, DangerLevel: 0.12, Comfort: 0.8,
+		},
+		Effects: LocationEffects{
+			EnergyDrain: 1.1, HappinessBonus: 0.15, StressModifier: 0.6,
+			ExplorationBonus: 0.5, SocialBonus: 0.2, HealthRisk: 0.08,
+		},
+		Climate: ClimateTemperate,
+	}
+
+	// River - water play, slippery rocks
+	lm.Locations["river"] = &Location{
+		Type:        LocationRiver,
+		Name:        "River",
+		Description: "A rushing river with pebbly shallows and slippery rocks",
+		Features: LocationFeatures{
+			HasWater: true, HasShelter: false, HasFood: false, HasToys: false,
+			SocialOpportunity: 0.3, ExplorationValue: 0.8, DangerLevel: 0.3, Comfort: 0.5,
+		},
+		Effects: LocationEffects{
+			EnergyDrain: 1.4, HappinessBonus: 0.15, StressModifier: 0.8,
+			ExplorationBonus: 0.6, SocialBonus: 0.2, HealthRisk: 0.15,
+		},
+		Climate: ClimateTemperate,
+	}
+
+	// Dog park - other dogs to meet
+	lm.Locations["dog_park"] = &Location{
+		Type:        LocationDogPark,
+		Name:        "Dog Park",
+		Description: "A fenced park where dogs run and play together off the lead",
+		Features: LocationFeatures{
+			HasWater: true, HasShelter: false, HasFood: false, HasToys: true,
+			SocialOpportunity: 1.0, ExplorationValue: 0.5, DangerLevel: 0.15, Comfort: 0.6,
+		},
+		Effects: LocationEffects{
+			EnergyDrain: 1.4, HappinessBonus: 0.2, StressModifier: 0.9,
+			ExplorationBonus: 0.3, SocialBonus: 0.8, HealthRisk: 0.12,
+		},
+		Climate: ClimateTemperate,
+	}
+
+	// Garden - a quiet, safe place for a cat on a harness
+	lm.Locations["garden"] = &Location{
+		Type:        LocationGarden,
+		Name:        "Garden",
+		Description: "A quiet walled garden of flowerbeds and sunny paths",
+		Features: LocationFeatures{
+			HasWater: true, HasShelter: true, HasFood: false, HasToys: false,
+			SocialOpportunity: 0.2, ExplorationValue: 0.6, DangerLevel: 0.05, Comfort: 0.9,
+		},
+		Effects: LocationEffects{
+			EnergyDrain: 0.9, HappinessBonus: 0.12, StressModifier: 0.5,
+			ExplorationBonus: 0.4, SocialBonus: 0.1, HealthRisk: 0.03,
+		},
+		Climate: ClimateTemperate,
+	}
+
+	// Snowy hill - only in winter
+	lm.Locations["snowy_hill"] = &Location{
+		Type:        LocationSnowyHill,
+		Name:        "Snowy Hill",
+		Description: "A hill deep in snow, with icy paths and frozen puddles",
+		Features: LocationFeatures{
+			HasWater: false, HasShelter: false, HasFood: false, HasToys: false,
+			SocialOpportunity: 0.3, ExplorationValue: 0.8, DangerLevel: 0.3, Comfort: 0.3,
+		},
+		Effects: LocationEffects{
+			EnergyDrain: 1.5, HappinessBonus: 0.15, StressModifier: 1.0,
+			ExplorationBonus: 0.6, SocialBonus: 0.2, HealthRisk: 0.1,
+		},
+		Climate: ClimateCold,
+	}
+
+	// Lakeside - only in summer
+	lm.Locations["lakeside"] = &Location{
+		Type:        LocationLakeside,
+		Name:        "Lakeside",
+		Description: "A warm lakeshore with reeds, lily pads and still water",
+		Features: LocationFeatures{
+			HasWater: true, HasShelter: true, HasFood: false, HasToys: false,
+			SocialOpportunity: 0.5, ExplorationValue: 0.8, DangerLevel: 0.25, Comfort: 0.6,
+		},
+		Effects: LocationEffects{
+			EnergyDrain: 1.3, HappinessBonus: 0.18, StressModifier: 0.7,
+			ExplorationBonus: 0.6, SocialBonus: 0.3, HealthRisk: 0.15,
+		},
+		Climate: ClimateTemperate,
+	}
+}
+
+// AddMissing adds the default locations a manager doesn't have, for
+// environments saved before those places existed
+func (lm *LocationManager) AddMissing() {
+	if len(lm.Locations) >= len(tripOrder)+1 { // Every trip destination and home
+		return
+	}
+	for id, loc := range NewLocationManager().Locations {
+		if _, ok := lm.Locations[id]; !ok {
+			lm.Locations[id] = loc
+		}
 	}
 }
 

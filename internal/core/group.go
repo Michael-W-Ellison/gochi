@@ -284,6 +284,15 @@ func ProcessGroupActivity(activityID string, pets ...*DigitalPet) (GroupResult, 
 		pet.mu.Unlock()
 	}
 
+	pets[0].GoalEvent(GoalGroup, "")
+	for _, a := range pets {
+		for _, b := range pets {
+			if a != b && a.IsChildOf(b.ID) {
+				a.count("family_reunion", 1)
+				b.count("family_reunion", 1)
+			}
+		}
+	}
 	result.Happiness = CalculateGroupHappiness(pets...)
 	result.Text = groupText(infos, activity, result)
 	return result, nil

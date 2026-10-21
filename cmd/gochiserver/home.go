@@ -9,6 +9,7 @@ import (
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 // Home Stars as the game is played, and the household's page routes
@@ -20,7 +21,11 @@ func (s *Server) awardStarsLocked(stars int, what string, once bool, why string)
 		return
 	}
 	if added := s.house.earn(stars, what, once); added > 0 {
-		s.events.Emit(core.GameEvent{Type: core.EventAchievement, PetID: s.pet.ID, Good: true,
+		var id types.PetID
+		if s.pet != nil {
+			id = s.pet.ID
+		}
+		s.events.Emit(core.GameEvent{Type: core.EventAchievement, PetID: id, Good: true,
 			Message: fmt.Sprintf("⭐ +%d Home Stars for %s.", added, why)})
 	}
 }
@@ -32,12 +37,18 @@ func (s *Server) starsForTripLocked() {
 	if a := s.pet.LastAdventure; a != nil && a.Discovered != "" {
 		s.awardStarsLocked(starsNewPlace, "place:"+string(s.pet.ID)+":"+a.Discovered, true, "discovering a new place")
 	}
+	if a := s.pet.LastAdventure; a != nil && a.Souvenir != nil {
+		s.collectLocked(s.pet, []string{a.Souvenir.ID})
+	}
 }
 
 // starsForAchievementLocked awards Home Stars for an achievement. Caller
 // must hold s.mu.
 func (s *Server) starsForAchievementLocked(a core.Achievement) {
 	stars := achievementStars[a.ID]
+	if stars == 0 {
+		stars = map[string]int{"rare": 25, "epic": 50, "legendary": 50}[a.Rarity]
+	}
 	if stars == 0 {
 		stars = 10
 	}

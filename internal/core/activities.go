@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 
 	"github.com/Michael-W-Ellison/gochi/internal/ai"
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -43,33 +45,16 @@ var randIntn = rand.Intn
 // ---------------------------------------------------------------------------
 // Tricks
 
-// Trick is something a pet can be trained to do
-type Trick struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Icon       string `json:"icon"`
-	Difficulty int    `json:"difficulty"` // 1 (easiest) to 5
-	Performed  string `json:"-"`          // What the pet does; %s is its name
-}
-
-// tricks lists every trick from easiest to hardest
-var tricks = []Trick{
-	{ID: "sit", Name: "Sit", Icon: "🐾", Difficulty: 1, Performed: "%s sits down neatly."},
-	{ID: "paw", Name: "Shake a paw", Icon: "🤝", Difficulty: 2, Performed: "%s offers you a paw to shake."},
-	{ID: "spin", Name: "Spin", Icon: "🌀", Difficulty: 3, Performed: "%s spins around in a happy circle!"},
-	{ID: "roll_over", Name: "Roll over", Icon: "🔄", Difficulty: 4, Performed: "%s rolls all the way over!"},
-	{ID: "play_dead", Name: "Play dead", Icon: "🎭", Difficulty: 5, Performed: "%s flops over dramatically... then peeks at you!"},
-}
-
 // minTrainingEnergy is the energy a pet needs to train or play games
 const minTrainingEnergy = 0.25
 
 // TrickProgress is a trick with the pet's skill at it
 type TrickProgress struct {
 	Trick
-	Skill   float64 `json:"skill"`   // 0.0 to 1.0
-	Learned bool    `json:"learned"` // Can perform it now
-	Rusty   bool    `json:"rusty"`   // Learned it once, but needs practice before performing it again
+	Skill   float64 `json:"skill"`            // 0.0 to 1.0
+	Learned bool    `json:"learned"`          // Can perform it now
+	Rusty   bool    `json:"rusty"`            // Learned it once, but needs practice before performing it again
+	Locked  string  `json:"locked,omitempty"` // Why it can't be started yet (a trick to learn first)
 }
 
 // Trick skills fade without practice. A trick practiced within
@@ -127,6 +112,7 @@ func (p *DigitalPet) markTrickLearnedLocked(id string) {
 		p.TricksLearned = make(map[string]bool)
 	}
 	p.TricksLearned[id] = true
+	p.keepLocked(KeepsakeTrick, id) // Only the first
 }
 
 // practiceTrickLocked records that the pet practiced a trick now. Caller
@@ -145,30 +131,6 @@ type TrickResult struct {
 	Skill       float64 // Skill after training
 	JustLearned bool    // The trick was learned in this session
 	Text        string  // What happened, e.g. "Biscuit learned Spin!"
-}
-
-// findTrick returns the trick with the given ID
-func findTrick(id string) (Trick, bool) {
-	for _, t := range tricks {
-		if t.ID == id {
-			return t, true
-		}
-	}
-	return Trick{}, false
-}
-
-// Tricks returns every trick with the pet's progress
-func (p *DigitalPet) Tricks() []TrickProgress {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	progress := make([]TrickProgress, len(tricks))
-	for i, t := range tricks {
-		skill := p.TrickSkills[t.ID]
-		progress[i] = TrickProgress{Trick: t, Skill: skill, Learned: skill >= 1.0,
-			Rusty: skill < 1.0 && p.TricksLearned[t.ID]}
-	}
-	return progress
 }
 
 // checkActiveLocked returns why the pet cannot do an activity, or nil.
@@ -224,6 +186,9 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	if err := p.checkActiveLocked(); err != nil {
 		return TrickResult{}, err
 	}
+	if reason := p.trickLockedReasonLocked(t); reason != "" && p.TrickSkills[t.ID] == 0 {
+		return TrickResult{}, RefusedError{reason}
+	}
 
 	choice, speed := careChoice{}, 1.0
 	if methodID != "" {
@@ -242,8 +207,12 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	if !result.Applied {
 		return TrickResult{}, RefusedError{result.Refusal}
 	}
-	if methodID == "treats" || methodID == "clicker" || methodID == "signals" {
+	switch methodID {
+	case "treats", "clicker", "signals":
 		p.useSupplyLocked(p.defLocked().Treats)
+		p.countLocked("reward_training", 1)
+	case "punishment":
+		p.countLocked("scolding", 1)
 	}
 
 	if p.TrickSkills == nil {
@@ -266,6 +235,10 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	if result.Skill >= 1.0 {
 		p.markTrickLearnedLocked(t.ID)
 	}
+	if result.JustLearned {
+		p.weeklyEventLocked(GoalLearn)
+	}
+	p.goalEventLocked(GoalPractice, t.ID)
 
 	switch {
 	case relearned && result.Skill >= 1.0:
@@ -326,6 +299,8 @@ var hidingSpots = []HidingSpot{
 	{"behind the couch", "🛋️"},
 	{"in the toy box", "🧸"},
 	{"behind the curtain", "🪟"},
+	{"in the laundry basket", "🧺"},
+	{"under the table", "🪑"},
 }
 
 // hideAndSeekGuesses is how many guesses the player gets
@@ -440,25 +415,6 @@ func (p *DigitalPet) GuessHidingSpot(spot int) (GameResult, error) {
 // ---------------------------------------------------------------------------
 // Exploring
 
-// Souvenir is something a pet can bring back from exploring
-type Souvenir struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Icon string `json:"icon"`
-	Rare bool   `json:"rare"`
-}
-
-// souvenirs a pet can find while exploring
-var souvenirs = []Souvenir{
-	{ID: "pebble", Name: "a shiny pebble", Icon: "🪨"},
-	{ID: "feather", Name: "a feather", Icon: "🪶"},
-	{ID: "flower", Name: "a flower", Icon: "🌸"},
-	{ID: "leaf", Name: "a colorful leaf", Icon: "🍁"},
-	{ID: "shell", Name: "a seashell", Icon: "🐚"},
-	{ID: "acorn", Name: "an acorn", Icon: "🌰"},
-	{ID: "crystal", Name: "a sparkly crystal", Icon: "💎", Rare: true},
-}
-
 // junkFinds are worthless things a pet can bring home; "" means nothing
 var junkFinds = []string{"a muddy stick", "a soggy leaf", "a pocketful of sand", ""}
 
@@ -481,36 +437,89 @@ type Adventure struct {
 	ReturnedAge  float64       `json:"returned_age"` // Pet's age when it came home
 	Reaction     ReactionLevel `json:"reaction"`
 	Discovered   string        `json:"discovered,omitempty"` // A place the trip opened up
+	Extra        []string      `json:"extra,omitempty"`      // Other souvenirs found: on a long trip, or by a good choice after it
+	Long         bool          `json:"long,omitempty"`       // A long trip
+	Friend       string        `json:"friend,omitempty"`     // The name of a friend that came along
 }
 
 const (
 	// exploreDuration is how long a trip takes, in game days of the pet's
-	// age (the server runs one game day per real minute)
-	exploreDuration = 2.0
+	// age (the server runs one game day per real minute), and
+	// longExploreDuration a long trip
+	exploreDuration     = 2.0
+	longExploreDuration = 5.0
+
+	// A long trip adds longTripInjury percentage points of injury chance
+	// and costs longTripEnergy more energy
+	longTripInjury = 3
+	longTripEnergy = 0.1
 
 	// minExploreLevel is the energy, water and food a pet needs to set out
 	minExploreLevel = 0.4
+
+	// minFriendBond is how close two pets must be to go exploring together
+	minFriendBond = 0.5
 )
+
+// Trip errors
+var (
+	ErrLongTrip   = errors.New("a long trip needs a grown-up pet, not a senior, that reliably comes when called")
+	ErrTripFriend = errors.New("a friend must be the same species, close to the pet, and well enough to go")
+)
+
+// TripOptions are the choices for a trip
+type TripOptions struct {
+	Place      string      // A place the pet has discovered (see Places)
+	Long       bool        // A long trip (see LongTripProblem)
+	Friend     *DigitalPet // A saved pet that comes along, if any
+	FriendSlot string      // Where the friend is saved, kept for when the trip ends
+}
+
+// TripFriend is a saved pet on a trip with the pet
+type TripFriend struct {
+	ID   types.PetID `json:"id"`
+	Name string      `json:"name"`
+	Slot string      `json:"slot"`
+}
 
 // SendExploring sends the pet out on a trip to the park. It returns home
 // on its own after exploreDuration.
 func (p *DigitalPet) SendExploring() error {
-	return p.SendExploringTo(defaultPlace)
+	return p.SendExploringWith(TripOptions{Place: defaultPlace})
 }
 
 // SendExploringTo sends the pet out on a trip to a place it has discovered
 // (see Places). It returns home on its own after exploreDuration.
 func (p *DigitalPet) SendExploringTo(place string) error {
+	return p.SendExploringWith(TripOptions{Place: place})
+}
+
+// longTripProblemLocked says why the pet can't go on a long trip, or
+// returns "". It must come reliably when called (the "come" trick learned
+// and not rusty), and be neither young nor a senior. Caller must hold
+// p.mu.
+func (p *DigitalPet) longTripProblemLocked() string {
+	switch stage := p.Biology.LifeStage(); {
+	case stage == biology.StageYoung:
+		return p.Name + " is too young for a long trip."
+	case stage == biology.StageSenior:
+		return p.Name + " is a senior now; short trips suit it better."
+	case !p.TricksLearned["come"] || p.TrickSkills["come"] < 1:
+		return p.Name + " must come reliably when called (the Come trick, learned and not rusty) to go on a long trip."
+	}
+	return ""
+}
+
+// LongTripProblem says why the pet can't go on a long trip, or returns ""
+func (p *DigitalPet) LongTripProblem() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.longTripProblemLocked()
+}
 
-	loc, ok := p.placeLocked(place)
-	if !ok {
-		return ErrUnknownPlace
-	}
-	if !p.discoveredLocked(place, loc) {
-		return ErrPlaceLocked
-	}
+// tripReadyLocked returns an error if the pet can't set out now. Caller
+// must hold p.mu.
+func (p *DigitalPet) tripReadyLocked() error {
 	if err := p.checkActiveLocked(); err != nil {
 		return err
 	}
@@ -521,11 +530,88 @@ func (p *DigitalPet) SendExploringTo(place string) error {
 	if v.Energy < minExploreLevel || v.Hydration < minExploreLevel || v.Nutrition < minExploreLevel {
 		return ErrNeedsCare
 	}
+	return nil
+}
+
+// friendProblemLocked says why friend can't come on the pet's trip, or
+// returns "". Caller must hold both pets' locks.
+func (p *DigitalPet) friendProblemLocked(friend *DigitalPet, long bool) string {
+	rel, ok := p.Relationships.GetRelationship(friend.ID)
+	switch {
+	case friend.speciesLocked() != p.speciesLocked():
+		return "Friends on a trip must be the same species."
+	case !ok || rel.BondStrength < minFriendBond:
+		return fmt.Sprintf("%s and %s need to be closer friends first.", p.Name, friend.Name)
+	case friend.Illness != nil || friend.Injured || friend.Hibernating || !friend.Biology.IsAlive || friend.isExploringLocked():
+		return friend.Name + " isn't well enough or isn't here."
+	case friend.Biology.Vitals.Energy < minExploreLevel || friend.Biology.Vitals.Hydration < minExploreLevel ||
+		friend.Biology.Vitals.Nutrition < minExploreLevel:
+		return friend.Name + " needs food, water or rest first."
+	case long:
+		return friend.longTripProblemLocked()
+	}
+	return ""
+}
+
+// SendExploringWith sends the pet out on a trip. It returns home on its
+// own after exploreDuration (longExploreDuration for a long trip). A
+// friend that comes along shares the finds when the trip ends (see
+// ShareTrip); until then it is unchanged.
+func (p *DigitalPet) SendExploringWith(opts TripOptions) error {
+	if opts.Friend == p {
+		return ErrSamePet
+	}
+	if opts.Friend != nil {
+		unlock := lockPair(p, opts.Friend)
+		defer unlock()
+	} else {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+	}
+
+	place := opts.Place
+	loc, ok := p.placeLocked(place)
+	if !ok {
+		return ErrUnknownPlace
+	}
+	if !p.discoveredLocked(place, loc) {
+		return ErrPlaceLocked
+	}
+	if reason := p.placeSeasonLocked(place); reason != "" {
+		return RefusedError{fmt.Sprintf("%s: %s.", loc.Name, strings.ToLower(reason))}
+	}
+	if err := p.tripReadyLocked(); err != nil {
+		return err
+	}
+	if opts.Long {
+		if reason := p.longTripProblemLocked(); reason != "" {
+			return RefusedError{reason}
+		}
+	}
+	if opts.Friend != nil {
+		if reason := p.friendProblemLocked(opts.Friend, opts.Long); reason != "" {
+			return RefusedError{reason}
+		}
+	}
 
 	p.game = nil
 	p.ExploringTo = place
-	p.ExploringUntilAge = p.Biology.GetAgeInDays() + exploreDuration
+	p.LongTrip = opts.Long
+	duration := exploreDuration
+	if opts.Long {
+		duration = longExploreDuration
+	}
+	p.ExploringUntilAge = p.Biology.GetAgeInDays() + duration
+	p.TripFriend = nil
+	if opts.Friend != nil {
+		p.TripFriend = &TripFriend{ID: opts.Friend.ID, Name: opts.Friend.Name, Slot: opts.FriendSlot}
+	}
 	p.CurrentBehavior = types.BehaviorExploring
+	if p.PlaceVisits == nil {
+		p.PlaceVisits = make(map[string]int)
+	}
+	p.PlaceVisits[place]++
+	p.goalEventLocked(GoalExplore, place)
 	return nil
 }
 
@@ -552,29 +638,6 @@ func (p *DigitalPet) isExploringLocked() bool {
 	return p.ExploringUntilAge > 0
 }
 
-// pickSouvenirLocked chooses what the pet found; curious pets find rare
-// souvenirs more often. Caller must hold p.mu.
-func (p *DigitalPet) pickSouvenirLocked() Souvenir {
-	weights := make([]int, len(souvenirs))
-	total := 0
-	for i, s := range souvenirs {
-		weights[i] = 3
-		if s.Rare {
-			weights[i] = 1 + int(2*p.Personality.Traits.Curiosity)
-		}
-		total += weights[i]
-	}
-
-	pick := randIntn(total)
-	for i, w := range weights {
-		if pick < w {
-			return souvenirs[i]
-		}
-		pick -= w
-	}
-	return souvenirs[0]
-}
-
 // exploreOutcomeLocked decides how a trip went. Curious pets find
 // souvenirs more often and adaptable pets get hurt less often; bad weather
 // and night make trips riskier and less rewarding. Caller must hold p.mu.
@@ -592,6 +655,9 @@ func (p *DigitalPet) exploreOutcomeLocked() string {
 	// have picked over holds less
 	placeInjury, findFactor := p.placeOddsLocked()
 	injuryChance = max(injuryChance+placeInjury+int(p.effectLocked(effTripInjury)), 0)
+	if p.LongTrip {
+		injuryChance += longTripInjury
+	}
 	treasureChance = min(int(float64(treasureChance)*findFactor), maxFindChance)
 
 	roll := randIntn(100)
@@ -609,12 +675,18 @@ func (p *DigitalPet) exploreOutcomeLocked() string {
 func (p *DigitalPet) finishExploringLocked() {
 	p.ExploringUntilAge = 0
 	place, _ := p.tripPlaceLocked()
-	adventure := &Adventure{Outcome: p.exploreOutcomeLocked(), Place: place}
+	adventure := &Adventure{Outcome: p.exploreOutcomeLocked(), Place: place, Long: p.LongTrip}
+	if p.TripFriend != nil {
+		adventure.Friend = p.TripFriend.Name
+	}
 	where := p.placePhraseLocked()
+	if p.speciesLocked() == SpeciesCat {
+		where = "a harness walk at " + where // Cats explore only on a harness, with their owner
+	}
 
 	switch adventure.Outcome {
 	case OutcomeInjured:
-		adventure.Text = fmt.Sprintf("%s got hurt at %s and came home limping. 🩹 It needs to be healed.", p.Name, where)
+		adventure.Text = fmt.Sprintf("%s got hurt on %s and came home limping. 🩹 It needs to be healed.", p.Name, strings.TrimPrefix(where, "a "))
 		adventure.Changes = p.injureLocked()
 		adventure.Reaction = ReactionReluctant
 	default:
@@ -626,7 +698,7 @@ func (p *DigitalPet) finishExploringLocked() {
 		adventure.Changes = result.Changes
 
 		if adventure.Outcome == OutcomeTreasure {
-			souvenir := p.pickSouvenirLocked()
+			souvenir := p.pickSouvenirLocked(place)
 			p.Souvenirs = append(p.Souvenirs, souvenir.ID)
 			adventure.Souvenir = &souvenir
 			adventure.Text = fmt.Sprintf("%s came home from %s with %s! %s", p.Name, where, souvenir.Name, souvenir.Icon)
@@ -634,6 +706,21 @@ func (p *DigitalPet) finishExploringLocked() {
 			adventure.Text = fmt.Sprintf("%s came home from %s with %s. Not much of a treasure!", p.Name, where, junk)
 		} else {
 			adventure.Text = fmt.Sprintf("%s came home from %s empty-handed.", p.Name, where)
+		}
+
+		// A long trip has a second chance of a find, and is more tiring
+		if adventure.Long {
+			if p.exploreOutcomeLocked() == OutcomeTreasure {
+				souvenir := p.pickSouvenirLocked(place)
+				p.Souvenirs = append(p.Souvenirs, souvenir.ID)
+				adventure.Extra = append(adventure.Extra, souvenir.ID)
+				adventure.Text += fmt.Sprintf(" On the long trip it also found %s! %s", souvenir.Name, souvenir.Icon)
+			}
+			p.Biology.Vitals.Energy -= longTripEnergy
+			p.Biology.Vitals.Clamp()
+		}
+		if adventure.Friend != "" {
+			adventure.Text += fmt.Sprintf(" %s came along and shares what they found.", adventure.Friend)
 		}
 	}
 	if adventure.Outcome != OutcomeInjured {
@@ -644,9 +731,16 @@ func (p *DigitalPet) finishExploringLocked() {
 	if note != "" {
 		adventure.Discovered = p.lastDiscoveredLocked()
 	}
+	p.keepLocked(KeepsakeFirstTrip, place) // Only the first
+	if adventure.Discovered != "" {
+		p.keepLocked(KeepsakePlace, adventure.Discovered)
+	}
 
 	adventure.ReturnedAge = p.Biology.GetAgeInDays()
 	p.LastAdventure = adventure
+	if adventure.Outcome != OutcomeInjured {
+		p.startTripEventLocked(place)
+	}
 }
 
 // injureLocked hurts the pet: it loses health and happiness, is frightened,
@@ -689,8 +783,82 @@ func (p *DigitalPet) RecallFromExploring() (string, error) {
 		return "", ErrNotExploring
 	}
 	p.ExploringUntilAge = 0
+	p.TripFriend = nil // A friend comes home too, with nothing to share
 	p.updateBehavior()
 	return fmt.Sprintf("%s heads home early and brings nothing back.", p.Name), nil
+}
+
+// TripFriendToShare returns where the friend on the pet's last trip is
+// saved, once the trip is over and until it has shared the finds
+func (p *DigitalPet) TripFriendToShare() (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.TripFriend == nil || p.isExploringLocked() {
+		return "", false
+	}
+	return p.TripFriend.Slot, true
+}
+
+// ClearTripFriend forgets the friend on the pet's last trip, when it can't
+// be found to share the finds
+func (p *DigitalPet) ClearTripFriend() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.TripFriend = nil
+}
+
+// ShareTrip gives the friend on the pet's last trip its share: a copy of
+// each souvenir found, the trip's exercise and fun, and a closer bond
+// with the pet (and the pet with it). Call it once the trip is over; the
+// caller saves the friend. A friend that has died or gone away since gets
+// nothing.
+func ShareTrip(p, friend *DigitalPet) (string, error) {
+	if p == friend {
+		return "", ErrSamePet
+	}
+	unlock := lockPair(p, friend)
+	defer unlock()
+	tf, a := p.TripFriend, p.LastAdventure
+	if tf == nil || tf.ID != friend.ID || p.isExploringLocked() {
+		return "", ErrPetNotAvailable
+	}
+	p.TripFriend = nil
+	if !friend.Biology.IsAlive || friend.Hibernating || friend.isExploringLocked() || a == nil {
+		return "", ErrPetNotAvailable
+	}
+
+	shared := []string{}
+	if a.Souvenir != nil {
+		shared = append(shared, a.Souvenir.ID)
+	}
+	shared = append(shared, a.Extra...)
+	friend.Souvenirs = append(friend.Souvenirs, shared...)
+	if friend.PlaceVisits == nil {
+		friend.PlaceVisits = make(map[string]int)
+	}
+	friend.PlaceVisits[a.Place]++
+
+	v := friend.Biology.Vitals
+	v.Energy -= 0.1
+	if a.Long {
+		v.Energy -= longTripEnergy
+	}
+	v.Happiness += 0.05
+	v.Clamp()
+	friend.ensureNeedsLocked()
+	friend.Needs.SatisfyNeed(types.NeedExploration, 0.5, friend.Biology.GetAgeInDays())
+
+	together := "explored " + placeDetails[a.Place].phrase + " together"
+	for _, pair := range [][2]*DigitalPet{{p, friend}, {friend, p}} {
+		rel, ok := pair[0].Relationships.GetRelationship(pair[1].ID)
+		if !ok {
+			rel = pair[0].Relationships.AddRelationship(pair[1].ID, types.RelationshipFriend)
+		}
+		rel.BondStrength += 0.05
+		rel.AddSharedExperience(together, pair[0].Biology.GetAgeInDays(), 0.05)
+		rel.Clamp()
+	}
+	return fmt.Sprintf("%s and %s %s.", p.Name, friend.Name, together), nil
 }
 
 // SouvenirCollection returns the souvenirs the pet has found, with how many

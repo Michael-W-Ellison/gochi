@@ -223,12 +223,14 @@ type privacyStatus struct {
 	ParentLock     bool            `json:"parent_lock"`   // A parent PIN is set
 	Holidays       []holidayStatus `json:"holidays"`
 	AllHolidaysOff bool            `json:"all_holidays_off"`
+	SoundOff       bool            `json:"sound_off"` // A parent has turned the game's sounds off
 }
 
 func (s *Server) privacyStatus() privacyStatus {
 	status := privacyStatus{ParentLock: s.parental.Locked(), Holidays: holidaysStatus()}
 	if s.house != nil {
-		status.AllHolidaysOff = s.house.snapshot().AllHolidaysOff
+		d := s.house.snapshot()
+		status.AllHolidaysOff, status.SoundOff = d.AllHolidaysOff, d.SoundOff
 	}
 	if s.owner != nil {
 		status.LearnSchedule, status.PlaySchedule = s.owner.Learning(), s.owner.Summary()
@@ -238,8 +240,8 @@ func (s *Server) privacyStatus() privacyStatus {
 
 // handlePrivacy handles GET /api/privacy and POST /api/privacy with any of
 // {"learn_schedule": bool, "erase_schedule": true, "new_pin": "1234" (""
-// to remove the PIN), "remove_pin": true}, plus "parent_pin" if a PIN is
-// set
+// to remove the PIN), "remove_pin": true, "holidays_off", "all_holidays_off",
+// "sound_off": bool}, plus "parent_pin" if a PIN is set
 func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.privacyStatus()})
@@ -251,6 +253,7 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 		NewPIN        *string  `json:"new_pin"`
 		HolidaysOff   []string `json:"holidays_off"`     // Holidays to turn off; others are turned on
 		AllHolidays   *bool    `json:"all_holidays_off"` // Turn every holiday off (or back on)
+		SoundOff      *bool    `json:"sound_off"`        // Turn the game's sounds off (or back on)
 		RemovePIN     bool     `json:"remove_pin"`
 		ParentPIN     string   `json:"parent_pin"`
 	}
@@ -283,6 +286,12 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 			off = req.HolidaysOff
 		}
 		if err := s.house.setHolidays(allOff, off); err != nil {
+			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the setting"})
+			return
+		}
+	}
+	if req.SoundOff != nil && s.house != nil {
+		if err := s.house.setSoundOff(*req.SoundOff); err != nil {
 			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the setting"})
 			return
 		}

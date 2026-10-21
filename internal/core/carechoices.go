@@ -302,6 +302,7 @@ func (p *DigitalPet) ChangeEnvironment(changeID string) (InteractionResult, erro
 			p.EnrichmentUsed = make(map[string]float64)
 		}
 		p.EnrichmentUsed[changeID] = age
+		p.goalEventLocked(GoalEnrich, changeID)
 		if novelty < 0.5 {
 			result.Note = fmt.Sprintf("%s has seen this recently; it will feel new again in a few days.", p.Name)
 		}

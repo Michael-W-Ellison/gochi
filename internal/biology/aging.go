@@ -137,9 +137,9 @@ func (b *BiologicalSystems) updateAging(deltaTime float64) {
 	p.DigestiveEfficiency = 0.9 * b.agingFactor(0.2)
 }
 
-// checkOldAge ends the life of a pet that has reached its expected
+// CheckOldAge ends the life of a pet that has reached its expected
 // lifespan, unless OldAgeDeath is off
-func (b *BiologicalSystems) checkOldAge() {
+func (b *BiologicalSystems) CheckOldAge() {
 	if b.OldAgeDeath && b.IsAlive && b.Processes.Age >= b.ExpectedLifespan() {
 		b.IsAlive = false
 		b.CauseOfDeath = "Old age"

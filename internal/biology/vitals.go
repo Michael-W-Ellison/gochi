@@ -243,7 +243,7 @@ func (b *BiologicalSystems) Update(deltaTime float64) {
 
 	// Check for death conditions
 	b.CheckDeathConditions()
-	b.checkOldAge()
+	b.CheckOldAge()
 
 	// Ensure all values stay in valid range
 	b.Vitals.Clamp()

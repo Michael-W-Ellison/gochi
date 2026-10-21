@@ -165,6 +165,7 @@ func (a *DigitalPet) meet(infoA, infoB socialInfo, what string) (Meeting, float6
 	}
 	bond := (quality - cautiousMeeting) * 2 * weight
 	description := a.recordMeetingLocked(infoB, bond, what)
+	a.goalEventLocked(GoalMeet, "")
 	a.mu.Unlock()
 
 	meeting := Meeting{InteractionResult: result, Quality: quality, Relationship: description,

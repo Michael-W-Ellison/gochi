@@ -105,9 +105,39 @@ type DigitalPet struct {
 
 	// Care records for care achievements: days all of the day's goals
 	// were finished, the last of them, and illnesses treated
-	GoalDays         int    `json:"goal_days,omitempty"`
-	LastGoalDay      string `json:"last_goal_day,omitempty"`
-	IllnessesTreated int    `json:"illnesses_treated,omitempty"`
+	GoalDays int `json:"goal_days,omitempty"`
+	// Goal variety: the last few days' activity goal kinds, the last
+	// wellbeing goal, the week's goal, and trips to each place
+	RecentGoalKinds   []string       `json:"recent_goal_kinds,omitempty"`
+	LastWellbeingGoal string         `json:"last_wellbeing_goal,omitempty"`
+	Weekly            *WeeklyGoal    `json:"weekly,omitempty"`
+	PlaceVisits       map[string]int `json:"place_visits,omitempty"`
+
+	// Care records for achievements (carerecords.go): counts and streaks,
+	// and marks such as the last day something was counted
+	Counters map[string]float64 `json:"counters,omitempty"`
+	Marks    map[string]string  `json:"marks,omitempty"`
+
+	// Shows (shows.go): ribbons won, titles, and its age at its last show
+	Ribbons          []Ribbon `json:"ribbons,omitempty"`
+	Titles           []string `json:"titles,omitempty"`
+	LastShowAge      float64  `json:"last_show_age,omitempty"`
+	LastGoalDay      string   `json:"last_goal_day,omitempty"`
+	IllnessesTreated int      `json:"illnesses_treated,omitempty"`
+
+	// Home happenings (happenings.go): the one waiting for a choice, when
+	// the last came on the play clock, and when one was last tried for
+	// (not saved)
+	Happening        *PendingHappening `json:"happening,omitempty"`
+	LastHappening    time.Time         `json:"last_happening,omitempty"`
+	happeningChecked time.Time
+
+	// Kept as it is while it isn't the active pet, instead of living on
+	// with the household (householdtime.go)
+	HouseholdPaused bool `json:"household_paused,omitempty"`
+
+	// The pages of its book (keepsakes.go)
+	Keepsakes []Keepsake `json:"keepsakes,omitempty"`
 
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
@@ -125,9 +155,11 @@ type DigitalPet struct {
 	TrickPracticedAge map[string]float64   `json:"trick_practiced_age"` // Age each trick was last trained or performed
 	TricksLearned     map[string]bool      `json:"tricks_learned"`      // Tricks the pet has ever learned
 	ExploringUntilAge float64              `json:"exploring_until_age"`
-	ExploringTo       string               `json:"exploring_to"`      // Where the current or last trip went
-	ParasiteExposure  float64              `json:"parasite_exposure"` // Builds with trips to risky places (places.go)
-	TripsTaken        int                  `json:"trips_taken"`       // Trips finished, which discover new places
+	ExploringTo       string               `json:"exploring_to"`          // Where the current or last trip went
+	LongTrip          bool                 `json:"long_trip,omitempty"`   // The current or last trip is a long one
+	TripFriend        *TripFriend          `json:"trip_friend,omitempty"` // A friend on the current trip, until it shares the finds
+	ParasiteExposure  float64              `json:"parasite_exposure"`     // Builds with trips to risky places (places.go)
+	TripsTaken        int                  `json:"trips_taken"`           // Trips finished, which discover new places
 	Souvenirs         []string             `json:"souvenirs"`
 	LastAdventure     *Adventure           `json:"last_adventure"`
 	LastGameReward    time.Time            `json:"last_game_reward"`
@@ -190,6 +222,7 @@ func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 	}
 	pet.Memory.SetLongTermCapacity(maxLongTermMemories)
 	pet.ensureGenomeLocked()
+	pet.keepLocked(KeepsakeHome, "") // A new pet; it owns itself alone
 	return pet
 }
 
@@ -231,6 +264,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		p.hibernateLocked()
 		return
 	}
+
+	stage := p.Biology.LifeStage()
+	defer p.keepLifeStageLocked(stage)
 
 	// Belongings such as bowls and beds slow the pet's needs, and the body
 	// responds to its surroundings, needs and age
@@ -298,6 +334,11 @@ func (p *DigitalPet) Update(deltaTime float64) {
 
 	// Update relationships
 	p.updateRelationshipsLocked(deltaTime)
+
+	// Goals kept up over time, and records for care achievements
+	p.updateTimedGoalsLocked()
+	p.updateCareRecordsLocked(deltaTime)
+	p.keepMomentsLocked()
 
 	// Loneliness and neglect change the pet's personality
 	p.evolveFromNeglectLocked(deltaTime)

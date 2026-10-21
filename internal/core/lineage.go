@@ -133,6 +133,7 @@ func (child *DigitalPet) mixBreedLocked(a, b breedingInfo, lineage *Lineage) {
 	}
 	child.Breed = id
 	child.Look = &look
+	child.fillHomeLookLocked()
 	lineage.From = from
 
 	// Tendencies both parents have pass on at half strength
