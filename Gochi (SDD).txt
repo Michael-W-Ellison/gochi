@@ -730,8 +730,9 @@ cppclass Exploring {
 
 Outcome chances: injury 12% (5 - 20%, lower for adaptable pets), treasure 55% (40 - 70%, higher
 for curious pets), otherwise nothing of value. Unsafe weather adds 10 points to the injury
-chance; night adds 5 and multiplies the treasure chance by 0.6. Treasures are souvenirs for the
-pet's collection, including a rare crystal found more often by curious pets. An injury costs
+chance; night adds 5 and multiplies the treasure chance by 0.6. Treasures are souvenirs from the
+place visited (souvenirs.go): each of the 12 places has 4 common souvenirs (weight 3 each) and a
+rare one (weight 1 + 2 x curiosity). An injury costs
 health 0.25, happiness 0.15 and energy 0.15, adds stress 0.2 and fear, and is remembered, making
 the pet warier of exploring. An injured pet asks to be healed and cannot explore until it is.
 A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
@@ -743,6 +744,14 @@ count). A place adds (danger - 0.1) x 30 points to the injury chance and multipl
 chance by exploration value / 0.7 x (0.3 + 0.7 x resources), up to 90%. Each place's resources
 (1.0 when untouched) fall by 0.3 when the pet finds a souvenir there and 0.1 when it finds nothing,
 and grow back by 0.05 per game day.
+Collection (collection.go): the household file keeps every souvenir any pet has found (a union
+when devices merge; at startup the saved pets' souvenirs are added once). A place's set is complete
+when its 4 common souvenirs are collected: 10 Home Stars, and 10 more for each rare souvenir; all
+12 sets give the Curator achievement and 50 stars. The shelf holds up to 5 collected souvenirs (a
+household setting; the newer wins on merge); while it holds all 5 of one place's souvenirs, every
+pet's happiness falls at 0.98 times its rate, as a decoration. A gift moves a souvenir from the
+active pet to a saved pet that has a relationship with it: bond +0.05, a shared memory, and
+happiness +0.05. Gifts only pass between saved pets on this computer.
 
 3.9 Requests, Reactions and Preferences
 cppstruct PetRequest {

@@ -127,6 +127,7 @@ type PetStatus struct {
 	Goals        []core.Goal      `json:"goals"`
 	Weekly       core.WeeklyGoal  `json:"weekly"`
 	Titles       []string         `json:"titles"`
+	Shelf        []core.Souvenir  `json:"shelf"`
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
 	PlaySchedule string           `json:"play_schedule"`
@@ -431,6 +432,9 @@ func main() {
 	mux.HandleFunc("/api/breeds", server.handleBreeds)
 	mux.HandleFunc("/api/shows", server.handleShows)
 	mux.HandleFunc("/api/shows/enter", server.handleEnterShow)
+	mux.HandleFunc("/api/collection", server.handleCollection)
+	mux.HandleFunc("/api/home/shelf", server.handleShelf)
+	mux.HandleFunc("/api/souvenirs/gift", server.handleGiveSouvenir)
 	mux.HandleFunc("/api/privacy", server.handlePrivacy)
 	mux.HandleFunc("/api/stats", server.handleStats)
 	mux.HandleFunc("/api/home", server.handleHome)
@@ -960,6 +964,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .upkeep.due { color: #c92a2a; }
         .family-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
         .family-name { flex: 1 1 160px; }
+        .scene-shelf { position: absolute; top: 10px; left: 10px; z-index: 1; font-size: 1.2em; background: #c8a27a; border-bottom: 4px solid #8d6e4c; border-radius: 4px; padding: 0 4px; letter-spacing: 2px; }
+        .collection-set { border: 1px solid #eee; border-radius: 10px; padding: 6px 8px; margin: 6px 0; text-align: left; }
+        .collection-set.complete { border-color: #8bc34a; background: #f4fbec; }
+        .collection-items { font-size: 1.5em; letter-spacing: 4px; }
+        .collection-items .missing { filter: grayscale(1); opacity: 0.25; }
+        .shelf-pick { display: inline-flex; align-items: center; gap: 2px; margin: 2px 6px 2px 0; font-size: 1.1em; }
         .show-box { border: 1px solid #eee; border-radius: 10px; padding: 8px; margin: 8px 0; text-align: left; }
         .show-title { font-weight: 600; }
         .show-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
@@ -1116,6 +1126,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="speech hidden" id="speech"></div>
             <div class="pet-scene" id="petScene">
                 <div class="scene-window" id="sceneWindow" aria-hidden="true"></div>
+                <div class="scene-shelf hidden" id="sceneShelf"></div>
                 <div class="pet-figure">
                     <div class="pet-display" id="petSprite"></div>
                 </div>
@@ -1133,7 +1144,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn enrich" onclick="openChoices('enrich')">🏠 Enrich</button>
                 <button class="activity-btn" onclick="openMeet()">🤝 Meet</button>
                 <button class="activity-btn" onclick="openShows()">🏅 Shows</button>
-                <button class="activity-btn ar" onclick="openAR()">📷 AR</button>
+                <button class="activity-btn" onclick="openCollection()">🧺 Collection</button>
+                <button class="activity-btn ar" onclick="openAR()" style="grid-column: span 2;">📷 See in your room (AR)</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -1298,6 +1310,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/shop.js?v={{static}}"></script>
     <script src="/static/js/breeds.js?v={{static}}"></script>
     <script src="/static/js/shows.js?v={{static}}"></script>
+    <script src="/static/js/collection.js?v={{static}}"></script>
     <script>
         // The kinds of pet the game has (from /api/species): their names and
         // icons, and which care buttons each uses. The cat, the default species, is
@@ -1798,6 +1811,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             document.getElementById('petView').classList.toggle('dead', !status.is_alive);
             drawPet(spriteState(status), status);
+            renderShelf(status.shelf);
             renderHouseLook(status.house_look, status.name);
             renderUpkeep(status);
             showPopups(status.popups);
@@ -3800,6 +3814,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		petStatus.HomeStars = s.house.status(now).Stars
+		petStatus.Shelf = []core.Souvenir{}
+		for _, id := range d.Shelf {
+			if sv, ok := core.FindSouvenir(id); ok {
+				petStatus.Shelf = append(petStatus.Shelf, sv)
+			}
+		}
 	}
 	petStatus.Popups = append([]popup{}, s.popups...)
 	if s.owner != nil {

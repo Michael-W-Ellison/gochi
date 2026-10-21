@@ -20,6 +20,7 @@ var household struct {
 	allOff   bool                   // Every holiday turned off
 	upgrades []string               // House upgrades owned
 	filterOK bool                   // The air filtration's filter is fresh
+	shelfSet bool                   // The shelf shows a whole place's set of souvenirs
 }
 
 // UseCalendar makes seasons, and the weather and breeding that follow
@@ -74,6 +75,21 @@ func SetHouse(upgrades []string, filterFresh bool) {
 	defer household.mu.Unlock()
 	household.upgrades = slices.Clone(upgrades)
 	household.filterOK = filterFresh
+}
+
+// SetShelfSet sets whether the house's shelf shows a whole place's set of
+// souvenirs, which cheers every pet up a little (as a decoration)
+func SetShelfSet(on bool) {
+	household.mu.Lock()
+	defer household.mu.Unlock()
+	household.shelfSet = on
+}
+
+// shelfSetShown reports whether the shelf shows a whole set
+func shelfSetShown() bool {
+	household.mu.RLock()
+	defer household.mu.RUnlock()
+	return household.shelfSet
 }
 
 // houseUpgrades returns the house upgrades owned and whether the filter is

@@ -410,25 +410,6 @@ func (p *DigitalPet) GuessHidingSpot(spot int) (GameResult, error) {
 // ---------------------------------------------------------------------------
 // Exploring
 
-// Souvenir is something a pet can bring back from exploring
-type Souvenir struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Icon string `json:"icon"`
-	Rare bool   `json:"rare"`
-}
-
-// souvenirs a pet can find while exploring
-var souvenirs = []Souvenir{
-	{ID: "pebble", Name: "a shiny pebble", Icon: "🪨"},
-	{ID: "feather", Name: "a feather", Icon: "🪶"},
-	{ID: "flower", Name: "a flower", Icon: "🌸"},
-	{ID: "leaf", Name: "a colorful leaf", Icon: "🍁"},
-	{ID: "shell", Name: "a seashell", Icon: "🐚"},
-	{ID: "acorn", Name: "an acorn", Icon: "🌰"},
-	{ID: "crystal", Name: "a sparkly crystal", Icon: "💎", Rare: true},
-}
-
 // junkFinds are worthless things a pet can bring home; "" means nothing
 var junkFinds = []string{"a muddy stick", "a soggy leaf", "a pocketful of sand", ""}
 
@@ -527,29 +508,6 @@ func (p *DigitalPet) isExploringLocked() bool {
 	return p.ExploringUntilAge > 0
 }
 
-// pickSouvenirLocked chooses what the pet found; curious pets find rare
-// souvenirs more often. Caller must hold p.mu.
-func (p *DigitalPet) pickSouvenirLocked() Souvenir {
-	weights := make([]int, len(souvenirs))
-	total := 0
-	for i, s := range souvenirs {
-		weights[i] = 3
-		if s.Rare {
-			weights[i] = 1 + int(2*p.Personality.Traits.Curiosity)
-		}
-		total += weights[i]
-	}
-
-	pick := randIntn(total)
-	for i, w := range weights {
-		if pick < w {
-			return souvenirs[i]
-		}
-		pick -= w
-	}
-	return souvenirs[0]
-}
-
 // exploreOutcomeLocked decides how a trip went. Curious pets find
 // souvenirs more often and adaptable pets get hurt less often; bad weather
 // and night make trips riskier and less rewarding. Caller must hold p.mu.
@@ -601,7 +559,7 @@ func (p *DigitalPet) finishExploringLocked() {
 		adventure.Changes = result.Changes
 
 		if adventure.Outcome == OutcomeTreasure {
-			souvenir := p.pickSouvenirLocked()
+			souvenir := p.pickSouvenirLocked(place)
 			p.Souvenirs = append(p.Souvenirs, souvenir.ID)
 			adventure.Souvenir = &souvenir
 			adventure.Text = fmt.Sprintf("%s came home from %s with %s! %s", p.Name, where, souvenir.Name, souvenir.Icon)

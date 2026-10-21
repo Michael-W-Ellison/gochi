@@ -668,8 +668,8 @@ Several kinds of care come in variants, each with its own effect and lesson:
   immune system) until the pet catches them and needs medical care. It needs energy, water and food to go,
   and can't be cared for while it is away, though you can still clean its living area. Pausing
   time pauses the trip too. Trips don't always go well:
-  - a little over half the time your pet brings home a souvenir for its treasure collection (curious
-    pets find souvenirs, including rare crystals, more often);
+  - a little over half the time your pet brings home a souvenir from the place it went (curious
+    pets find souvenirs, and each place's rare one, more often);
   - about a third of the time it finds nothing of value, though the trip is still fun;
   - about one trip in nine it gets hurt: it loses health, comes home frightened and becomes warier
     of exploring. An injured pet asks to be healed and can't explore again until you press
@@ -678,6 +678,19 @@ Several kinds of care come in variants, each with its own effect and lesson:
   Press **Call home early** to bring your pet back before the trip ends; it comes home with
   nothing from the trip. A pet that enjoys exploring sniffs around the house on its own; it only
   goes on a trip when you press **Explore**.
+- **🧺 Collection**: every place has a set of five souvenirs, four common and one rare (the park's
+  is a four-leaf clover, the beach's a pearl), 60 in all. The collection belongs to the household:
+  a souvenir counts once any of your pets has found it, and finds from your other devices merge
+  in when the household syncs. Completing a place's set (its four common souvenirs) earns 10 Home
+  Stars, and each rare souvenir another 10. Two souvenirs teach a lesson: the forest's mushroom
+  (never let a pet eat wild mushrooms) and the snowy hill's red berries (many winter berries are
+  poisonous to pets). Achievements: Rare Find (a pet holds 3 rare souvenirs), Set Collector (the
+  household completes a set) and Curator (every set; 50 Home Stars).
+  - **Shelf**: choose up to five collected souvenirs to show on a shelf in the house. All five of
+    one place's souvenirs on the shelf work like a decoration: every pet's happiness falls 2% slower.
+  - **Gifts**: your pet can give one of its souvenirs to another of your saved pets that it has
+    met. The souvenir moves to the other pet, who becomes a little happier and closer to the giver.
+    Pets are chosen from your saved pets; nothing is sent anywhere.
 
 ### Breeding
 

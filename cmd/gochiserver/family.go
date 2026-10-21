@@ -222,7 +222,14 @@ func (s *Server) handleFamilyPassOn(w http.ResponseWriter, r *http.Request) {
 // withChild runs change on the active pet and one of its children, saved
 // in childSlot, then saves both
 func (s *Server) withChild(w http.ResponseWriter, childSlot string, change func(parent, child *core.DigitalPet) (string, error)) {
-	if !ValidSlot(childSlot) || s.store == nil {
+	s.withOtherPet(w, childSlot, change, writeFamilyError)
+}
+
+// withOtherPet runs change on the active pet and another saved pet, in
+// slot, then saves both; writeError explains a failed change
+func (s *Server) withOtherPet(w http.ResponseWriter, slot string, change func(pet, other *core.DigitalPet) (string, error),
+	writeError func(w http.ResponseWriter, pet, other string, err error)) {
+	if !ValidSlot(slot) || s.store == nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid pet"})
 		return
 	}
@@ -230,23 +237,23 @@ func (s *Server) withChild(w http.ResponseWriter, childSlot string, change func(
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.pet == nil || childSlot == s.slot {
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose one of this pet's children"})
+	if s.pet == nil || slot == s.slot {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose another of your pets"})
 		return
 	}
-	child, _, _, err := s.store.Load(childSlot)
+	other, _, _, err := s.store.Load(slot)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No saved pet in that slot"})
 		return
 	}
 	s.markActiveLocked(time.Now())
-	text, err := change(s.pet, child)
+	text, err := change(s.pet, other)
 	if err != nil {
-		writeFamilyError(w, s.pet.Name, child.Name, err)
+		writeError(w, s.pet.Name, other.Name, err)
 		return
 	}
-	if err := s.store.SavePet(childSlot, child); err != nil {
-		log.Printf("Failed to save %s: %v", child.Name, err)
+	if err := s.store.SavePet(slot, other); err != nil {
+		log.Printf("Failed to save %s: %v", other.Name, err)
 	}
 	if err := s.saveActiveLocked(); err != nil {
 		log.Printf("Failed to save %s: %v", s.pet.Name, err)

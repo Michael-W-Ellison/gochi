@@ -91,6 +91,13 @@ type householdData struct {
 	// whether the pets saved before they were recorded here were looked at
 	Achieved        []string `json:"achieved"`
 	AchievedScanned bool     `json:"achieved_scanned"`
+
+	// Souvenirs any pet has found, whether the saved pets were looked at
+	// for theirs, and the ones on the shelf (a setting: the newer wins when
+	// devices merge)
+	Collected        []string `json:"collected"`
+	CollectedScanned bool     `json:"collected_scanned"`
+	Shelf            []string `json:"shelf"`
 }
 
 // household is the player's household
@@ -140,6 +147,11 @@ func (h *household) clean() {
 		}
 	}
 	h.data.Streak = max(h.data.Streak, 0)
+	h.data.Collected = slices.DeleteFunc(h.data.Collected, func(id string) bool {
+		_, ok := core.FindSouvenir(id)
+		return !ok
+	})
+	h.data.Shelf = validShelf(h.data.Shelf, h.data.Collected)
 }
 
 // apply tells the game the household's settings and upgrades
@@ -147,6 +159,7 @@ func (h *household) apply() {
 	core.UseCalendar(h.data.Hemisphere)
 	core.SetHolidays(h.data.AllHolidaysOff, h.data.HolidaysOff)
 	core.SetHouse(h.upgradesLocked(), h.data.FilterUntil > h.data.GameDays)
+	core.SetShelfSet(shelfSetPlace(h.data.Shelf) != "")
 }
 
 // saveLocked writes household.json. Caller must hold h.mu.
@@ -408,6 +421,7 @@ func (h *household) merge(other householdData) bool {
 	if other.SettingsTime.After(h.data.SettingsTime) {
 		h.data.Hemisphere, h.data.HolidaysOff, h.data.AllHolidaysOff = other.Hemisphere, other.HolidaysOff, other.AllHolidaysOff
 		h.data.Look, h.data.SettingsTime = other.Look, other.SettingsTime
+		h.data.Shelf = slices.Clone(other.Shelf)
 		changed = true
 	}
 	if other.PaidDay > h.data.PaidDay {
@@ -423,6 +437,11 @@ func (h *household) merge(other householdData) bool {
 	for _, id := range other.Achieved {
 		if !slices.Contains(h.data.Achieved, id) {
 			h.data.Achieved, changed = append(h.data.Achieved, id), true
+		}
+	}
+	for _, id := range other.Collected {
+		if !slices.Contains(h.data.Collected, id) {
+			h.data.Collected, changed = append(h.data.Collected, id), true
 		}
 	}
 	h.clean()
@@ -473,6 +492,8 @@ func (h *household) snapshot() householdData {
 	d.Ledger = slices.Clone(h.data.Ledger)
 	d.HolidaysOff = slices.Clone(h.data.HolidaysOff)
 	d.Achieved = slices.Clone(h.data.Achieved)
+	d.Collected = slices.Clone(h.data.Collected)
+	d.Shelf = slices.Clone(h.data.Shelf)
 	d.Look = make(map[string]string, len(h.data.Look))
 	for k, v := range h.data.Look {
 		d.Look[k] = v
@@ -621,7 +642,7 @@ func (s *Server) syncHousehold(ctx context.Context, client *hub.Client, remote *
 // sameHousehold reports whether two households hold the same ledger and
 // settings
 func sameHousehold(a, b householdData) bool {
-	if len(a.Ledger) != len(b.Ledger) || len(a.Achieved) != len(b.Achieved) || !a.SettingsTime.Equal(b.SettingsTime) || a.PaidDay != b.PaidDay ||
+	if len(a.Ledger) != len(b.Ledger) || len(a.Achieved) != len(b.Achieved) || len(a.Collected) != len(b.Collected) || !a.SettingsTime.Equal(b.SettingsTime) || a.PaidDay != b.PaidDay ||
 		a.GameDays != b.GameDays || a.FilterUntil != b.FilterUntil {
 		return false
 	}

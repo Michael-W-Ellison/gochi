@@ -146,10 +146,15 @@ func (s *Server) noteAchievementsLocked(pet *core.DigitalPet) {
 			len(names), strings.ToLower(tierNames[tier]), strings.Join(names, ", "))})
 }
 
-// scanAchievements records the achievements of every saved pet once, for
-// pets saved before achievements unlocked breeds
+// scanAchievements records the achievements and souvenirs of every saved
+// pet once, for pets saved before they counted for the household
 func (s *Server) scanAchievements() {
-	if s.house == nil || s.store == nil || s.house.snapshot().AchievedScanned {
+	if s.house == nil || s.store == nil {
+		return
+	}
+	d := s.house.snapshot()
+	achievements, souvenirs := !d.AchievedScanned, !d.CollectedScanned
+	if !achievements && !souvenirs {
 		return
 	}
 	saved, err := s.store.List()
@@ -163,12 +168,17 @@ func (s *Server) scanAchievements() {
 		}
 		if pet, _, _, err := s.store.Load(entry.Slot); err == nil {
 			s.mu.Lock()
-			s.noteAchievementsLocked(pet)
+			if achievements {
+				s.noteAchievementsLocked(pet)
+			}
+			if souvenirs {
+				s.collectLocked(nil, souvenirIDs(pet))
+			}
 			s.mu.Unlock()
 		}
 	}
 	s.house.mu.Lock()
-	s.house.data.AchievedScanned = true
+	s.house.data.AchievedScanned, s.house.data.CollectedScanned = true, true
 	s.house.saveLocked()
 	s.house.mu.Unlock()
 }

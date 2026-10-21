@@ -356,3 +356,80 @@ func TestGrowingUpPopups(t *testing.T) {
 		t.Error("The warning is shown once")
 	}
 }
+
+func TestSouvenirCollection(t *testing.T) {
+	server := newTestServer(t)
+	server.house = newTestHousehold(t, "")
+	server.mu.Lock()
+	server.collectLocked(nil, []string{"pebble", "acorn", "pinecone"})
+	before := balance(server.house)
+	server.collectLocked(nil, []string{"dandelion", "four_leaf_clover", "pebble"})
+	server.collectLocked(nil, []string{"four_leaf_clover"}) // Again: no more stars
+	server.mu.Unlock()
+	if got := balance(server.house) - before; got != starsSet+starsRare {
+		t.Errorf("Completing the park's set with its rare clover: %d stars", got)
+	}
+
+	if err := server.house.setShelf([]string{"pebble", "shell"}); err == nil {
+		t.Error("A souvenir not collected can't go on the shelf")
+	}
+	if err := server.house.setShelf([]string{"pebble", "acorn", "pinecone", "dandelion", "four_leaf_clover"}); err != nil {
+		t.Fatal(err)
+	}
+	if place := shelfSetPlace(server.house.snapshot().Shelf); place != "park" {
+		t.Errorf("A whole set on the shelf: %q", place)
+	}
+	if rec := post(t, server.handleShelf, `{"items":["a","b","c","d","e","f"]}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("Six on the shelf: %d", rec.Code)
+	}
+
+	// Another device's finds merge in
+	other := newTestHousehold(t, "")
+	other.collect([]string{"shell"})
+	server.house.merge(other.snapshot())
+	if d := server.house.snapshot(); len(d.Collected) != 6 {
+		t.Errorf("Merged collection: %v", d.Collected)
+	}
+}
+
+func TestGiftThroughServer(t *testing.T) {
+	server, pipSlot, pip := family(t)
+	server.mu.Lock()
+	server.pet.Souvenirs = []string{"pearl"}
+	server.mu.Unlock()
+	if rec := post(t, server.handleGiveSouvenir, `{"souvenir":"pearl","to_slot":"`+pipSlot+`"}`); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "meet first") {
+		t.Errorf("A gift to a pet that hasn't met Mochi: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(t, server.handleGiveSouvenir, `{"souvenir":"shell","to_slot":"`+pipSlot+`"}`); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "doesn't have") {
+		t.Errorf("A souvenir Mochi doesn't have: %d %s", rec.Code, rec.Body.String())
+	}
+
+	pip.Relationships.AddRelationship(server.pet.ID, types.RelationshipParent)
+	savePet(t, server.store, pipSlot, pip)
+	if rec := post(t, server.handleGiveSouvenir, `{"souvenir":"pearl","to_slot":"`+pipSlot+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("A gift to Pip: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, _, _, err := server.store.Load(pipSlot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Souvenirs) != 1 || saved.Souvenirs[0] != "pearl" || len(server.pet.Souvenirs) != 0 {
+		t.Errorf("After the gift Pip has %v, Mochi %v", saved.Souvenirs, server.pet.Souvenirs)
+	}
+}
+
+func TestOldSavesSouvenirsAreCollected(t *testing.T) {
+	server := newTestServer(t)
+	server.house = newTestHousehold(t, t.TempDir())
+	server.house.data.AchievedScanned = true // Scanned before souvenirs were collected
+	pet := core.NewDigitalPet("Old", "owner")
+	pet.Souvenirs = []string{"shell", "pearl"}
+	savePet(t, server.store, "old", pet)
+
+	server.scanAchievements()
+	if d := server.house.snapshot(); len(d.Collected) != 2 || !d.CollectedScanned {
+		t.Errorf("A saved pet's souvenirs: %v", d.Collected)
+	}
+}
