@@ -80,6 +80,7 @@ function enterShow(show, level, routine) {
         const p = panel();
         p.replaceChildren(panelHeader(r.show.icon + ' ' + levelNames[r.level] + ' ' + r.show.name));
         cloudText(p, r.text, 'panel-text');
+        if (r.ribbon) playSound('fanfare');
         const table = el('ol', 'show-results');
         r.entrants.forEach(e => {
             const item = el('li', e.you ? 'you' : '', e.name + ' the ' + e.breed + ' — ' + e.score);

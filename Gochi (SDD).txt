@@ -835,6 +835,16 @@ training and walks given to a reluctant pet are unwanted attention: stress rises
 falls 0.12, the emotional response is annoyance and fear instead of pleasure, and the lesson shown
 explains the signs that a cat or dog has had enough.
 
+3.9a Help and Sound
+The page holds the 8-step tour and 8 first-time tips (shop, house, breeding, shows, collection,
+family, games, explore). The household file records the IDs shown (TipsSeen, from a fixed list,
+merged as a union; POST /api/tips/seen refuses any other), so each is shown once per household;
+the status carries the list. Sound (sounds.js) is synthesized with the Web Audio API from 19
+recipes of oscillators and filtered noise; nothing is downloaded. The player's sound settings (on,
+volume, quiet hours) are kept in the browser's local storage, defaulting to on at 0.5. A parent
+setting, SoundOff in the household file (PIN-protected like the other parental settings, merged
+with the other settings by time), silences every sound and hides the player's sound settings.
+
 3.10 Session and Lifecycle Management
 3.10.1 Pausing
 Time passes only while the player is playing. Time stops when the player presses Pause, when the

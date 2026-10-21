@@ -762,6 +762,26 @@ sore, a tangled coat for long-haired pets, a pet hiding when it shows a warning 
   sweets, moldy leaves) poisons it, as eating chocolate does: give it medical care (**Heal**).
 - Pressing **Not now**, or leaving it for 10 minutes, changes nothing.
 
+### Help and sound
+
+- **Tour**: the first time the game is played, an 8-step tour points out the pet, its bars, the
+  care buttons, the Body panel, the daily checklist, Friendship Points and Home Stars, the
+  activities, and saving and pausing. **Next** moves on and **Skip** ends it.
+- **First-time tips**: the first time the shop, the house, breeding, shows, the collection, the
+  family, games or exploring is opened, a short tip explains it. The household remembers which
+  tips have been shown (only their names, from a fixed list), so each is shown once, whichever pet
+  is played.
+- **❓ Help**: take the tour again, read any tip again, open the care guide, and look up words used
+  in the game (Friendship Points, Home Stars, body systems, warning signs, tendencies, upkeep and
+  game days).
+- **Sound** is on at half volume to start. The 19 sounds (a purr and meows for cats, barks and a
+  whine for dogs, munching, lapping, a toy squeak, a bell for home happenings, a fanfare for a show
+  ribbon, a chime for points, a page turn for the care guide, an alert for a new warning sign, and
+  sounds in the games) are made in the browser: there are no sound files and nothing is
+  downloaded. In **⚙️ Settings**, sound can be turned off, made louder or quieter, and given quiet
+  hours; these settings are kept on that device. A parent can turn sound off for the household in
+  **🔒 Privacy** (with the parent PIN if one is set); players can't then turn it back on.
+
 ### Breeding
 
 Press **💞 Breed** to have a baby with one of your other saved pets. The panel lists each saved

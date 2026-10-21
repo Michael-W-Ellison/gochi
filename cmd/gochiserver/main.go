@@ -129,6 +129,8 @@ type PetStatus struct {
 	Titles       []string         `json:"titles"`
 	Shelf        []core.Souvenir  `json:"shelf"`
 	Happening    *core.Happening  `json:"happening"`
+	TipsSeen     []string         `json:"tips_seen"`
+	SoundOff     bool             `json:"sound_off"` // A parent has turned the game's sounds off
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
 	PlaySchedule string           `json:"play_schedule"`
@@ -436,6 +438,7 @@ func main() {
 	mux.HandleFunc("/api/happening", server.handleHappening)
 	mux.HandleFunc("/api/games", server.handleMiniGames)
 	mux.HandleFunc("/api/games/finish", server.handleFinishMiniGame)
+	mux.HandleFunc("/api/tips/seen", server.handleTipSeen)
 	mux.HandleFunc("/api/collection", server.handleCollection)
 	mux.HandleFunc("/api/home/shelf", server.handleShelf)
 	mux.HandleFunc("/api/souvenirs/gift", server.handleGiveSouvenir)
@@ -1046,6 +1049,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .modal-box input { width: 100%; padding: 10px 12px; border: 2px solid #ddd; border-radius: 10px; font-size: 1em; margin-bottom: 14px; }
         .modal-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
         #popupText { white-space: pre-line; }
+        .tour-box { position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 420px; margin: 0 auto; z-index: 10002;
+            background: #fff; border-radius: 14px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); }
+        .tour-highlight { outline: 3px solid #667eea; outline-offset: 4px; border-radius: 10px; }
         .danger-btn { padding: 8px 16px; border: none; border-radius: 20px; background: #d9534f; color: white; font-weight: bold; cursor: pointer; }
         .danger-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .back-btn { margin-top: 12px; background: none; border: none; color: #667eea; cursor: pointer; font-size: 0.95em; }
@@ -1250,6 +1256,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" onclick="openPrivacy()">🔒 Privacy</button>
                 <button class="save-btn" onclick="openStats()">📊 My stats</button>
                 <button class="save-btn" onclick="openSettings()">⚙️ Settings</button>
+                <button class="save-btn" onclick="openHelp()">❓ Help</button>
             </div>
             <div class="save-row">
                 <span class="save-status" id="saveStatus">Progress is saved automatically</span>
@@ -1331,6 +1338,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/shows.js?v={{static}}"></script>
     <script src="/static/js/collection.js?v={{static}}"></script>
     <script src="/static/js/minigames.js?v={{static}}"></script>
+    <script src="/static/js/sounds.js?v={{static}}"></script>
     <script>
         // The kinds of pet the game has (from /api/species): their names and
         // icons, and which care buttons each uses. The cat, the default species, is
@@ -2747,6 +2755,18 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 holidays_off: holidayBoxes.filter(b => !b.checked).map(b => b.dataset.id)}, 'Holidays saved.'));
             p.append(holidayRow);
 
+            const soundTitle = cloudText(p, 'Sound', 'section-title');
+            soundTitle.style.marginTop = '14px';
+            const soundRow = document.createElement('label');
+            soundRow.className = 'panel-text';
+            const soundOff = document.createElement('input');
+            soundOff.type = 'checkbox';
+            soundOff.checked = privacy.sound_off;
+            soundOff.onchange = () => privacyPost({sound_off: soundOff.checked},
+                soundOff.checked ? 'Sound is off for every pet.' : 'Sound is back on.');
+            soundRow.append(soundOff, document.createTextNode(' Turn the game\'s sounds off (players can\'t turn them back on)'));
+            p.append(soundRow);
+
             const devices = cloudText(p, 'Play on a phone or tablet', 'section-title');
             devices.style.marginTop = '14px';
             const pairing = cloudText(p, '', 'panel-text');
@@ -3243,6 +3263,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         startUpdates();
         watchBattery();
     </script>
+    <!-- Adds to functions in the script above -->
+    <script src="/static/js/help.js?v={{static}}"></script>
 </body>
 </html>`
 	w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion)))
@@ -3867,6 +3889,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		petStatus.HomeStars = s.house.status(now).Stars
+		petStatus.TipsSeen, petStatus.SoundOff = d.TipsSeen, d.SoundOff
 		petStatus.Shelf = []core.Souvenir{}
 		for _, id := range d.Shelf {
 			if sv, ok := core.FindSouvenir(id); ok {

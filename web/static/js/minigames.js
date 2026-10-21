@@ -115,6 +115,7 @@ function playFetch(box, finish) {
         const inGreen = pos >= 55 && pos <= 80;
         thrown++;
         if (inGreen) good++;
+        playSound('throw');
         field.textContent = inGreen ? '🎾 ... 🐕💨 A great throw into the open, and back it comes!' :
             pos < 55 ? '🎾 A short throw; ' + petName() + ' trots over, unimpressed.' :
             '🎾 Too far, into the bushes; ' + petName() + ' takes ages to find it.';
@@ -174,6 +175,7 @@ function playWand(box, finish) {
         if (done) return;
         done = true;
         const variety = Math.min(fast / 6, 1) * 0.3 + Math.min(slow / 6, 1) * 0.3;
+        if (caught) playSound('catch');
         status.textContent = caught ? petName() + ' pounces and catches the feather! 🎉' : 'The feather stopped before ' +
             petName() + ' could catch it.';
         setTimeout(() => { if (gameRunning(box)) finish(variety + (caught ? 0.4 : 0)); }, 900);
@@ -216,6 +218,7 @@ function playPuzzle(box, tiles, finish) {
         t.onclick = () => {
             if (over) return;
             t.disabled = true;
+            playSound('rustle');
             if (hidden.has(i)) {
                 found++;
                 t.textContent = '🍪';
@@ -259,6 +262,7 @@ function playScent(box, finish) {
             if (found >= treats) return;
             guesses++;
             if (i === treat) {
+                playSound('catch');
                 found++;
                 lastGuess = null;
                 status.textContent = '🦴 Found it in the ' + name.split(' ').slice(1).join(' ').toLowerCase() + '! ' +
@@ -309,6 +313,8 @@ function playGrooming(box, regions, finish) {
                 done++;
                 const withFur = i === lies;
                 const flinch = region.sensitive && !soft.checked;
+                if (flinch) petSound('sad');
+                else playSound('rustle');
                 if (withFur && !flinch) right++;
                 status.textContent = flinch ? '😾 ' + petName() + ' flinches: that spot needs a gentle touch.' :
                     withFur ? '😌 Smooth strokes; ' + petName() + ' relaxes.' :

@@ -362,6 +362,7 @@ function openSettings() {
             btn.disabled = h === data.data.hemisphere;
         });
         p.append(row);
+        renderSoundSettings(p);
         p.classList.remove('hidden');
     }).catch(console.error);
 }
