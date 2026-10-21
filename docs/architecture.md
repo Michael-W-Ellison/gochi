@@ -20,6 +20,7 @@ Gochi follows a layered architecture with clear separation of concerns:
 ## Core Components
 
 ### 1. Presentation Layer (`web/`)
+- Static files in `web/static`, built into the game binary (`web/embed.go`)
 - User interface rendering
 - Event handling and input processing
 - Visual feedback and animations

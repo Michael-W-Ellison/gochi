@@ -6,8 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -16,20 +14,22 @@ import (
 // cached for a year, by the browser or by a proxy or CDN in front of the
 // server, since a change to any file changes the hash. Other requests are
 // revalidated each time.
+//
+// The files are built into the game (see package web), or read from a
+// folder with -web-dir while working on the page.
 
 // staticMaxAge is how long versioned static files may be cached
 const staticMaxAge = "public, max-age=31536000, immutable"
 
-// staticVersion returns a short hash of every file under dir
-func staticVersion(dir string) (string, error) {
+// staticVersion returns a short hash of every file in files
+func staticVersion(files fs.FS) (string, error) {
 	hash := sha256.New()
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(files, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		rel, _ := filepath.Rel(dir, path)
-		io.WriteString(hash, filepath.ToSlash(rel)+"\x00")
-		f, err := os.Open(path)
+		io.WriteString(hash, path+"\x00")
+		f, err := files.Open(path)
 		if err != nil {
 			return err
 		}
@@ -43,9 +43,11 @@ func staticVersion(dir string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil))[:12], nil
 }
 
-// staticHandler serves the static files in dir under /static/
-func (s *Server) staticHandler(dir string) http.Handler {
-	files := http.StripPrefix("/static/", http.FileServer(http.Dir(dir)))
+// staticHandler serves files under /static/. Built-in files have no
+// dates to revalidate by, so they're revalidated by version instead
+// (builtIn); files read from a folder may change while the game runs.
+func (s *Server) staticHandler(files fs.FS, builtIn bool) http.Handler {
+	server := http.StripPrefix("/static/", http.FileServer(http.FS(files)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/") {
 			http.NotFound(w, r) // No folder listings
@@ -54,8 +56,11 @@ func (s *Server) staticHandler(dir string) http.Handler {
 		if v := r.URL.Query().Get("v"); v != "" && v == s.staticVersion {
 			w.Header().Set("Cache-Control", staticMaxAge)
 		} else {
-			w.Header().Set("Cache-Control", "no-cache") // Revalidate (by date) each time
+			w.Header().Set("Cache-Control", "no-cache") // Revalidate each time
 		}
-		files.ServeHTTP(w, r)
+		if builtIn {
+			w.Header().Set("ETag", `"`+s.staticVersion+`"`)
+		}
+		server.ServeHTTP(w, r)
 	})
 }

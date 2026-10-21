@@ -42,7 +42,7 @@ release: ## Build the game and hub for Windows, macOS and Linux into dist/
 		mkdir -p $$out || exit 1; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build $(LDFLAGS) -o $$out/$(BINARY_NAME)$$ext $(MAIN_PATH) || exit 1; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -o $$out/gochihub$$ext ./cmd/gochihub || exit 1; \
-		cp -R web configs README.md $$out/ || exit 1; \
+		cp -R configs README.md $$out/ || exit 1; \
 	done
 	@echo "Release builds are in $(DIST_DIR)/"
 

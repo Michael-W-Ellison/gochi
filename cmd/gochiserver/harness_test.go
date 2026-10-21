@@ -6,7 +6,6 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,6 +15,7 @@ import (
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
+	"github.com/Michael-W-Ellison/gochi/web"
 )
 
 // A test harness for the whole game server: a server set up as main sets
@@ -79,7 +79,7 @@ func openHarness(t testing.TB, dir string) *harness {
 	})
 	now := time.Now()
 	s := &Server{
-		webDir:       filepath.Join("..", "..", "web"),
+		static:       web.Static(),
 		clock:        simulation.NewTimeManager(types.TimeScaleGame),
 		store:        store,
 		lastActivity: now,
@@ -100,10 +100,10 @@ func openHarness(t testing.TB, dir string) *harness {
 	for _, r := range s.routes() {
 		mux.HandleFunc(r.pattern, r.handler)
 	}
-	if s.staticVersion, err = staticVersion(filepath.Join(s.webDir, "static")); err != nil {
+	if s.staticVersion, err = staticVersion(s.static); err != nil {
 		t.Fatal(err)
 	}
-	mux.Handle("/static/", s.staticHandler(filepath.Join(s.webDir, "static")))
+	mux.Handle("/static/", s.staticHandler(s.static, true))
 	mux.HandleFunc("/", s.handleIndex)
 	return &harness{t: t, server: s, handler: s.guard(securityHeaders(mux)), dir: dir, now: now}
 }

@@ -61,7 +61,7 @@ gochi/
 │   └── types/          # Shared type definitions
 ├── api/                # REST API package (served at /api/v1 with -api-token)
 ├── configs/            # Configuration files
-├── web/                # Web UI assets
+├── web/                # Web UI assets (static/, built into the game by embed.go)
 ├── test/               # Integration tests
 └── docs/               # Documentation
 ```
@@ -93,8 +93,9 @@ make run
 Then open http://localhost:8080 in a browser.
 
 **Platforms**: the game runs on Windows, macOS and Linux. `make release` builds the game and the hub
-for each (64-bit Intel/AMD and ARM) into `dist/`, one folder per platform with the `web/` and
-`configs/` folders the program needs beside it. Phones and tablets (iOS and Android) play in their
+for each (64-bit Intel/AMD and ARM) into `dist/`, one folder per platform. The page's scripts,
+styles and images are built into the game, so the game is a single file that runs from any folder;
+the `configs/` folder beside it holds the optional settings file. Phones and tablets (iOS and Android) play in their
 browser, connected to a computer running the game on the same network; AR uses the phone's camera.
 
 ### Command-Line Options
@@ -115,6 +116,7 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | `-hub-join-code` | (none) | The code players need to register with the hub |
 | `-hub-addr` | `:8443` | Address the hub listens on, always over HTTPS |
 | `-tls-cert`, `-tls-key` | (none) | Serve the game (and the hub) over HTTPS with this certificate and private key (PEM files); set both |
+| `-web-dir` | (built in) | Serve the page's static files from this folder instead of the copies built into the game, for working on the page without rebuilding: `-web-dir web/static` |
 
 Durations use Go syntax, such as `30s`, `5m` or `1h`.
 
@@ -1207,8 +1209,8 @@ memory only.
 
 ## Configuration
 
-At startup the server reads `configs/config.yaml` from the project directory (the one holding
-`web/`), or the file given with `-config`. The file holds the same settings as the command-line
+At startup the server reads `configs/config.yaml` from the current folder or, failing that, from
+the folder holding the game, or the file given with `-config`. The file holds the same settings as the command-line
 options:
 
 | Setting | Option | Default |

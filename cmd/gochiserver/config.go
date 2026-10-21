@@ -137,12 +137,18 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// defaultConfigPath returns configs/config.yaml in the project directory
-// (the one holding the web directory), or "" if there is none
-func defaultConfigPath(webDir string) string {
-	path := filepath.Join(filepath.Dir(webDir), "configs", "config.yaml")
-	if info, err := os.Stat(path); err == nil && !info.IsDir() {
-		return path
+// defaultConfigPath returns configs/config.yaml in the current folder, or
+// beside the game (as a release has it), or "" if there is none
+func defaultConfigPath() string {
+	dirs := []string{"."}
+	if exe, err := os.Executable(); err == nil {
+		dirs = append(dirs, filepath.Dir(exe))
+	}
+	for _, dir := range dirs {
+		path := filepath.Join(dir, "configs", "config.yaml")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
 	}
 	return ""
 }

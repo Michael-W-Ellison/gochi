@@ -1220,7 +1220,9 @@ Battery: the page polls /api/status every 2 s, every 5 s on battery and every 15
 (20% or less, from the Battery Status API where the browser has it), when it also stops animations;
 a hidden page doesn't poll, and animations stop under prefers-reduced-motion.
 Cross-platform: the game and the hub are pure Go (CGO off); make release builds both for Windows,
-macOS and Linux on amd64 and arm64, each in a folder with web/ and configs/. iOS and Android play
+macOS and Linux on amd64 and arm64, each in a folder with configs/ and the README. The page's static
+files are built into the game (package web, with go:embed), so the game is one file that runs from
+any folder; -web-dir serves them from a folder instead, for working on the page. iOS and Android play
 in the browser against a computer running the game.
 
 6.2 Security and Privacy
@@ -1318,7 +1320,8 @@ memory, loaded at startup and kept current by uploads and deletions, so listing 
 and the per-account space check read no saves.
 Content delivery: static files are requested with ?v= and a hash of their contents and are then
 served with Cache-Control: public, max-age=31536000, immutable, so a CDN or proxy can cache them;
-other requests for them are revalidated.
+other requests for them are revalidated (built-in files by an ETag of the hash, files from -web-dir
+by date).
 Services: cmd/gochihub runs the hub alone over HTTPS (-addr, default :8443, -dir, -join-code,
 -tls-cert, -tls-key), separate from any game; a game server can still run one with -hub, on its own
 HTTPS listener.
