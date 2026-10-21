@@ -98,8 +98,14 @@ func (s *Server) forecastsLocked(now time.Time) []forecastStatus {
 func (s *Server) announceGoalsLocked() {
 	completed := s.pet.TakeCompletedGoals()
 	for _, g := range completed {
-		s.events.Emit(core.GameEvent{Type: core.EventGoal, PetID: s.pet.ID, Good: true,
-			Message: fmt.Sprintf("🎯 Goal reached: %s %s. +%d Friendship Points.", g.Icon, g.Text, g.Reward)})
+		message := fmt.Sprintf("🎯 Goal reached: %s %s. +%d Friendship Points.", g.Icon, g.Text, g.Reward)
+		if g.Stars > 0 { // The week's goal
+			week := s.pet.WeekGoal().Week
+			s.awardStarsLocked(g.Stars, "weekly:"+string(s.pet.ID)+":"+week, true, "the week's goal")
+			message = fmt.Sprintf("🏅 This week's goal reached: %s %s. +%d Friendship Points and %d Home Stars.",
+				g.Icon, g.Text, g.Reward, g.Stars)
+		}
+		s.events.Emit(core.GameEvent{Type: core.EventGoal, PetID: s.pet.ID, Good: true, Message: message})
 	}
 	if len(completed) > 0 {
 		s.starsForGoalsLocked()

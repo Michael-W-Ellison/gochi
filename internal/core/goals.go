@@ -14,7 +14,7 @@ import (
 // the next day's harder; completing none (after trying) makes them easier.
 // Each completed goal earns bonus Friendship Points.
 
-// Goal kinds
+// Goal kinds (more in goalkinds.go)
 const (
 	GoalCare      = "care"      // Give a kind of care a number of times
 	GoalLearn     = "learn"     // Learn a new trick
@@ -27,9 +27,12 @@ type Goal struct {
 	Care     types.InteractionType `json:"care"` // For care goals
 	Text     string                `json:"text"`
 	Icon     string                `json:"icon"`
-	Target   int                   `json:"target"` // Times, or happiness in percent
+	Detail   string                `json:"detail,omitempty"` // What it is about: a place, trick, upkeep or change
+	Target   int                   `json:"target"`           // Times, happiness in percent, or seconds of play
 	Progress int                   `json:"progress"`
-	Reward   int                   `json:"reward"` // Bonus Friendship Points
+	Unit     string                `json:"unit,omitempty"`  // "seconds" for goals kept up over time
+	Reward   int                   `json:"reward"`          // Bonus Friendship Points
+	Stars    int                   `json:"stars,omitempty"` // Home Stars too (the weekly goal)
 	Done     bool                  `json:"done"`
 }
 
@@ -40,6 +43,7 @@ type GoalBoard struct {
 	Level          float64   `json:"level"`   // Difficulty, 1.0 to 5.0
 	Goals          []Goal    `json:"goals"`
 	LearnedAtStart int       `json:"learned_at_start"` // Tricks known when the day began
+	TimedAt        time.Time `json:"timed_at"`         // Play clock when goals kept up over time last counted
 }
 
 // Goal difficulty
@@ -106,7 +110,13 @@ func (p *DigitalPet) planGoalsLocked(level float64) []Goal {
 	}
 	goals := []Goal{careGoal(p.Name, neglected.Care, neglected.Target+steps/2, reward)}
 
-	// An activity, harder at higher levels
+	// An activity: on the first day the classic ones below; after that
+	// whichever suits the pet best that wasn't asked for lately
+	if g, ok := p.chooseActivityGoalLocked(level, reward); ok {
+		goals = append(goals, g)
+		goals = append(goals, p.wellbeingGoalLocked(level, reward))
+		return goals
+	}
 	switch {
 	case level >= 4 && len(p.TricksLearned) < len(tricks):
 		goals = append(goals, Goal{Kind: GoalLearn, Icon: "🌟", Text: fmt.Sprintf("Teach %s a new trick", p.Name),
@@ -157,6 +167,7 @@ func (p *DigitalPet) ensureGoalsLocked() {
 	}
 	p.Goals = &GoalBoard{Day: day, Started: played, Level: level, LearnedAtStart: len(p.TricksLearned)}
 	p.Goals.Goals = p.planGoalsLocked(level)
+	p.rememberGoalKindsLocked()
 	p.checkGoalsLocked()
 }
 
@@ -170,6 +181,7 @@ func (p *DigitalPet) progressGoalsLocked(interactionType types.InteractionType) 
 			g.Progress++
 		}
 	}
+	p.weeklyEventLocked(interactionType.String())
 	p.checkGoalsLocked()
 }
 
@@ -192,7 +204,7 @@ func (p *DigitalPet) checkGoalsLocked() {
 				g.Progress = 1
 			}
 		}
-		if g.Progress >= g.Target {
+		if g.Progress >= g.Target && g.Target > 0 {
 			g.Done = true
 			p.FriendshipPoints += g.Reward
 			p.PointsEarned += g.Reward
@@ -208,7 +220,9 @@ func (p *DigitalPet) checkGoalsLocked() {
 	if all && p.LastGoalDay != p.Goals.Day {
 		p.LastGoalDay = p.Goals.Day
 		p.GoalDays++
+		p.weeklyEventLocked(WeeklyGoalDays)
 	}
+	p.checkWeeklyLocked()
 }
 
 // DailyGoals returns today's goals and their difficulty level

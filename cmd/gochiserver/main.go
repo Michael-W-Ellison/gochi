@@ -57,6 +57,9 @@ type Server struct {
 	// Messages the page shows in front of everything until dismissed
 	popups []popup
 
+	// When the household achievements were last checked
+	lastHouseholdAwards time.Time
+
 	// The AR playdate the player is at, through the cloud hub
 	playdates playdateState
 
@@ -122,6 +125,7 @@ type PetStatus struct {
 	// Today's goals and their difficulty (1 to 5), what the pet will soon
 	// need, and when the player usually plays ("" until it is known)
 	Goals        []core.Goal      `json:"goals"`
+	Weekly       core.WeeklyGoal  `json:"weekly"`
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
 	PlaySchedule string           `json:"play_schedule"`
@@ -623,6 +627,7 @@ func (s *Server) tick(now time.Time) {
 			s.starsForTripLocked()
 		}
 	}
+	s.householdAwardsLocked(now)
 	s.announceAchievementsLocked()
 	s.observePet(s.pet, false)
 	s.checkGrowingUpLocked()
@@ -952,6 +957,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .upkeep.due { color: #c92a2a; }
         .family-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
         .family-name { flex: 1 1 160px; }
+        .goal-item.weekly { border-top: 1px dashed #ddd; margin-top: 4px; padding-top: 4px; }
         .pet-display svg { display: block; margin: 0 auto; }
         #petSprite { width: fit-content; margin-left: auto; margin-right: auto; }
         .breed-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; margin: 12px 0 6px; }
@@ -1920,14 +1926,28 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     text += ' (' + goal.progress + '/' + goal.target + ')';
                 } else if (!goal.done && goal.kind === 'happiness') {
                     text += ' (now ' + goal.progress + '%)';
+                } else if (!goal.done && goal.unit === 'seconds') {
+                    text += ' (' + Math.floor(goal.progress / 60) + '/' + Math.round(goal.target / 60) + ' min)';
                 }
                 line.textContent = text + ' ';
                 const reward = document.createElement('span');
                 reward.className = 'goal-reward';
-                reward.textContent = '+' + goal.reward + ' ⭐';
+                reward.textContent = '+' + goal.reward + ' ❤️';
                 line.append(reward);
                 box.append(line);
             });
+            const week = status.weekly && status.weekly.goal;
+            if (week && week.kind) {
+                const line = document.createElement('div');
+                line.className = 'goal-item weekly' + (week.done ? ' done' : '');
+                line.textContent = (week.done ? '✅ ' : '🏅 ') + 'This week: ' + week.text +
+                    (week.done ? ' ' : ' (' + week.progress + '/' + week.target + ') ');
+                const reward = document.createElement('span');
+                reward.className = 'goal-reward';
+                reward.textContent = '+' + week.reward + ' ❤️ +' + week.stars + ' ⭐';
+                line.append(reward);
+                box.append(line);
+            }
         }
 
         // What the pet will soon need, and when the player usually plays
@@ -3736,6 +3756,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	petStatus.Checklist = s.pet.DailyChecklist()
 	petStatus.Goals, petStatus.GoalLevel = s.pet.DailyGoals()
+	petStatus.Weekly = s.pet.WeekGoal()
 	petStatus.Forecasts = s.forecastsLocked(now)
 	petStatus.Outfit = s.pet.Worn()
 	petStatus.Breed = s.pet.BreedInfo()

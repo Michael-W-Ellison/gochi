@@ -162,6 +162,18 @@ treated with medical care) and **Attentive Carer** (an adult's care record at 80
 listed under **About** and announced under **Recently** when earned. Care achievements also unlock
 more breeds (see [Breeds](#breeds)).
 
+More achievements reward long-term care and family:
+
+| Kind | Achievements |
+|---|---|
+| Care | Clean Teeth (brushed on 7 days), Clear Eyes (a breed prone to sore eyes kept them healthy for 1,000 game days), Well Kept (no upkeep ran out for 500 game days), Calm Companion (stress under 20% for 300 game days in a row), Kidney Care (90% of its lifespan with inherited kidney disease), Vet's Friend (3 illnesses treated early) |
+| Training | Six Tricks, Signal Master (3 tricks while hard of hearing), No Rust (every trick sharp for 500 game days), Patient Trainer (50 sessions with rewards and no scolding) |
+| Family | Three Generations, Five Generations, Family Reunion (a group activity with its parent or child), Mixed Blessings (a mixed breed of two different breeds) |
+| Seasons | Four Seasons (lived through all four real seasons), Holiday Spirit (things from 5 holidays) |
+| Household | Full House (5 living pets), Dream Home (every house upgrade), Cat Fancier and Dog Lover (5 breeds raised); earned by the active pet when the household qualifies |
+
+Each achievement earns Home Stars by rarity: 10 (common), 25 (rare) or 50 (epic and legendary).
+
 ### Cloud: Backup, Sync and Sharing
 
 A Gochi server can also run as a **cloud hub** that other Gochi servers connect to, so you can back up
@@ -349,9 +361,20 @@ worth bonus Friendship Points when you complete it.
 
 - one asks for the part of the daily routine you have given least over the past week (for
   example brushing, if you rarely brush your cat);
-- one asks for an activity: playing, practicing tricks, exploring or, at the highest levels,
-  teaching a new trick;
-- one asks you to raise your pet's happiness to a level above where it is now.
+- one asks for an activity. On a pet's first day it is playing, practicing tricks, exploring or, at
+  the highest levels, teaching a new trick. After that it is whichever suits your pet best and
+  wasn't asked for in the last three days: practicing a trick that has got rusty, renewing upkeep
+  that is due (a fountain filter, bedding, a flea collar, a vaccination), brushing its teeth (more
+  often for breeds prone to dental disease), wiping its eyes (for breeds prone to sore eyes),
+  something new at home, a trip to the place it has visited least, meeting another of your pets, or
+  a group activity;
+- one is about how your pet feels: raising its happiness, or keeping a stressed pet calm (stress
+  under 30% for 20 minutes of play), keeping a pet that feels the heat or cold comfortable in hot or
+  cold weather, or at level 3 and above keeping its food and water above half for 30 minutes.
+
+Each week also has a larger goal, such as brushing your pet's teeth on 5 days, 7 trips, 2 new
+tricks, finishing all of a day's goals on 3 days or 20 play sessions. It earns 100 Friendship Points
+and 15 Home Stars.
 
 Goals start at level 1 and adapt to how you are doing: completing two or three of a day's goals
 makes the next day's goals one half-level harder (up to level 5), and trying but completing none

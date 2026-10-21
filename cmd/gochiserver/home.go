@@ -39,6 +39,9 @@ func (s *Server) starsForTripLocked() {
 func (s *Server) starsForAchievementLocked(a core.Achievement) {
 	stars := achievementStars[a.ID]
 	if stars == 0 {
+		stars = map[string]int{"rare": 25, "epic": 50, "legendary": 50}[a.Rarity]
+	}
+	if stars == 0 {
 		stars = 10
 	}
 	s.awardStarsLocked(stars, "achievement:"+string(s.pet.ID)+":"+a.ID, true, "the "+a.Name+" achievement")

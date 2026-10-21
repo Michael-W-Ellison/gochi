@@ -61,6 +61,11 @@ var tricks = []Trick{
 	{ID: "play_dead", Name: "Play dead", Icon: "🎭", Difficulty: 5, Performed: "%s flops over dramatically... then peeks at you!"},
 }
 
+// tricksLocked returns the tricks the pet can learn. Caller must hold p.mu.
+func (p *DigitalPet) tricksLocked() []Trick {
+	return tricks
+}
+
 // minTrainingEnergy is the energy a pet needs to train or play games
 const minTrainingEnergy = 0.25
 
@@ -242,8 +247,12 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	if !result.Applied {
 		return TrickResult{}, RefusedError{result.Refusal}
 	}
-	if methodID == "treats" || methodID == "clicker" || methodID == "signals" {
+	switch methodID {
+	case "treats", "clicker", "signals":
 		p.useSupplyLocked(p.defLocked().Treats)
+		p.countLocked("reward_training", 1)
+	case "punishment":
+		p.countLocked("scolding", 1)
 	}
 
 	if p.TrickSkills == nil {
@@ -266,6 +275,10 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	if result.Skill >= 1.0 {
 		p.markTrickLearnedLocked(t.ID)
 	}
+	if result.JustLearned {
+		p.weeklyEventLocked(GoalLearn)
+	}
+	p.goalEventLocked(GoalPractice, t.ID)
 
 	switch {
 	case relearned && result.Skill >= 1.0:
@@ -526,6 +539,11 @@ func (p *DigitalPet) SendExploringTo(place string) error {
 	p.ExploringTo = place
 	p.ExploringUntilAge = p.Biology.GetAgeInDays() + exploreDuration
 	p.CurrentBehavior = types.BehaviorExploring
+	if p.PlaceVisits == nil {
+		p.PlaceVisits = make(map[string]int)
+	}
+	p.PlaceVisits[place]++
+	p.goalEventLocked(GoalExplore, place)
 	return nil
 }
 

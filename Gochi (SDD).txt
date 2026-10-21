@@ -1059,6 +1059,18 @@ happiness + 10%), 95%), where steps = floor(level - 1). Each goal pays round(lev
 Points when completed, and is announced as an event. At the start of each day, the level rises by
 0.5 if at least two thirds of the last day's goals were completed and falls by 0.5 if none were
 completed but some were tried. Goals are part of the pet's save.
+After a pet's first day the activity goal is the best-scoring of: the first-day activity (1.0),
+practice a rusty trick (1.5), renew upkeep due within 50 game days (1.3), brush teeth (0.6, +0.6
+x teeth tendency, +0.6 if dental health is below 0.6), wipe eyes (0.8, +0.5 below 0.6 eye health;
+eye tendency or eye health below 0.8), a home change not made for 5 game days (0.8), a trip to
+the least-visited discovered place (0.8), meet another pet (0.6) and a group activity (0.5), less
+1 for any kind asked for in the last 3 days. The wellbeing goal is happiness, or calm (stress
+under 0.3 for 20 minutes of play) when stress is above 0.4, comfort (stress under 0.4 for 20
+minutes) in heat above 27 C or cold below 10 C for pets with a matching tendency, or steady care
+(food and water above 0.5 for 30 minutes) from level 3 on days after a happiness goal. Minutes are
+of the play clock, in steps of at most 10 seconds. A weekly goal (ISO week) rotates through teeth
+on 5 days, 7 trips, 2 tricks, all goals on 3 days and 20 play sessions; it pays 100 points and 15
+Home Stars.
 
 
 6. Technical Implementation Details

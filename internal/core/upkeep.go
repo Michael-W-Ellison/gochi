@@ -192,12 +192,14 @@ func (p *DigitalPet) applyCareSupplyLocked(id string) (string, error) {
 			return "", err
 		}
 		p.renewUpkeepLocked(fountainFilterUpkeep, fountainFilterDays)
+		p.goalEventLocked(GoalUpkeep, fountainFilterUpkeep)
 		return "The fountain has a fresh filter.", nil
 	case "flea_collar_refill":
 		if err := needs("flea_collar"); err != nil {
 			return "", err
 		}
 		p.renewUpkeepLocked(fleaCollarUpkeep, fleaCollarDays)
+		p.goalEventLocked(GoalUpkeep, fleaCollarUpkeep)
 		return p.Name + " has a fresh flea and tick collar.", nil
 	case "first_aid_refill":
 		if err := needs("first_aid_kit"); err != nil {
@@ -210,9 +212,11 @@ func (p *DigitalPet) applyCareSupplyLocked(id string) (string, error) {
 			return "", fmt.Errorf("%w: it's for a bed", ErrNotNeeded)
 		}
 		p.renewUpkeepLocked(beddingUpkeep, beddingDays)
+		p.goalEventLocked(GoalUpkeep, beddingUpkeep)
 		return p.Name + "'s bed has fresh bedding.", nil
 	case "vaccination":
 		p.renewUpkeepLocked(vaccinationUpkeep, vaccinationDays)
+		p.goalEventLocked(GoalUpkeep, vaccinationUpkeep)
 		return p.Name + " is vaccinated.", nil
 	case "dewormer":
 		p.ParasiteExposure = 0
@@ -240,9 +244,16 @@ func (p *DigitalPet) applyCareSupplyLocked(id string) (string, error) {
 			v.Stress -= 0.03
 		})
 	case "pet_toothpaste":
-		return once(p.Name+"'s teeth are brushed.", func() { ph.DentalHealth += 0.1 })
+		return once(p.Name+"'s teeth are brushed.", func() {
+			ph.DentalHealth += 0.1
+			p.countDayLocked("teeth_days")
+			p.goalEventLocked(GoalTeeth, "")
+		})
 	case "eye_wipes":
-		return once(p.Name+"'s eyes are cleaned.", func() { ph.EyeHealth += 0.08 })
+		return once(p.Name+"'s eyes are cleaned.", func() {
+			ph.EyeHealth += 0.08
+			p.goalEventLocked(GoalEyes, "")
+		})
 	case "kidney_diet":
 		if ph.KidneyReserve >= 0.9 && p.predispositionsLocked().KidneyDisease == 0 {
 			return "", fmt.Errorf("%w: %s's kidneys are healthy, so it doesn't need a special diet", ErrNotNeeded, p.Name)

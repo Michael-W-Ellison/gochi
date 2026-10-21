@@ -105,9 +105,20 @@ type DigitalPet struct {
 
 	// Care records for care achievements: days all of the day's goals
 	// were finished, the last of them, and illnesses treated
-	GoalDays         int    `json:"goal_days,omitempty"`
-	LastGoalDay      string `json:"last_goal_day,omitempty"`
-	IllnessesTreated int    `json:"illnesses_treated,omitempty"`
+	GoalDays int `json:"goal_days,omitempty"`
+	// Goal variety: the last few days' activity goal kinds, the last
+	// wellbeing goal, the week's goal, and trips to each place
+	RecentGoalKinds   []string       `json:"recent_goal_kinds,omitempty"`
+	LastWellbeingGoal string         `json:"last_wellbeing_goal,omitempty"`
+	Weekly            *WeeklyGoal    `json:"weekly,omitempty"`
+	PlaceVisits       map[string]int `json:"place_visits,omitempty"`
+
+	// Care records for achievements (carerecords.go): counts and streaks,
+	// and marks such as the last day something was counted
+	Counters         map[string]float64 `json:"counters,omitempty"`
+	Marks            map[string]string  `json:"marks,omitempty"`
+	LastGoalDay      string             `json:"last_goal_day,omitempty"`
+	IllnessesTreated int                `json:"illnesses_treated,omitempty"`
 
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
@@ -298,6 +309,10 @@ func (p *DigitalPet) Update(deltaTime float64) {
 
 	// Update relationships
 	p.updateRelationshipsLocked(deltaTime)
+
+	// Goals kept up over time, and records for care achievements
+	p.updateTimedGoalsLocked()
+	p.updateCareRecordsLocked(deltaTime)
 
 	// Loneliness and neglect change the pet's personality
 	p.evolveFromNeglectLocked(deltaTime)
