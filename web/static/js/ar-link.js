@@ -454,7 +454,3 @@ const GochiARLink = (function() {
 
     return { start };
 })();
-
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = GochiARLink;
-}

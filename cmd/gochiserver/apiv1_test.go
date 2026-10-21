@@ -25,7 +25,7 @@ func apiRequest(t *testing.T, handler http.Handler, method, path, body, token st
 
 func TestRESTAPI(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	handler := server.apiHandler("secret", 0)
@@ -108,7 +108,7 @@ func TestRESTAPIRateLimit(t *testing.T) {
 
 func TestRESTAPIChangesTheLivePet(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	handler := server.apiHandler("secret", 0)

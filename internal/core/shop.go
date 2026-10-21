@@ -117,7 +117,6 @@ var (
 	hot       = effectCondition{above: 27}
 	seniors   = effectCondition{senior: true}
 	inSpring  = effectCondition{inSeason: true, season: environment.SeasonSpring}
-	inSummer  = effectCondition{inSeason: true, season: environment.SeasonSummer}
 	inAutumn  = effectCondition{inSeason: true, season: environment.SeasonFall}
 	inWinter  = effectCondition{inSeason: true, season: environment.SeasonWinter}
 	freshBeds = effectCondition{halfStale: beddingUpkeep}
@@ -336,11 +335,6 @@ var (
 	ErrNotEnoughPoints = errors.New("not enough Friendship Points")
 	ErrPetNotAvailable = errors.New("pet is not available")
 )
-
-// ShopCatalog returns every item that can be bought
-func ShopCatalog() []ShopItem {
-	return append([]ShopItem(nil), shopCatalog...)
-}
 
 // findItem returns the catalog item with the given ID
 func findItem(id string) (ShopItem, bool) {

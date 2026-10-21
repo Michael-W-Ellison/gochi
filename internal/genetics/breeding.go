@@ -69,16 +69,6 @@ func NewGeneticSystem() *GeneticSystem {
 	}
 }
 
-// NewGeneticSystemWithConfig creates a genetic system with custom settings
-func NewGeneticSystemWithConfig(mutationRate float64, crossoverPoints int, req BreedingRequirements) *GeneticSystem {
-	return &GeneticSystem{
-		MutationRate:    mutationRate,
-		CrossoverPoints: crossoverPoints,
-		Requirements:    req,
-		BreedingHistory: make([]BreedingResult, 0),
-	}
-}
-
 // CalculateCompatibility computes breeding compatibility between two genomes
 func (gs *GeneticSystem) CalculateCompatibility(genome1, genome2 *Genome) float64 {
 	if genome1 == nil || genome2 == nil {
@@ -183,19 +173,6 @@ func (gs *GeneticSystem) CompatibilityProblem(score float64) string {
 // percent formats a 0.0 to 1.0 value as a whole percentage
 func percent(v float64) string {
 	return fmt.Sprintf("%.0f%%", v*100)
-}
-
-// CanBreed checks if two pets meet breeding requirements. The reason
-// refers to the pets as parent 1 and parent 2; use CheckRequirements to
-// name them.
-func (gs *GeneticSystem) CanBreed(age1, age2, health1, health2, happiness1, happiness2 float64,
-	lastBreeding1, lastBreeding2 time.Time) (bool, string) {
-
-	reason := gs.CheckRequirements(
-		BreedingCandidate{Name: "parent 1", Age: age1, Health: health1, Happiness: happiness1, LastBreeding: lastBreeding1},
-		BreedingCandidate{Name: "parent 2", Age: age2, Health: health2, Happiness: happiness2, LastBreeding: lastBreeding2},
-	)
-	return reason == "", reason
 }
 
 // Crossover performs genetic crossover between two parent genomes
@@ -337,104 +314,6 @@ func (gs *GeneticSystem) Breed(parent1, parent2 *Genome) BreedingResult {
 	gs.BreedingHistory = append(gs.BreedingHistory, result)
 
 	return result
-}
-
-// CreateOffspring is a convenience method that handles the full breeding process
-func (gs *GeneticSystem) CreateOffspring(parent1ID, parent2ID string,
-	parent1Genome, parent2Genome *Genome,
-	age1, age2, health1, health2, happiness1, happiness2 float64,
-	lastBreeding1, lastBreeding2 time.Time) BreedingResult {
-
-	result := BreedingResult{
-		Success:         false,
-		InheritedTraits: make(map[TraitType]string),
-	}
-
-	// Check breeding requirements
-	canBreed, reason := gs.CanBreed(age1, age2, health1, health2, happiness1, happiness2,
-		lastBreeding1, lastBreeding2)
-	if !canBreed {
-		result.FailureReason = reason
-		return result
-	}
-
-	// Attempt breeding
-	return gs.Breed(parent1Genome, parent2Genome)
-}
-
-// GetBreedingStats returns statistics about breeding history
-func (gs *GeneticSystem) GetBreedingStats() map[string]interface{} {
-	totalAttempts := len(gs.BreedingHistory)
-	successfulBreedings := 0
-	totalMutations := 0
-	avgCompatibility := 0.0
-
-	for _, result := range gs.BreedingHistory {
-		if result.Success {
-			successfulBreedings++
-		}
-		totalMutations += len(result.Mutations)
-		avgCompatibility += result.CompatibilityScore
-	}
-
-	if totalAttempts > 0 {
-		avgCompatibility /= float64(totalAttempts)
-	}
-
-	return map[string]interface{}{
-		"total_attempts":    totalAttempts,
-		"successful":        successfulBreedings,
-		"success_rate":      float64(successfulBreedings) / float64(max(totalAttempts, 1)),
-		"total_mutations":   totalMutations,
-		"avg_compatibility": avgCompatibility,
-	}
-}
-
-// SetMutationRate updates the mutation rate
-func (gs *GeneticSystem) SetMutationRate(rate float64) {
-	gs.MutationRate = clamp(rate, 0.0, 1.0)
-}
-
-// SetCrossoverPoints updates the number of crossover points
-func (gs *GeneticSystem) SetCrossoverPoints(points int) {
-	if points < 1 {
-		points = 1
-	}
-	gs.CrossoverPoints = points
-}
-
-// PredictOffspringTraits estimates likely offspring traits without breeding
-func (gs *GeneticSystem) PredictOffspringTraits(parent1, parent2 *Genome) map[TraitType]struct {
-	Min float64
-	Max float64
-	Avg float64
-} {
-	predictions := make(map[TraitType]struct {
-		Min float64
-		Max float64
-		Avg float64
-	})
-
-	for trait := range parent1.Traits {
-		p1Val := parent1.GetTraitValue(trait)
-		p2Val := parent2.GetTraitValue(trait)
-
-		minVal := math.Min(p1Val, p2Val) * 0.9 // Account for possible mutation decrease
-		maxVal := math.Max(p1Val, p2Val) * 1.1 // Account for possible mutation increase
-		avgVal := (p1Val + p2Val) / 2.0
-
-		predictions[trait] = struct {
-			Min float64
-			Max float64
-			Avg float64
-		}{
-			Min: clamp(minVal, 0.0, 1.0),
-			Max: clamp(maxVal, 0.0, 1.0),
-			Avg: avgVal,
-		}
-	}
-
-	return predictions
 }
 
 func max(a, b int) int {

@@ -28,7 +28,7 @@ func getJSON(t *testing.T, handler http.HandlerFunc, path string) map[string]int
 
 func TestSuppliesAndChoicesThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Rex", core.SpeciesDog, false, false); err != nil {
+	if err := server.createPet("Rex", core.SpeciesDog, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.FriendshipPoints, server.pet.PointsEarned = 200, 200
@@ -84,11 +84,11 @@ func TestSuppliesAndChoicesThroughServer(t *testing.T) {
 
 func TestIntroductionThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	partnerSlot := server.slot
-	if err := server.createPet("Rex", core.SpeciesDog, false, false); err != nil {
+	if err := server.createPet("Rex", core.SpeciesDog, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,12 +122,12 @@ func TestGroupActivityThroughServer(t *testing.T) {
 	server := newTestServer(t)
 	var slots []string
 	for _, name := range []string{"Max", "Bella"} {
-		if err := server.createPet(name, core.SpeciesDog, false, false); err != nil {
+		if err := server.createPet(name, core.SpeciesDog, "", false, false); err != nil {
 			t.Fatal(err)
 		}
 		slots = append(slots, server.slot)
 	}
-	if err := server.createPet("Rex", core.SpeciesDog, false, false); err != nil {
+	if err := server.createPet("Rex", core.SpeciesDog, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 

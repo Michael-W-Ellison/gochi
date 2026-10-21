@@ -30,7 +30,7 @@ func statusOf(t *testing.T, server *Server) map[string]interface{} {
 
 func TestTrainAndPerformThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,7 +74,7 @@ func TestTrainAndPerformThroughServer(t *testing.T) {
 
 func TestHideAndSeekThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,7 +111,7 @@ func TestHideAndSeekThroughServer(t *testing.T) {
 func TestExploreThroughServer(t *testing.T) {
 	server := newTestServer(t)
 	server.awayTimeout = 0
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,7 +151,7 @@ func TestExploreThroughServer(t *testing.T) {
 
 func TestRecallAndQuitThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -183,7 +183,7 @@ func TestRecallAndQuitThroughServer(t *testing.T) {
 
 func TestHealThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.Injured = true
@@ -205,7 +205,7 @@ func TestHealThroughServer(t *testing.T) {
 
 func TestMessagesUsePetName(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.HibernationEnabled = true
@@ -264,7 +264,7 @@ func TestHibernationSetting(t *testing.T) {
 func TestStatusShowsCauseOfDeath(t *testing.T) {
 	server := newTestServer(t)
 	server.awayTimeout = 0
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -285,7 +285,7 @@ func TestTimeScaleSetsGameSpeed(t *testing.T) {
 		server := newTestServer(t)
 		server.awayTimeout = 0
 		server.clock = simulation.NewTimeManager(scale)
-		if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 			t.Fatal(err)
 		}
 		age := server.pet.GetAge()
@@ -305,7 +305,7 @@ func TestTimeScaleSetsGameSpeed(t *testing.T) {
 
 func TestStatusShowsNeeds(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	needs, ok := statusOf(t, server)["needs"].([]interface{})
@@ -316,7 +316,7 @@ func TestStatusShowsNeeds(t *testing.T) {
 
 func TestStatusShowsEnvironment(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	env, ok := statusOf(t, server)["environment"].(map[string]interface{})
@@ -327,7 +327,7 @@ func TestStatusShowsEnvironment(t *testing.T) {
 
 func TestRefusedCareThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.Biology.Vitals.Nutrition = 0.95
@@ -352,12 +352,12 @@ func makeAdult(server *Server) {
 
 func TestBreedingThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	makeAdult(server)
 	partnerSlot := server.slot
-	if err := server.createPet("Pepper", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Pepper", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	makeAdult(server)
@@ -464,7 +464,7 @@ func TestPetCareThroughServer(t *testing.T) {
 
 func TestStatusShowsPersonalityChanges(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if changes, ok := statusOf(t, server)["personality_changes"].([]interface{}); !ok || len(changes) != 0 {
@@ -484,7 +484,7 @@ func TestStatusShowsPersonalityChanges(t *testing.T) {
 
 func TestRepeatedCareIsReported(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	var body string
@@ -498,7 +498,7 @@ func TestRepeatedCareIsReported(t *testing.T) {
 
 func TestStatusShowsAttentionStyle(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	status := statusOf(t, server)
@@ -513,7 +513,7 @@ func TestStatusShowsAttentionStyle(t *testing.T) {
 func TestExplorePlacesThroughServer(t *testing.T) {
 	server := newTestServer(t)
 	server.awayTimeout = 0
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -542,7 +542,7 @@ func TestExplorePlacesThroughServer(t *testing.T) {
 
 func TestLifeAndPotionThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 

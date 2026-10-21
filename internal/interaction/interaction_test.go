@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"testing"
-	"time"
 
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -28,535 +27,6 @@ func defaultTestContext() InteractionContext {
 		IsSick:          false,
 		TimeOfDay:       12.0,
 		IsOutdoors:      false,
-	}
-}
-
-// TestNewInteractionProcessor tests processor creation
-func TestNewInteractionProcessor(t *testing.T) {
-	proc := NewInteractionProcessor()
-
-	if proc == nil {
-		t.Fatal("NewInteractionProcessor returned nil")
-	}
-
-	if proc.TotalInteractions != 0 {
-		t.Errorf("Expected 0 total interactions, got %d", proc.TotalInteractions)
-	}
-
-	if proc.InteractionCounts == nil {
-		t.Error("InteractionCounts map is nil")
-	}
-
-	if proc.CooldownTimers == nil {
-		t.Error("CooldownTimers map is nil")
-	}
-}
-
-// TestNewInteractionProcessorWithConfig tests custom config
-func TestNewInteractionProcessorWithConfig(t *testing.T) {
-	config := ProcessorConfig{
-		BaseCooldownSeconds: 5.0,
-		EffectMultiplier:    2.0,
-		CooldownOverrides:   make(map[types.InteractionType]float64),
-	}
-
-	proc := NewInteractionProcessorWithConfig(config)
-
-	if proc.Config.BaseCooldownSeconds != 5.0 {
-		t.Errorf("Expected base cooldown 5.0, got %f", proc.Config.BaseCooldownSeconds)
-	}
-
-	if proc.Config.EffectMultiplier != 2.0 {
-		t.Errorf("Expected effect multiplier 2.0, got %f", proc.Config.EffectMultiplier)
-	}
-}
-
-// TestDefaultProcessorConfig tests default config values
-func TestDefaultProcessorConfig(t *testing.T) {
-	config := DefaultProcessorConfig()
-
-	if config.BaseCooldownSeconds != 1.0 {
-		t.Errorf("Expected base cooldown 1.0, got %f", config.BaseCooldownSeconds)
-	}
-
-	if config.EffectMultiplier != 1.0 {
-		t.Errorf("Expected effect multiplier 1.0, got %f", config.EffectMultiplier)
-	}
-
-	// Check cooldown overrides exist
-	if _, exists := config.CooldownOverrides[types.InteractionFeeding]; !exists {
-		t.Error("Expected feeding cooldown override")
-	}
-}
-
-// TestProcessFeeding tests feeding interaction
-func TestProcessFeeding(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Hunger = 0.3 // Pet is hungry
-
-	result := proc.Process(types.InteractionFeeding, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Feeding should succeed")
-	}
-
-	if result.Effects["hunger"] >= 0 {
-		t.Error("Feeding should reduce hunger")
-	}
-
-	if result.Effects["energy"] <= 0 {
-		t.Error("Feeding should provide energy")
-	}
-
-	if result.Feedback.Animation != "eating" {
-		t.Errorf("Expected eating animation, got %s", result.Feedback.Animation)
-	}
-}
-
-// TestProcessFeedingNotHungry tests feeding when pet is full
-func TestProcessFeedingNotHungry(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Hunger = 0.9 // Pet is not hungry
-
-	result := proc.Process(types.InteractionFeeding, 1.0, ctx)
-
-	// Still succeeds but with reduced effects
-	if !result.Success {
-		t.Error("Feeding should still succeed")
-	}
-
-	// Message should indicate pet isn't hungry
-	if result.Message != "Your pet isn't very hungry right now" {
-		t.Errorf("Expected not hungry message, got: %s", result.Message)
-	}
-}
-
-// TestProcessPetting tests petting interaction
-func TestProcessPetting(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	result := proc.Process(types.InteractionPetting, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Petting should succeed")
-	}
-
-	if result.Effects["happiness"] <= 0 {
-		t.Error("Petting should increase happiness")
-	}
-
-	if result.Effects["stress"] >= 0 {
-		t.Error("Petting should reduce stress")
-	}
-}
-
-// TestProcessPettingAffectionate tests petting with affectionate pet
-func TestProcessPettingAffectionate(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Affectionate = 0.8
-
-	result := proc.Process(types.InteractionPetting, 1.0, ctx)
-
-	// Affectionate pets should get more happiness from petting
-	ctxNormal := defaultTestContext()
-	ctxNormal.Affectionate = 0.5
-	proc.ResetCooldowns()
-	resultNormal := proc.Process(types.InteractionPetting, 1.0, ctxNormal)
-
-	if result.Effects["happiness"] <= resultNormal.Effects["happiness"] {
-		t.Error("Affectionate pet should get more happiness from petting")
-	}
-}
-
-// TestProcessPlaying tests playing interaction
-func TestProcessPlaying(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Energy = 0.8 // Good energy
-
-	result := proc.Process(types.InteractionPlaying, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Playing should succeed")
-	}
-
-	if result.Effects["happiness"] <= 0 {
-		t.Error("Playing should increase happiness")
-	}
-
-	if result.Effects["energy"] >= 0 {
-		t.Error("Playing should drain energy")
-	}
-
-	if result.SkillGain["agility"] <= 0 {
-		t.Error("Playing should increase agility skill")
-	}
-}
-
-// TestProcessPlayingTooTired tests playing when pet is tired
-func TestProcessPlayingTooTired(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Energy = 0.1 // Too tired
-
-	result := proc.Process(types.InteractionPlaying, 1.0, ctx)
-
-	if result.Success {
-		t.Error("Playing should fail when pet is too tired")
-	}
-
-	if result.Message != "Your pet is too tired to play" {
-		t.Errorf("Expected tired message, got: %s", result.Message)
-	}
-}
-
-// TestProcessTraining tests training interaction
-func TestProcessTraining(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Energy = 0.6
-	ctx.Stress = 0.2
-
-	result := proc.Process(types.InteractionTraining, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Training should succeed")
-	}
-
-	if result.SkillGain["obedience"] <= 0 {
-		t.Error("Training should increase obedience")
-	}
-
-	if result.SkillGain["intelligence"] <= 0 {
-		t.Error("Training should increase intelligence")
-	}
-}
-
-// TestProcessTrainingTooTired tests training when tired
-func TestProcessTrainingTooTired(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Energy = 0.2 // Too tired
-
-	result := proc.Process(types.InteractionTraining, 1.0, ctx)
-
-	if result.Success {
-		t.Error("Training should fail when pet is too tired")
-	}
-}
-
-// TestProcessTrainingTooStressed tests training when stressed
-func TestProcessTrainingTooStressed(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Stress = 0.8 // Too stressed
-
-	result := proc.Process(types.InteractionTraining, 1.0, ctx)
-
-	if result.Success {
-		t.Error("Training should fail when pet is too stressed")
-	}
-}
-
-// TestProcessGrooming tests grooming interaction
-func TestProcessGrooming(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.Cleanliness = 0.3 // Dirty
-
-	result := proc.Process(types.InteractionGrooming, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Grooming should succeed")
-	}
-
-	if result.Effects["cleanliness"] <= 0 {
-		t.Error("Grooming should increase cleanliness")
-	}
-
-	if result.Feedback.Animation != "grooming" {
-		t.Errorf("Expected grooming animation, got %s", result.Feedback.Animation)
-	}
-}
-
-// TestProcessMedicalCare tests medical care interaction
-func TestProcessMedicalCare(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	result := proc.Process(types.InteractionMedicalCare, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Medical care should succeed")
-	}
-
-	if result.Effects["health"] <= 0 {
-		t.Error("Medical care should improve health")
-	}
-
-	// Medical care is stressful
-	if result.Effects["stress"] <= 0 {
-		t.Error("Medical care should cause stress")
-	}
-}
-
-// TestProcessMedicalCareSick tests medical care on sick pet
-func TestProcessMedicalCareSick(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.IsSick = true
-	ctx.Health = 0.3
-
-	result := proc.Process(types.InteractionMedicalCare, 1.0, ctx)
-
-	// Sick pets should benefit more
-	procNormal := NewInteractionProcessor()
-	ctxNormal := defaultTestContext()
-	ctxNormal.Health = 0.8
-	resultNormal := procNormal.Process(types.InteractionMedicalCare, 1.0, ctxNormal)
-
-	if result.Effects["health"] <= resultNormal.Effects["health"] {
-		t.Error("Sick pet should benefit more from medical care")
-	}
-}
-
-// TestProcessRewards tests reward interaction
-func TestProcessRewards(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	result := proc.Process(types.InteractionRewards, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Rewards should succeed")
-	}
-
-	if result.Effects["happiness"] <= 0 {
-		t.Error("Rewards should increase happiness")
-	}
-
-	if result.Effects["loyalty_bond"] <= 0 {
-		t.Error("Rewards should increase loyalty bond")
-	}
-}
-
-// TestProcessDiscipline tests discipline interaction
-func TestProcessDiscipline(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	result := proc.Process(types.InteractionDiscipline, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Discipline should succeed")
-	}
-
-	if result.Effects["happiness"] >= 0 {
-		t.Error("Discipline should reduce happiness")
-	}
-
-	if result.Effects["stress"] <= 0 {
-		t.Error("Discipline should increase stress")
-	}
-
-	if result.SkillGain["obedience"] <= 0 {
-		t.Error("Discipline should improve obedience")
-	}
-}
-
-// TestProcessEnrichment tests environmental enrichment
-func TestProcessEnrichment(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	result := proc.Process(types.InteractionEnvironmentalEnrichment, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Enrichment should succeed")
-	}
-
-	if result.Effects["mental_stimulation"] <= 0 {
-		t.Error("Enrichment should provide mental stimulation")
-	}
-}
-
-// TestProcessSocialIntroduction tests social introduction
-func TestProcessSocialIntroduction(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	result := proc.Process(types.InteractionSocialIntroduction, 1.0, ctx)
-
-	if !result.Success {
-		t.Error("Social introduction should succeed")
-	}
-
-	if result.Effects["social_satisfaction"] <= 0 {
-		t.Error("Social introduction should provide social satisfaction")
-	}
-}
-
-// TestSleepingPreventsInteraction tests that sleeping prevents most interactions
-func TestSleepingPreventsInteraction(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-	ctx.IsSleeping = true
-
-	// Playing should fail
-	result := proc.Process(types.InteractionPlaying, 1.0, ctx)
-	if result.Success {
-		t.Error("Playing should fail when pet is sleeping")
-	}
-
-	// But medical care should work
-	proc.ResetCooldowns()
-	result = proc.Process(types.InteractionMedicalCare, 1.0, ctx)
-	if !result.Success {
-		t.Error("Medical care should work even when pet is sleeping")
-	}
-}
-
-// TestCooldowns tests the cooldown system
-func TestCooldowns(t *testing.T) {
-	config := ProcessorConfig{
-		BaseCooldownSeconds: 0.1, // Short cooldown for testing
-		EffectMultiplier:    1.0,
-		CooldownOverrides:   make(map[types.InteractionType]float64),
-	}
-	proc := NewInteractionProcessorWithConfig(config)
-	ctx := defaultTestContext()
-
-	// First interaction should succeed
-	result := proc.Process(types.InteractionPetting, 1.0, ctx)
-	if !result.Success {
-		t.Error("First petting should succeed")
-	}
-
-	// Immediate second should fail
-	result = proc.Process(types.InteractionPetting, 1.0, ctx)
-	if result.Success {
-		t.Error("Immediate second petting should fail due to cooldown")
-	}
-
-	// Wait for cooldown
-	time.Sleep(150 * time.Millisecond)
-
-	// Should succeed again
-	result = proc.Process(types.InteractionPetting, 1.0, ctx)
-	if !result.Success {
-		t.Error("Petting should succeed after cooldown")
-	}
-}
-
-// TestResetCooldowns tests cooldown reset
-func TestResetCooldowns(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	proc.Process(types.InteractionPetting, 1.0, ctx)
-
-	// Should fail due to cooldown
-	result := proc.Process(types.InteractionPetting, 1.0, ctx)
-	if result.Success {
-		t.Error("Should fail due to cooldown")
-	}
-
-	// Reset cooldowns
-	proc.ResetCooldowns()
-
-	// Should succeed now
-	result = proc.Process(types.InteractionPetting, 1.0, ctx)
-	if !result.Success {
-		t.Error("Should succeed after cooldown reset")
-	}
-}
-
-// TestGetCooldownRemaining tests cooldown remaining calculation
-func TestGetCooldownRemaining(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	// No cooldown initially
-	remaining := proc.GetCooldownRemaining(types.InteractionPetting)
-	if remaining != 0 {
-		t.Errorf("Expected 0 remaining cooldown initially, got %f", remaining)
-	}
-
-	// Process an interaction
-	proc.Process(types.InteractionPetting, 1.0, ctx)
-
-	// Should have some cooldown remaining
-	remaining = proc.GetCooldownRemaining(types.InteractionPetting)
-	if remaining <= 0 {
-		t.Error("Expected positive cooldown remaining after interaction")
-	}
-}
-
-// TestSetCooldownOverride tests custom cooldown setting
-func TestSetCooldownOverride(t *testing.T) {
-	proc := NewInteractionProcessor()
-
-	proc.SetCooldownOverride(types.InteractionPetting, 100.0)
-
-	if proc.Config.CooldownOverrides[types.InteractionPetting] != 100.0 {
-		t.Error("Cooldown override not set correctly")
-	}
-}
-
-// TestGetAvailableInteractions tests getting available interactions
-func TestGetAvailableInteractions(t *testing.T) {
-	proc := NewInteractionProcessor()
-
-	available := proc.GetAvailableInteractions()
-
-	if len(available) == 0 {
-		t.Error("Expected some available interactions")
-	}
-
-	// All should be available initially
-	if len(available) != 10 {
-		t.Errorf("Expected 10 available interactions initially, got %d", len(available))
-	}
-}
-
-// TestGetInteractionStats tests statistics retrieval
-func TestGetInteractionStats(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	proc.Process(types.InteractionPetting, 1.0, ctx)
-	proc.ResetCooldowns()
-	proc.Process(types.InteractionFeeding, 1.0, ctx)
-
-	stats := proc.GetInteractionStats()
-
-	total, ok := stats["total_interactions"].(int)
-	if !ok || total != 2 {
-		t.Errorf("Expected 2 total interactions, got %v", stats["total_interactions"])
-	}
-}
-
-// TestInteractionStatistics tests that interactions update statistics
-func TestInteractionStatistics(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	if proc.TotalInteractions != 0 {
-		t.Errorf("Expected 0 initial interactions, got %d", proc.TotalInteractions)
-	}
-
-	proc.Process(types.InteractionPetting, 1.0, ctx)
-
-	if proc.TotalInteractions != 1 {
-		t.Errorf("Expected 1 interaction after petting, got %d", proc.TotalInteractions)
-	}
-
-	if proc.InteractionCounts[types.InteractionPetting] != 1 {
-		t.Errorf("Expected 1 petting count, got %d", proc.InteractionCounts[types.InteractionPetting])
 	}
 }
 
@@ -667,73 +137,6 @@ func TestValidateInteraction(t *testing.T) {
 				t.Errorf("ValidateInteraction() valid = %v, want %v", valid, tt.wantValid)
 			}
 		})
-	}
-}
-
-// TestCalculateEffectiveness tests effectiveness calculation
-func TestCalculateEffectiveness(t *testing.T) {
-	ctx := defaultTestContext()
-
-	// Base effectiveness
-	eff := CalculateEffectiveness(types.InteractionPetting, ctx)
-	if eff <= 0 || eff > 1.5 {
-		t.Errorf("Effectiveness out of expected range: %f", eff)
-	}
-
-	// Low energy should reduce effectiveness
-	ctx.Energy = 0.1
-	lowEnergyEff := CalculateEffectiveness(types.InteractionPetting, ctx)
-	if lowEnergyEff >= eff {
-		t.Error("Low energy should reduce effectiveness")
-	}
-
-	// High stress should reduce effectiveness
-	ctx = defaultTestContext()
-	ctx.Stress = 0.9
-	highStressEff := CalculateEffectiveness(types.InteractionPetting, ctx)
-	if highStressEff >= eff {
-		t.Error("High stress should reduce effectiveness")
-	}
-}
-
-// TestIntensityClamping tests that intensity is clamped to [0,1]
-func TestIntensityClamping(t *testing.T) {
-	proc := NewInteractionProcessor()
-	ctx := defaultTestContext()
-
-	// Test with intensity > 1
-	result1 := proc.Process(types.InteractionPetting, 5.0, ctx)
-	proc.ResetCooldowns()
-
-	// Test with intensity = 1
-	result2 := proc.Process(types.InteractionPetting, 1.0, ctx)
-
-	// Effects should be the same (clamped to 1.0)
-	if result1.Effects["happiness"] != result2.Effects["happiness"] {
-		t.Error("Intensity should be clamped to 1.0")
-	}
-}
-
-// TestEffectMultiplier tests global effect multiplier
-func TestEffectMultiplier(t *testing.T) {
-	config := ProcessorConfig{
-		BaseCooldownSeconds: 0.0,
-		EffectMultiplier:    2.0,
-		CooldownOverrides:   make(map[types.InteractionType]float64),
-	}
-	procDouble := NewInteractionProcessorWithConfig(config)
-
-	config.EffectMultiplier = 1.0
-	procNormal := NewInteractionProcessorWithConfig(config)
-
-	ctx := defaultTestContext()
-
-	resultDouble := procDouble.Process(types.InteractionPetting, 1.0, ctx)
-	resultNormal := procNormal.Process(types.InteractionPetting, 1.0, ctx)
-
-	// With 2x multiplier, effects should be double
-	if resultDouble.Effects["happiness"] != resultNormal.Effects["happiness"]*2 {
-		t.Errorf("Expected 2x happiness, got %f vs %f", resultDouble.Effects["happiness"], resultNormal.Effects["happiness"])
 	}
 }
 
@@ -982,31 +385,9 @@ func TestCurrency(t *testing.T) {
 	}
 }
 
-// TestNewItemCatalog tests catalog creation
-func TestNewItemCatalog(t *testing.T) {
-	catalog := NewItemCatalog()
-
-	if catalog == nil {
-		t.Fatal("NewItemCatalog returned nil")
-	}
-
-	if len(catalog.Items) == 0 {
-		t.Error("Catalog should have default items")
-	}
-
-	// Check for some expected items
-	if _, exists := catalog.Items["basic_food"]; !exists {
-		t.Error("Catalog should contain basic_food")
-	}
-
-	if _, exists := catalog.Items["ball"]; !exists {
-		t.Error("Catalog should contain ball")
-	}
-}
-
 // TestCatalogGetItem tests retrieving items from catalog
 func TestCatalogGetItem(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 
 	item, exists := catalog.GetItem("basic_food")
 	if !exists {
@@ -1022,83 +403,9 @@ func TestCatalogGetItem(t *testing.T) {
 	}
 }
 
-// TestCatalogGetItemsByType tests filtering catalog by type
-func TestCatalogGetItemsByType(t *testing.T) {
-	catalog := NewItemCatalog()
-
-	foods := catalog.GetItemsByType(ItemTypeFood)
-	if len(foods) == 0 {
-		t.Error("Should have food items")
-	}
-
-	toys := catalog.GetItemsByType(ItemTypeToy)
-	if len(toys) == 0 {
-		t.Error("Should have toy items")
-	}
-}
-
-// TestCatalogGetUnlockedItems tests getting unlocked items
-func TestCatalogGetUnlockedItems(t *testing.T) {
-	catalog := NewItemCatalog()
-
-	unlocked := catalog.GetUnlockedItems()
-	if len(unlocked) == 0 {
-		t.Error("Should have some unlocked items by default")
-	}
-
-	// Verify all returned items are actually unlocked
-	for _, item := range unlocked {
-		if !item.Unlocked {
-			t.Errorf("Item %s returned as unlocked but Unlocked=false", item.ID)
-		}
-	}
-}
-
-// TestCatalogUnlockItem tests unlocking items
-func TestCatalogUnlockItem(t *testing.T) {
-	catalog := NewItemCatalog()
-
-	// premium_food starts locked
-	item, _ := catalog.GetItem("premium_food")
-	if item.Unlocked {
-		t.Error("premium_food should start locked")
-	}
-
-	success := catalog.UnlockItem("premium_food")
-	if !success {
-		t.Error("UnlockItem should succeed")
-	}
-
-	item, _ = catalog.GetItem("premium_food")
-	if !item.Unlocked {
-		t.Error("premium_food should be unlocked now")
-	}
-
-	// Unlocking non-existent item should fail
-	success = catalog.UnlockItem("nonexistent")
-	if success {
-		t.Error("Unlocking non-existent item should fail")
-	}
-}
-
-// TestCatalogGetItemsByRarity tests filtering by rarity
-func TestCatalogGetItemsByRarity(t *testing.T) {
-	catalog := NewItemCatalog()
-
-	commonItems := catalog.GetItemsByRarity(RarityCommon)
-	if len(commonItems) == 0 {
-		t.Error("Should have common items")
-	}
-
-	rareItems := catalog.GetItemsByRarity(RarityRare)
-	if len(rareItems) == 0 {
-		t.Error("Should have rare items")
-	}
-}
-
 // TestShop tests shop functionality
 func TestShop(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 	inv := NewInventory(20)
 	shop := NewShop(catalog, inv)
 
@@ -1109,7 +416,7 @@ func TestShop(t *testing.T) {
 
 // TestShopGetPrice tests price retrieval
 func TestShopGetPrice(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 	inv := NewInventory(20)
 	shop := NewShop(catalog, inv)
 
@@ -1129,7 +436,7 @@ func TestShopGetPrice(t *testing.T) {
 
 // TestShopBuy tests purchasing items
 func TestShopBuy(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 	inv := NewInventory(20)
 	shop := NewShop(catalog, inv)
 
@@ -1150,7 +457,7 @@ func TestShopBuy(t *testing.T) {
 
 // TestShopBuyNotEnoughMoney tests buying without sufficient funds
 func TestShopBuyNotEnoughMoney(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 	inv := NewInventory(20)
 	inv.Currency = 5 // Only 5 currency
 	shop := NewShop(catalog, inv)
@@ -1163,7 +470,7 @@ func TestShopBuyNotEnoughMoney(t *testing.T) {
 
 // TestShopBuyLockedItem tests buying locked items
 func TestShopBuyLockedItem(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 	inv := NewInventory(20)
 	shop := NewShop(catalog, inv)
 
@@ -1176,7 +483,7 @@ func TestShopBuyLockedItem(t *testing.T) {
 
 // TestShopDiscount tests discount system
 func TestShopDiscount(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 	inv := NewInventory(20)
 	shop := NewShop(catalog, inv)
 
@@ -1187,18 +494,11 @@ func TestShopDiscount(t *testing.T) {
 	if price != 5 { // 50% of 10
 		t.Errorf("Expected discounted price 5, got %d", price)
 	}
-
-	// Clear discount
-	shop.ClearDiscount("basic_food")
-	price, _ = shop.GetPrice("basic_food")
-	if price != 10 {
-		t.Errorf("Expected full price 10 after clearing discount, got %d", price)
-	}
 }
 
 // TestShopDiscountBounds tests discount clamping
 func TestShopDiscountBounds(t *testing.T) {
-	catalog := NewItemCatalog()
+	catalog := testCatalog()
 	inv := NewInventory(20)
 	shop := NewShop(catalog, inv)
 
@@ -1212,25 +512,6 @@ func TestShopDiscountBounds(t *testing.T) {
 	shop.SetDiscount("basic_food", 1.5)
 	if shop.Discounts["basic_food"] != 1 {
 		t.Error("Discount over 1 should be clamped to 1")
-	}
-}
-
-// TestShopGetAvailableItems tests getting purchasable items
-func TestShopGetAvailableItems(t *testing.T) {
-	catalog := NewItemCatalog()
-	inv := NewInventory(20)
-	shop := NewShop(catalog, inv)
-
-	available := shop.GetAvailableItems()
-	if len(available) == 0 {
-		t.Error("Should have some available items")
-	}
-
-	// All available items should be unlocked
-	for _, item := range available {
-		if !item.Unlocked {
-			t.Errorf("Available item %s should be unlocked", item.ID)
-		}
 	}
 }
 
@@ -1274,4 +555,12 @@ func TestItemRarityString(t *testing.T) {
 			t.Errorf("ItemRarity.String() = %s, want %s", result, tt.expected)
 		}
 	}
+}
+
+// testCatalog returns a catalog with an unlocked and a locked food
+func testCatalog() *ItemCatalog {
+	return &ItemCatalog{Items: map[string]*Item{
+		"basic_food":   {ID: "basic_food", Name: "Basic Pet Food", Type: ItemTypeFood, Rarity: RarityCommon, Price: 10, Unlocked: true},
+		"premium_food": {ID: "premium_food", Name: "Premium Pet Food", Type: ItemTypeFood, Rarity: RarityUncommon, Price: 25},
+	}}
 }

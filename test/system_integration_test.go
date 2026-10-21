@@ -73,72 +73,6 @@ func TestPersonalityEffectsOnInteractions(t *testing.T) {
 	}
 }
 
-// TestInteractionProcessorIntegration tests interaction processor with context
-func TestInteractionProcessorIntegration(t *testing.T) {
-	processor := interaction.NewInteractionProcessor()
-
-	// Create context from pet state
-	pet := core.NewDigitalPet("ProcessorTest", "user_processor")
-
-	ctx := interaction.InteractionContext{
-		Health:          pet.Biology.Vitals.Health,
-		Energy:          pet.Biology.Vitals.Energy,
-		Happiness:       pet.Biology.Vitals.Happiness,
-		Hunger:          1.0 - pet.Biology.Vitals.Nutrition,
-		Cleanliness:     pet.Biology.Vitals.Cleanliness,
-		Stress:          pet.Biology.Vitals.Stress,
-		Fatigue:         pet.Biology.Vitals.Fatigue,
-		Playfulness:     pet.Personality.GetTraitInfluence("play"),
-		Intelligence:    pet.Personality.GetTraitInfluence("intelligence"),
-		Affectionate:    pet.Personality.GetTraitInfluence("affection"),
-		CurrentBehavior: pet.CurrentBehavior,
-		PetAge:          pet.GetAge(),
-		IsSleeping:      pet.CurrentBehavior == types.BehaviorSleeping,
-		IsSick:          pet.CurrentBehavior == types.BehaviorSick,
-	}
-
-	// Process feeding
-	result := processor.Process(types.InteractionFeeding, 1.0, ctx)
-
-	if !result.Success {
-		t.Errorf("Feeding should succeed: %s", result.Message)
-	}
-
-	if result.Feedback.Animation == "" {
-		t.Error("Result should have animation feedback")
-	}
-}
-
-// TestInteractionCooldowns tests cooldown system
-func TestInteractionCooldowns(t *testing.T) {
-	processor := interaction.NewInteractionProcessor()
-
-	ctx := interaction.InteractionContext{
-		Energy:  0.8,
-		Health:  1.0,
-		Hunger:  0.5,
-		Fatigue: 0.2,
-	}
-
-	// First feeding should succeed
-	result1 := processor.Process(types.InteractionFeeding, 1.0, ctx)
-	if !result1.Success {
-		t.Error("First feeding should succeed")
-	}
-
-	// Immediate second feeding should fail (cooldown)
-	result2 := processor.Process(types.InteractionFeeding, 1.0, ctx)
-	if result2.Success {
-		t.Log("Note: Feeding cooldown is set to 5 seconds")
-	}
-
-	// Check remaining cooldown
-	remaining := processor.GetCooldownRemaining(types.InteractionFeeding)
-	if remaining < 0 {
-		t.Error("Cooldown should not be negative")
-	}
-}
-
 // TestInteractionValidation tests interaction validation
 func TestInteractionValidation(t *testing.T) {
 	// Tired pet can't play
@@ -323,39 +257,6 @@ func TestFullSystemCycle(t *testing.T) {
 	t.Logf("Total play time: %.2f hours", pet.TotalPlayTime)
 }
 
-// TestInteractionEffectiveness tests effectiveness calculation
-func TestInteractionEffectiveness(t *testing.T) {
-	// High energy, low stress context
-	goodCtx := interaction.InteractionContext{
-		Energy:       0.9,
-		Stress:       0.1,
-		Happiness:    0.8,
-		Playfulness:  0.7,
-		Intelligence: 0.8,
-		Affectionate: 0.6,
-	}
-
-	// Low energy, high stress context
-	badCtx := interaction.InteractionContext{
-		Energy:       0.1,
-		Stress:       0.8,
-		Happiness:    0.2,
-		Playfulness:  0.3,
-		Intelligence: 0.4,
-		Affectionate: 0.2,
-	}
-
-	playEffectivenessGood := interaction.CalculateEffectiveness(types.InteractionPlaying, goodCtx)
-	playEffectivenessBad := interaction.CalculateEffectiveness(types.InteractionPlaying, badCtx)
-
-	t.Logf("Playing effectiveness: good context=%.2f, bad context=%.2f",
-		playEffectivenessGood, playEffectivenessBad)
-
-	if playEffectivenessGood <= playEffectivenessBad {
-		t.Error("Good context should have higher effectiveness")
-	}
-}
-
 // TestLongRunningSimulation tests stability over long simulation
 func TestLongRunningSimulation(t *testing.T) {
 	if testing.Short() {
@@ -499,28 +400,4 @@ func TestEmotionMoodScore(t *testing.T) {
 	if happyMood <= initialMood {
 		t.Log("Note: Mood calculation may involve multiple factors")
 	}
-}
-
-// TestAvailableInteractions tests getting available interactions
-func TestAvailableInteractions(t *testing.T) {
-	processor := interaction.NewInteractionProcessor()
-
-	available := processor.GetAvailableInteractions()
-
-	if len(available) == 0 {
-		t.Error("Should have available interactions initially")
-	}
-
-	// Process one interaction
-	ctx := interaction.InteractionContext{
-		Energy:  0.8,
-		Health:  1.0,
-		Hunger:  0.5,
-		Fatigue: 0.2,
-	}
-	processor.Process(types.InteractionFeeding, 1.0, ctx)
-
-	// Should still have some available (feeding on cooldown)
-	available = processor.GetAvailableInteractions()
-	t.Logf("Available interactions after feeding: %d", len(available))
 }

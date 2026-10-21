@@ -15,9 +15,6 @@ import (
 // localOwner owns every pet created by this server
 const localOwner types.UserID = "web_user"
 
-// errOffline is returned for API features that need a cloud service
-var errOffline = errors.New("this feature needs the cloud service, which this server does not have")
-
 // apiHandler returns the api package's REST API (/api/v1, /health and
 // /ready), backed by this server's saved pets. Requests to pet routes
 // must carry "Authorization: Bearer <token>". Each client may make

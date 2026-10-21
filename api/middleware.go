@@ -67,25 +67,6 @@ func AuthMiddleware(validator TokenValidator) Middleware {
 	}
 }
 
-// OptionalAuthMiddleware allows requests without authentication but adds user ID if present
-func OptionalAuthMiddleware(validator TokenValidator) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader != "" {
-				parts := strings.SplitN(authHeader, " ", 2)
-				if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
-					if userID, err := validator.ValidateToken(parts[1]); err == nil {
-						ctx := context.WithValue(r.Context(), ContextKeyUserID, userID)
-						r = r.WithContext(ctx)
-					}
-				}
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // ============================================================================
 // Logging Middleware
 // ============================================================================
@@ -307,13 +288,6 @@ func RequireJSONMiddleware(next http.Handler) http.Handler {
 // ============================================================================
 // Timeout Middleware
 // ============================================================================
-
-// TimeoutMiddleware adds a timeout to requests
-func TimeoutMiddleware(timeout time.Duration) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.TimeoutHandler(next, timeout, `{"success":false,"error":{"code":"TIMEOUT","message":"Request timeout"}}`)
-	}
-}
 
 // ============================================================================
 // Middleware Chain

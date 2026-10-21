@@ -1162,7 +1162,7 @@ Microservices: Scalable backend services for different system components
 
 Implementation:
 Pet types: species are registered. A SpeciesDef holds everything that differs between species:
-names, icon and sprites; lifespan factor, sleep window, twilight activity and self-grooming; toilet
+names and icon; lifespan factor, sleep window, twilight activity and self-grooming; toilet
 style (litter box or outside), living area, mess request and warning sign, clean-up refusal, the
 illness a dirty home causes, whether it goes for walks; care lessons, care guide, daily routine,
 illness names and signs; liking for kinds of care, reaction texts, petting regions, home changes,
@@ -1171,7 +1171,7 @@ threat and friendly signals, crowd sensitivity, leader text, group and conflict 
 RegisterSpecies checks a definition is complete; species_cat.go and species_dog.go register the two
 species; elsewhere the game names them only as
 the species constants and the default for saves without a species (cat). GET /api/species gives the page each species'
-name, icon, sprites, clean-up label and whether it walks.
+name, icon, clean-up label and whether it walks (pets are drawn from their breed, section 3.12).
 Hub queries: the hub keeps each account's pets' information (key, version, size, last played) in
 memory, loaded at startup and kept current by uploads and deletions, so listing pets, version checks
 and the per-account space check read no saves.

@@ -1281,15 +1281,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/shop.js?v={{static}}"></script>
     <script src="/static/js/breeds.js?v={{static}}"></script>
     <script>
-        // The kinds of pet the game has (from /api/species): how each looks
-        // and which care buttons it uses. The cat, the default species, is
+        // The kinds of pet the game has (from /api/species): their names and
+        // icons, and which care buttons each uses. The cat, the default species, is
         // known before they load.
         let speciesList = [{
-            id: 'cat', name: 'Cat', icon: '🐱', clean_label: '🧹 Scoop litter', walks: false,
-            sprites: {
-                idle: '🐱', happy: '😺', eating: '😋', playing: '😸', sleeping: '😴', sick: '🤒',
-                exploring: '🐈', social: '😻', hibernating: '💤', dead: '😿'
-            }
+            id: 'cat', name: 'Cat', icon: '🐱', clean_label: '🧹 Scoop litter', walks: false
         }];
 
         function speciesInfo(id) {
@@ -1314,7 +1310,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('petSprite').innerHTML = petArt(status, state || spriteState(status), 170);
         }
 
-        // Which sprite the pet shows now (one of each species' sprite states)
+        // Which state the pet is drawn in now (one of each species' sprite states)
         function spriteState(status) {
             if (!status.is_alive) return 'dead';
             if (status.hibernating) return 'hibernating';
@@ -1322,11 +1318,6 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 'Social Interaction': 'social', Eating: 'eating'};
             if (byBehavior[status.behavior]) return byBehavior[status.behavior];
             return status.happiness > 0.7 ? 'happy' : 'idle';
-        }
-
-        // The sprites for the active pet's species
-        function spriteSet(status) {
-            return speciesInfo((status || lastStatus || {}).species).sprites;
         }
 
         // Load the species and offer each in the new pet form
@@ -3253,13 +3244,7 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 }
 
 // createPet saves the active pet and replaces it with a new one
-func (s *Server) createPet(name string, species core.Species, randomize, hibernation bool) error {
-	return s.createPetOfBreed(name, species, "", randomize, hibernation)
-}
-
-// createPetOfBreed saves the active pet and replaces it with a new one of
-// a breed ("" for the species' default)
-func (s *Server) createPetOfBreed(name string, species core.Species, breed string, randomize, hibernation bool) error {
+func (s *Server) createPet(name string, species core.Species, breed string, randomize, hibernation bool) error {
 	if name == "" {
 		name = "Gochi"
 	}
@@ -3919,7 +3904,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: capitalize(err.Error()) + "."})
 		return
 	}
-	if err := s.createPetOfBreed(strings.TrimSpace(req.Name), species, breed, req.Randomize, req.Hibernation); errors.Is(err, errTooManyPets) {
+	if err := s.createPet(strings.TrimSpace(req.Name), species, breed, req.Randomize, req.Hibernation); errors.Is(err, errTooManyPets) {
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: capitalize(err.Error()) + "."})
 		return
 	} else if err != nil {

@@ -169,16 +169,6 @@ var coatColors = []CoatColor{
 // CoatColors returns the colors coats and eyes come in
 func CoatColors() []CoatColor { return slices.Clone(coatColors) }
 
-// FindCoatColor returns a color
-func FindCoatColor(id string) (CoatColor, bool) {
-	for _, c := range coatColors {
-		if c.ID == id {
-			return c, true
-		}
-	}
-	return CoatColor{}, false
-}
-
 // Body is a breed's body type
 type Body struct {
 	Build  string     `json:"build"`

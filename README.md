@@ -52,9 +52,9 @@ gochi/
 │   ├── ai/             # AI, memory and behavior systems
 │   ├── social/         # Social interaction systems
 │   ├── genetics/       # Evolutionary and genetics systems
-│   ├── data/           # Data persistence and cloud sync
+│   ├── data/           # Data persistence (saves, backups, cache)
 │   ├── simulation/     # Time management and needs systems
-│   ├── interaction/    # User interaction processing
+│   ├── interaction/    # Interaction rules, items, pantry and shop
 │   ├── environment/    # Environmental simulation
 │   └── ar/             # Augmented reality support
 ├── pkg/
@@ -860,7 +860,7 @@ make release
 
 **Adding a species**: everything that differs between kinds of pet is in one definition per
 species: `internal/core/species_cat.go` and `species_dog.go`. A new kind of pet is a new file with a
-`SpeciesDef` (its names, sprites, body, toilet habits, care lessons and guide, daily routine,
+`SpeciesDef` (its names, icon, body, toilet habits, care lessons and guide, daily routine,
 petting spots, supplies, reactions and social behavior) registered with `RegisterSpecies`. The game,
 its shop and the page (which reads `/api/species`) pick it up; registration checks that the
 definition is complete, and a test checks every registered species.

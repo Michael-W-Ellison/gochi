@@ -373,27 +373,6 @@ func CalculateGroupHappiness(pets ...*DigitalPet) float64 {
 	return happiness * (0.6 + 0.4*harmony)
 }
 
-// HandleConflict settles a clash between two pets: the lower-ranked one
-// backs down if their ranks are clearly apart, otherwise they scuffle and
-// both are stressed. Both relationships record it.
-func HandleConflict(a, b *DigitalPet) (ConflictResult, error) {
-	if a == b {
-		return ConflictResult{}, ErrSamePet
-	}
-	infoA, infoB := a.socialInfo(), b.socialInfo()
-	result, bond, loser := conflict(infoA, infoB, 0)
-	for i, side := range []struct {
-		pet   *DigitalPet
-		other socialInfo
-	}{{a, infoB}, {b, infoA}} {
-		side.pet.mu.Lock()
-		side.pet.conflictLocked(loser == neitherBackedDown, loser == i)
-		side.pet.recordMeetingLocked(side.other, bond, "clashed")
-		side.pet.mu.Unlock()
-	}
-	return result, nil
-}
-
 // conflictLocked applies a clash to the pet: a scuffle stresses and
 // frightens it; backing down stresses it a little. Caller must hold p.mu.
 func (p *DigitalPet) conflictLocked(scuffled, backedDown bool) {

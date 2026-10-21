@@ -299,3 +299,13 @@ func TestCareOptions(t *testing.T) {
 		t.Errorf("Clicker training should be unavailable without a clicker: %+v", options.Methods[0])
 	}
 }
+
+// reactionScoreFor is the pet's reaction score to care with a variant,
+// without giving it
+func (p *DigitalPet) reactionScoreFor(interactionType types.InteractionType, choice careChoice) float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.choice = &choice
+	defer func() { p.choice = nil }()
+	return 0.5*p.Memory.GetLearnedAffinity(interactionType) + p.innateReactionLocked(interactionType)
+}

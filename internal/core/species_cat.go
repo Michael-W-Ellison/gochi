@@ -11,14 +11,10 @@ import (
 func init() { RegisterSpecies(catSpecies) }
 
 var catSpecies = &SpeciesDef{
-	ID:     SpeciesCat,
-	Name:   "Cat",
-	Plural: "cats",
-	Icon:   "🐱",
-	Sprites: map[string]string{
-		"idle": "🐱", "happy": "😺", "eating": "😋", "playing": "😸", "sleeping": "😴", "sick": "🤒",
-		"exploring": "🐈", "social": "😻", "hibernating": "💤", "dead": "😿",
-	},
+	ID:                 SpeciesCat,
+	Name:               "Cat",
+	Plural:             "cats",
+	Icon:               "🐱",
 	CleanLabel:         "🧹 Scoop litter",
 	TwilightActive:     true,
 	SelfGrooming:       0.3,

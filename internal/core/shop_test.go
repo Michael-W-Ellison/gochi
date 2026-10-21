@@ -210,7 +210,7 @@ func TestPointsAndItemsSurviveSaveLoad(t *testing.T) {
 
 func TestCatalogItemsAreValid(t *testing.T) {
 	seen := map[string]bool{}
-	for _, item := range ShopCatalog() {
+	for _, item := range shopCatalog {
 		if seen[item.ID] {
 			t.Errorf("Duplicate item ID %q", item.ID)
 		}

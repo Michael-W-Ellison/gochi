@@ -443,5 +443,5 @@ const GochiArt = (function () {
         return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="${size}" height="${size}" role="img" aria-label="${esc(opts.label || species)}">${parts.join('')}</svg>`;
     }
 
-    return { draw, palette: PALETTE, defaults: DEFAULTS };
+    return { draw };
 })();

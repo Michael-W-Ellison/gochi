@@ -16,7 +16,7 @@ func guarded(t *testing.T) (*Server, http.Handler) {
 	s.parental, _ = loadParentalControls("")
 	s.pairing, _ = loadDevicePairing("")
 	s.onNetwork, s.listenAddr = true, ":8080"
-	if err := s.createPet("Biscuit", "cat", false, false); err != nil {
+	if err := s.createPet("Biscuit", "cat", "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()

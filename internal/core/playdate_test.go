@@ -2,8 +2,9 @@ package core
 
 import (
 	"errors"
-	"github.com/Michael-W-Ellison/gochi/pkg/types"
 	"testing"
+
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 func TestPlaymateCard(t *testing.T) {

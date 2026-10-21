@@ -59,11 +59,6 @@ func DefaultDataManagerConfig() DataManagerConfig {
 	}
 }
 
-// NewDataManager creates a new data manager with default configuration
-func NewDataManager() (*DataManager, error) {
-	return NewDataManagerWithConfig(DefaultDataManagerConfig())
-}
-
 // NewDataManagerWithConfig creates a new data manager with custom configuration
 func NewDataManagerWithConfig(config DataManagerConfig) (*DataManager, error) {
 	dm := &DataManager{

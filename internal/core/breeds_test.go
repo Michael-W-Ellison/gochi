@@ -28,7 +28,7 @@ func TestBreedCatalog(t *testing.T) {
 			t.Errorf("%s has a bad tier, lifespan, size or description", b.ID)
 		}
 		for _, c := range append(slices.Clone(b.Colors), b.Eyes...) {
-			if _, ok := FindCoatColor(c); !ok {
+			if !slices.ContainsFunc(coatColors, func(k CoatColor) bool { return k.ID == c }) {
 				t.Errorf("%s has an unknown color %s", b.ID, c)
 			}
 		}

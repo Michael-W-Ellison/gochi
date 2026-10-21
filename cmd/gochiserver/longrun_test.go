@@ -39,7 +39,7 @@ func TestLongPlayStaysWithinTargets(t *testing.T) {
 	}
 	s := newTestServer(t)
 	s.awayTimeout = 0
-	if err := s.createPet("Biscuit", core.SpeciesDog, false, true); err != nil {
+	if err := s.createPet("Biscuit", core.SpeciesDog, "", false, true); err != nil {
 		t.Fatal(err)
 	}
 	cares := []types.InteractionType{types.InteractionFeeding, types.InteractionDrinking, types.InteractionWalking,

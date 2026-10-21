@@ -43,7 +43,6 @@ const GochiAR = (function() {
     let xrRefSpace = null;
     let xrHitTestSource = null;
     let gl = null;
-    let renderer = null;
 
     // AR state
     let sessionState = 'inactive';
@@ -1266,57 +1265,17 @@ const GochiAR = (function() {
         }
     }
 
-    /**
-     * Remove callback
-     * @param {string} event
-     */
-    function off(event) {
-        if (callbacks.hasOwnProperty(event)) {
-            callbacks[event] = null;
-        }
-    }
-
     // ========================================================================
     // Public API
     // ========================================================================
 
     return {
-        // Initialization
         init,
-        isSupported: () => isSupported,
-        isActive: () => isActive,
-
-        // Session management
         startSession,
-        stopSession,
-        getSessionState: () => sessionState,
-        getTrackingQuality: () => trackingQuality,
-
-        // Pet
-        placePetAt,
         movePetTo,
         setPetAnimation,
         getPlacedPet: () => placedPet,
-
-        // Exercise
-        startExerciseMode,
-        stopExerciseMode,
-        isExerciseTracking: () => isExerciseTracking,
-        getExerciseData: () => ({ ...exerciseData }),
-
-        // Photo
-        takeARPhoto,
-
-        // Callbacks
         on,
-        off,
-
-        // Configuration
         config
     };
 })();
-
-// Export for module systems
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = GochiAR;
-}

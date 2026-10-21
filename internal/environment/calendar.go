@@ -82,16 +82,6 @@ func StopCalendar() {
 	calendar.on = false
 }
 
-// CalendarSeason returns the real season, if the calendar is in use
-func CalendarSeason() (Season, Hemisphere, bool) {
-	calendar.mu.RLock()
-	defer calendar.mu.RUnlock()
-	if !calendar.on {
-		return 0, "", false
-	}
-	return SeasonOn(calendar.now(), calendar.hemisphere), calendar.hemisphere, true
-}
-
 // followCalendar sets the season from the calendar if it is in use, and
 // reports whether it did
 func (sc *SeasonalCycle) followCalendar() bool {

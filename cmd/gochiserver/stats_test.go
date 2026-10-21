@@ -58,7 +58,7 @@ func count(list []statCount, name string) int {
 
 func TestPlayerStats(t *testing.T) {
 	s, dir := statsServer(t)
-	if err := s.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := s.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	mochi := s.slot
@@ -69,7 +69,7 @@ func TestPlayerStats(t *testing.T) {
 		}
 	}
 	s.tick(time.Now())
-	if err := s.createPet("Rex", core.SpeciesDog, false, false); err != nil {
+	if err := s.createPet("Rex", core.SpeciesDog, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if s.pet.Interact(types.InteractionPetting, 1).Applied {
@@ -241,7 +241,7 @@ func TestUnreadableSavesAreListed(t *testing.T) {
 
 func TestBreedingChecksTheBabyName(t *testing.T) {
 	s, _ := statsServer(t)
-	if err := s.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := s.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	partner := core.NewDigitalPet("Bean", localOwner)
