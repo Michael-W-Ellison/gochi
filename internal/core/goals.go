@@ -118,7 +118,7 @@ func (p *DigitalPet) planGoalsLocked(level float64) []Goal {
 		return goals
 	}
 	switch {
-	case level >= 4 && len(p.TricksLearned) < len(tricks):
+	case level >= 4 && len(p.TricksLearned) < len(p.regularTricksLocked()):
 		goals = append(goals, Goal{Kind: GoalLearn, Icon: "🌟", Text: fmt.Sprintf("Teach %s a new trick", p.Name),
 			Target: 1, Reward: reward})
 	case level >= 3:

@@ -93,7 +93,14 @@ var achievements = []struct {
 		func(p *DigitalPet) bool { return len(p.TricksLearned) > 0 }},
 	{Achievement{ID: "all_tricks", Name: "Trick Master", Icon: "🎓", Rarity: "epic", Points: 50,
 		Description: "Learned every trick"},
-		func(p *DigitalPet) bool { return len(p.TricksLearned) >= len(tricks) }},
+		func(p *DigitalPet) bool {
+			for _, t := range p.regularTricksLocked() {
+				if !p.TricksLearned[t.ID] {
+					return false
+				}
+			}
+			return true
+		}},
 	{Achievement{ID: "first_treasure", Name: "Treasure Hunter", Icon: "🪨", Rarity: "common", Points: 10,
 		Description: "Brought home a first souvenir"},
 		func(p *DigitalPet) bool { return len(p.Souvenirs) > 0 }},

@@ -43,38 +43,16 @@ var randIntn = rand.Intn
 // ---------------------------------------------------------------------------
 // Tricks
 
-// Trick is something a pet can be trained to do
-type Trick struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Icon       string `json:"icon"`
-	Difficulty int    `json:"difficulty"` // 1 (easiest) to 5
-	Performed  string `json:"-"`          // What the pet does; %s is its name
-}
-
-// tricks lists every trick from easiest to hardest
-var tricks = []Trick{
-	{ID: "sit", Name: "Sit", Icon: "🐾", Difficulty: 1, Performed: "%s sits down neatly."},
-	{ID: "paw", Name: "Shake a paw", Icon: "🤝", Difficulty: 2, Performed: "%s offers you a paw to shake."},
-	{ID: "spin", Name: "Spin", Icon: "🌀", Difficulty: 3, Performed: "%s spins around in a happy circle!"},
-	{ID: "roll_over", Name: "Roll over", Icon: "🔄", Difficulty: 4, Performed: "%s rolls all the way over!"},
-	{ID: "play_dead", Name: "Play dead", Icon: "🎭", Difficulty: 5, Performed: "%s flops over dramatically... then peeks at you!"},
-}
-
-// tricksLocked returns the tricks the pet can learn. Caller must hold p.mu.
-func (p *DigitalPet) tricksLocked() []Trick {
-	return tricks
-}
-
 // minTrainingEnergy is the energy a pet needs to train or play games
 const minTrainingEnergy = 0.25
 
 // TrickProgress is a trick with the pet's skill at it
 type TrickProgress struct {
 	Trick
-	Skill   float64 `json:"skill"`   // 0.0 to 1.0
-	Learned bool    `json:"learned"` // Can perform it now
-	Rusty   bool    `json:"rusty"`   // Learned it once, but needs practice before performing it again
+	Skill   float64 `json:"skill"`            // 0.0 to 1.0
+	Learned bool    `json:"learned"`          // Can perform it now
+	Rusty   bool    `json:"rusty"`            // Learned it once, but needs practice before performing it again
+	Locked  string  `json:"locked,omitempty"` // Why it can't be started yet (a trick to learn first)
 }
 
 // Trick skills fade without practice. A trick practiced within
@@ -152,30 +130,6 @@ type TrickResult struct {
 	Text        string  // What happened, e.g. "Biscuit learned Spin!"
 }
 
-// findTrick returns the trick with the given ID
-func findTrick(id string) (Trick, bool) {
-	for _, t := range tricks {
-		if t.ID == id {
-			return t, true
-		}
-	}
-	return Trick{}, false
-}
-
-// Tricks returns every trick with the pet's progress
-func (p *DigitalPet) Tricks() []TrickProgress {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	progress := make([]TrickProgress, len(tricks))
-	for i, t := range tricks {
-		skill := p.TrickSkills[t.ID]
-		progress[i] = TrickProgress{Trick: t, Skill: skill, Learned: skill >= 1.0,
-			Rusty: skill < 1.0 && p.TricksLearned[t.ID]}
-	}
-	return progress
-}
-
 // checkActiveLocked returns why the pet cannot do an activity, or nil.
 // Caller must hold p.mu.
 func (p *DigitalPet) checkActiveLocked() error {
@@ -228,6 +182,9 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	}
 	if err := p.checkActiveLocked(); err != nil {
 		return TrickResult{}, err
+	}
+	if reason := p.trickLockedReasonLocked(t); reason != "" && p.TrickSkills[t.ID] == 0 {
+		return TrickResult{}, RefusedError{reason}
 	}
 
 	choice, speed := careChoice{}, 1.0

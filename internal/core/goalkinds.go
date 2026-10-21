@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -28,6 +29,7 @@ const (
 	GoalPractice = "practice" // Practice a rusty trick (Detail: the trick)
 	GoalMeet     = "meet"     // Meet another pet
 	GoalGroup    = "group"    // A group activity
+	GoalShow     = "show"     // Enter a show (Detail: the show)
 	GoalCalm     = "calm"     // Keep stress low for a while
 	GoalComfort  = "comfort"  // Stay comfortable in hot or cold weather for a while
 	GoalSteady   = "steady"   // Keep food and water above half for a while
@@ -41,6 +43,7 @@ const (
 	WeeklyTricks    = "tricks"     // Learn tricks
 	WeeklyGoalDays  = "goal_days"  // Finish all of a day's goals on a number of days
 	WeeklyPlays     = "plays"      // Play a number of times
+	WeeklyRibbon    = "ribbon"     // Win a ribbon at a show
 )
 
 // Weekly goal rewards
@@ -125,6 +128,13 @@ func (p *DigitalPet) chooseActivityGoalLocked(level float64, reward int) (Goal, 
 	if len(p.KnownPets) > 0 {
 		add(0.6, Goal{Kind: GoalMeet, Icon: "🤝", Text: fmt.Sprintf("Let %s meet another of your pets", p.Name)})
 		add(0.5, Goal{Kind: GoalGroup, Icon: "🐾", Text: fmt.Sprintf("Do a group activity with %s", p.Name)})
+	}
+
+	for _, s := range p.showsForLocked() {
+		if s.Fee > 0 && p.showProblemLocked(s) == "" {
+			add(0.7, Goal{Kind: GoalShow, Detail: s.ID, Icon: s.Icon, Text: fmt.Sprintf("Enter %s in the %s", p.Name, s.Name)})
+			break
+		}
 	}
 
 	best := candidates[0]
@@ -323,6 +333,10 @@ func (p *DigitalPet) ensureWeeklyLocked() {
 		Goal{Kind: WeeklyGoalDays, Icon: "📅", Target: 3, Text: "Finish all of a day's goals on 3 days this week"},
 		Goal{Kind: WeeklyPlays, Icon: "🎾", Target: 20, Text: fmt.Sprintf("Play with %s 20 times this week", p.Name)},
 	)
+	if p.Biology.LifeStage() != biology.StageYoung {
+		options = append(options, Goal{Kind: WeeklyRibbon, Icon: "🎀", Target: 1,
+			Text: fmt.Sprintf("Win a ribbon with %s at a show this week", p.Name)})
+	}
 	if len(p.TricksLearned)+2 <= len(p.tricksLocked()) {
 		options = append(options, Goal{Kind: WeeklyTricks, Icon: "🌟", Target: 2,
 			Text: fmt.Sprintf("Teach %s 2 new tricks this week", p.Name)})
@@ -350,6 +364,7 @@ func (p *DigitalPet) weeklyEventLocked(kind string) {
 	case kind == GoalExplore && w.Goal.Kind == WeeklyTrips,
 		kind == GoalLearn && w.Goal.Kind == WeeklyTricks,
 		kind == WeeklyGoalDays && w.Goal.Kind == WeeklyGoalDays,
+		kind == WeeklyRibbon && w.Goal.Kind == WeeklyRibbon,
 		kind == types.InteractionPlaying.String() && w.Goal.Kind == WeeklyPlays:
 		w.Goal.Progress++
 	}

@@ -93,6 +93,8 @@ func TestUnpracticedTricksGetRusty(t *testing.T) {
 
 func TestPartialTrainingFadesCompletely(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
+	pet.Species = SpeciesDog
+	pet.TricksLearned = map[string]bool{"roll_over": true}
 	setCalmHealthyState(pet)
 	if _, err := pet.TrainTrick("play_dead"); err != nil {
 		t.Fatal(err)

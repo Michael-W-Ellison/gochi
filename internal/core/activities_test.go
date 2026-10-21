@@ -57,6 +57,8 @@ func TestTrainingLearnsTrick(t *testing.T) {
 func TestHarderTricksTakeLonger(t *testing.T) {
 	sessionsToLearn := func(trick string) int {
 		pet := NewDigitalPet("Biscuit", "user123")
+		pet.Species = SpeciesDog
+		pet.TricksLearned = map[string]bool{"roll_over": true} // Play dead builds on it
 		for n := 1; n <= 100; n++ {
 			setCalmHealthyState(pet)
 			if r, _ := pet.TrainTrick(trick); r.JustLearned {
@@ -66,7 +68,7 @@ func TestHarderTricksTakeLonger(t *testing.T) {
 		return 100
 	}
 
-	if easy, hard := sessionsToLearn("sit"), sessionsToLearn("play_dead"); hard <= easy {
+	if easy, hard := sessionsToLearn("sit"), sessionsToLearn("play_dead"); hard <= easy || hard == 100 {
 		t.Errorf("Play dead (%d sessions) should take longer than Sit (%d)", hard, easy)
 	}
 }
@@ -77,8 +79,8 @@ func TestSmarterPetsLearnFaster(t *testing.T) {
 	slow := NewDigitalPet("Slow", "user123")
 	slow.Personality.Traits.Intelligence = 0.0
 
-	a, _ := smart.TrainTrick("spin")
-	b, _ := slow.TrainTrick("spin")
+	a, _ := smart.TrainTrick("touch")
+	b, _ := slow.TrainTrick("touch")
 	if a.Skill <= b.Skill {
 		t.Errorf("An intelligent pet should learn faster: %f vs %f", a.Skill, b.Skill)
 	}

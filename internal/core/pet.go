@@ -115,10 +115,15 @@ type DigitalPet struct {
 
 	// Care records for achievements (carerecords.go): counts and streaks,
 	// and marks such as the last day something was counted
-	Counters         map[string]float64 `json:"counters,omitempty"`
-	Marks            map[string]string  `json:"marks,omitempty"`
-	LastGoalDay      string             `json:"last_goal_day,omitempty"`
-	IllnessesTreated int                `json:"illnesses_treated,omitempty"`
+	Counters map[string]float64 `json:"counters,omitempty"`
+	Marks    map[string]string  `json:"marks,omitempty"`
+
+	// Shows (shows.go): ribbons won, titles, and its age at its last show
+	Ribbons          []Ribbon `json:"ribbons,omitempty"`
+	Titles           []string `json:"titles,omitempty"`
+	LastShowAge      float64  `json:"last_show_age,omitempty"`
+	LastGoalDay      string   `json:"last_goal_day,omitempty"`
+	IllnessesTreated int      `json:"illnesses_treated,omitempty"`
 
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone

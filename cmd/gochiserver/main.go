@@ -126,6 +126,7 @@ type PetStatus struct {
 	// need, and when the player usually plays ("" until it is known)
 	Goals        []core.Goal      `json:"goals"`
 	Weekly       core.WeeklyGoal  `json:"weekly"`
+	Titles       []string         `json:"titles"`
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
 	PlaySchedule string           `json:"play_schedule"`
@@ -428,6 +429,8 @@ func main() {
 	mux.HandleFunc("/api/guide", server.handleGuide)
 	mux.HandleFunc("/api/species", server.handleSpecies)
 	mux.HandleFunc("/api/breeds", server.handleBreeds)
+	mux.HandleFunc("/api/shows", server.handleShows)
+	mux.HandleFunc("/api/shows/enter", server.handleEnterShow)
 	mux.HandleFunc("/api/privacy", server.handlePrivacy)
 	mux.HandleFunc("/api/stats", server.handleStats)
 	mux.HandleFunc("/api/home", server.handleHome)
@@ -839,7 +842,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; color: #333; }
         .panel-close { background: none; border: none; font-size: 1.2em; cursor: pointer; color: #888; }
         .panel-text { text-align: center; color: #444; margin-bottom: 10px; }
-        .trick-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .trick-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
         .trick-name { width: 120px; font-size: 0.9em; }
         .trick-bar { flex: 1; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
         .trick-fill { height: 100%; background: linear-gradient(90deg, #9775fa, #7048e8); }
@@ -957,6 +960,13 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .upkeep.due { color: #c92a2a; }
         .family-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
         .family-name { flex: 1 1 160px; }
+        .show-box { border: 1px solid #eee; border-radius: 10px; padding: 8px; margin: 8px 0; text-align: left; }
+        .show-title { font-weight: 600; }
+        .show-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+        .show-row select { padding: 4px; border-radius: 6px; border: 1px solid #ccc; max-width: 100%; }
+        .show-results { text-align: left; margin: 6px 0; padding-left: 22px; }
+        .show-results li.you { font-weight: 700; color: #5a4fcf; }
+        .trick-locked { flex-basis: 100%; font-size: 0.8em; }
         .goal-item.weekly { border-top: 1px dashed #ddd; margin-top: 4px; padding-top: 4px; }
         .pet-display svg { display: block; margin: 0 auto; }
         #petSprite { width: fit-content; margin-left: auto; margin-right: auto; }
@@ -1122,7 +1132,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn" onclick="openBreeding()">💞 Breed</button>
                 <button class="activity-btn enrich" onclick="openChoices('enrich')">🏠 Enrich</button>
                 <button class="activity-btn" onclick="openMeet()">🤝 Meet</button>
-                <button class="activity-btn ar" onclick="openAR()" style="grid-column: span 2;">📷 See in your room (AR)</button>
+                <button class="activity-btn" onclick="openShows()">🏅 Shows</button>
+                <button class="activity-btn ar" onclick="openAR()">📷 AR</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -1286,6 +1297,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/ar-link.js?v={{static}}"></script>
     <script src="/static/js/shop.js?v={{static}}"></script>
     <script src="/static/js/breeds.js?v={{static}}"></script>
+    <script src="/static/js/shows.js?v={{static}}"></script>
     <script>
         // The kinds of pet the game has (from /api/species): their names and
         // icons, and which care buttons each uses. The cat, the default species, is
@@ -1668,7 +1680,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function updateUI(status) {
-            document.getElementById('petName').textContent = status.name;
+            document.getElementById('petName').textContent = status.name +
+                ((status.titles || []).includes('grand_champion') ? ' 👑' : '');
             // The pet's request: speech bubble, highlighted button, tab title
             const speech = document.getElementById('speech');
             const request = status.request;
@@ -2762,8 +2775,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 row.className = 'trick-row';
                 const name = document.createElement('span');
                 name.className = 'trick-name';
-                name.textContent = trick.icon + ' ' + trick.name + (trick.rusty ? ' (rusty)' : '');
+                name.textContent = trick.icon + ' ' + trick.name + (trick.rusty ? ' (rusty)' : '') + (trick.locked ? ' 🔒' : '');
                 if (trick.rusty) name.title = lastStatus.name + ' needs practice before doing this trick again';
+                if (trick.locked) name.title = trick.locked;
                 const bar = document.createElement('div');
                 bar.className = 'trick-bar';
                 const fill = document.createElement('div');
@@ -2774,7 +2788,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 btn.className = 'save-btn';
                 btn.textContent = trick.learned ? 'Do it!' : (trick.rusty ? 'Practice' : 'Train');
                 btn.onclick = () => doTrick(trick.id, trick.learned);
+                if (trick.locked) {
+                    btn.disabled = true;
+                    btn.title = trick.locked;
+                }
                 row.append(name, bar, btn);
+                if (trick.locked) {
+                    const why = document.createElement('div');
+                    why.className = 'cloud-note trick-locked';
+                    why.textContent = trick.locked;
+                    row.append(why);
+                }
                 p.append(row);
             });
             p.classList.remove('hidden');
@@ -3757,6 +3781,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.Checklist = s.pet.DailyChecklist()
 	petStatus.Goals, petStatus.GoalLevel = s.pet.DailyGoals()
 	petStatus.Weekly = s.pet.WeekGoal()
+	_, petStatus.Titles = s.pet.ShowRecord()
 	petStatus.Forecasts = s.forecastsLocked(now)
 	petStatus.Outfit = s.pet.Worn()
 	petStatus.Breed = s.pet.BreedInfo()

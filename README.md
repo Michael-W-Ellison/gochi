@@ -601,14 +601,56 @@ Several kinds of care come in variants, each with its own effect and lesson:
 
 ### Activities
 
-- **🎓 Train**: teach tricks (Sit, Shake a paw, Spin, Roll over, Play dead). Each session
-  improves the trick; harder tricks take longer, and clever pets learn faster. Once a trick is
+- **🎓 Train**: teach tricks. Cats and dogs learn different ones, and harder tricks build on easier
+  ones (the panel shows what must be learned first):
+
+  | Trick | Cats | Dogs | Needs first |
+  |---|---|---|---|
+  | Sit, Come when called | ✓ | ✓ | – |
+  | Touch (nose to hand) | ✓ | ✓ | – |
+  | Shake a paw | ✓ | ✓ | Sit |
+  | Down | | ✓ | Sit |
+  | Stay, Bow | | ✓ | Down |
+  | High five | ✓ | ✓ | Shake a paw |
+  | Spin, Jump through a hoop | ✓ | ✓ | Touch |
+  | Ring a bell | ✓ | | Touch |
+  | Fetch | ✓ | ✓ | Come when called |
+  | Sit pretty (not for seniors or breeds with joint problems) | ✓ | | Sit |
+  | Weave through legs | | ✓ | Spin |
+  | Roll over | ✓ (special) | ✓ | Down (dogs), Sit (cats) |
+  | Play dead | ✓ (special) | ✓ | Roll over |
+  | Wave | ✓ | | High five |
+
+  A cat can learn to roll over and play dead only if it starts young (before 600 game days old)
+  and is playful (playfulness above 0.6) and relaxed (nervousness at most 0.5); these don't count
+  in shows or for "every trick". Each session improves the trick; harder tricks take longer, and
+  clever pets learn faster. Once a trick is
   learned, press **Do it!** to have your pet perform it. A tired pet can't train. Tricks need
   practice to stay sharp: a trick that hasn't been trained or performed for 120 game days (two
   hours of play at the default speed) starts to fade. A learned trick that fades becomes
   **rusty**; your pet can't perform it until you **Practice** it, which takes a session or two,
   because it never forgets more than a quarter of a trick it has learned. Progress on a trick that
   was never learned fades away completely.
+- **🏅 Shows**: enter your pet in a local show against five other entrants the game makes up
+  (named from a fixed list, such as "Willow the Birman"). Shows judge care, training and
+  wellbeing, never looks against a breed standard, so a mixed breed can win anything:
+
+  | Show | For | Judged on | Entry |
+  |---|---|---|---|
+  | Trick Show | Both | A routine of three different tricks you choose, in order; ending on the hardest earns 5 more points | 20 points |
+  | Grooming Show | Both | A clean, recently brushed coat, clear eyes and clean teeth | 20 points |
+  | Agility Course | Dogs | Fitness, energy, and the tricks weave, jump through a hoop and come | 30 points |
+  | Playtime Challenge | Cats | A busy, curious mind, playfulness, and the tricks fetch and touch | 30 points |
+  | Happiest Pet | Both | Happiness, calm and its care record | Free, once a day |
+
+  Each show has three levels, Novice, Open and Champion; winning a level opens the next. Scores
+  (out of 100) also depend on how focused the pet is (energy, calm and sleep). The top three win a
+  rosette, Friendship Points (60/30/15 at Novice, 120/60/30 at Open, 200/100/50 at Champion, at most
+  300 a day from shows) and Home Stars (5/2/0, 10/5/2, 20/10/5). Winning three different shows at
+  Champion level makes a pet a **Grand Champion** (👑 by its name). A show tires and stresses a pet a
+  little, so it must rest a game day before the next; young, ill, injured and very old pets can't
+  enter. Achievements: First Ribbon, Blue Rosette, Champion, Grand Champion, Best in Grooming (a
+  Champion grooming win with a long coat) and Underdog (a mixed breed's Champion win).
 - **🙈 Hide & Seek**: your pet hides in one of four places and you get two guesses. Finding it
   counts as play and earns a 5-point game bonus (at most once every 3 minutes). Press **Stop
   playing** (or close the panel) to end the game early; an unfinished game earns nothing.
