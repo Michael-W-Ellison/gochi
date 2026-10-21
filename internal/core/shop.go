@@ -28,6 +28,16 @@ const (
 // now is the clock used for reward cooldowns (replaced in tests)
 var now = time.Now
 
+// UseClock makes the game read the time from clock instead of the
+// computer's clock (nil goes back to it), so a test or a replay of one can
+// run at a time of its choosing. Call it before play starts, not during.
+func UseClock(clock func() time.Time) {
+	if clock == nil {
+		clock = time.Now
+	}
+	now = clock
+}
+
 // rewardedCare lists the interactions that earn Friendship Points
 var rewardedCare = map[types.InteractionType]bool{
 	types.InteractionFeeding:     true,

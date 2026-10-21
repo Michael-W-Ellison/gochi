@@ -1,4 +1,4 @@
-.PHONY: build run test clean install lint fmt vet help release
+.PHONY: build run test test-quick test-play e2e clean install lint fmt vet help release
 
 # Build variables
 BINARY_NAME=gochi
@@ -54,6 +54,15 @@ test: ## Run all tests
 	@echo "Running tests..."
 	$(GO) test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 	@echo "Tests complete"
+
+test-quick: ## Run the tests, without the long ones
+	$(GO) test -short ./...
+
+test-play: ## Play the game at random for a long while (PLAY_SEEDS seeds; PLAY_SEED replays one)
+	GOCHI_PLAY_SEEDS=$(or $(PLAY_SEEDS),100) GOCHI_PLAY_SEED=$(PLAY_SEED) $(GO) test ./cmd/gochiserver -run 'TestRandomPlay$$' -timeout 2h -v
+
+e2e: ## Play the page in a headless browser (needs node and Playwright; NODE_PATH finds Playwright)
+	GOCHI_E2E=1 $(GO) test ./cmd/gochiserver -run TestBrowserSmoke -timeout 10m -v
 
 test-coverage: test ## Run tests with coverage report
 	@echo "Generating coverage report..."

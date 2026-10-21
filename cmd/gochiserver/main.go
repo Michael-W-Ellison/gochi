@@ -403,90 +403,9 @@ func main() {
 			log.Printf("Registration is closed (no join code)")
 		}
 	}
-	mux.HandleFunc("/api/cloud", server.handleCloud)
-	mux.HandleFunc("/api/cloud/connect", server.handleCloudConnect)
-	mux.HandleFunc("/api/cloud/disconnect", server.handleCloudDisconnect)
-	mux.HandleFunc("/api/cloud/sync", server.handleCloudSync)
-	mux.HandleFunc("/api/cloud/profile", server.handleCloudProfile)
-	mux.HandleFunc("/api/cloud/key", server.handleCloudKey)
-	mux.HandleFunc("/api/pairing", server.handlePairing)
-	mux.HandleFunc("/pair", server.handlePair)
-	mux.HandleFunc("/api/cloud/feed", server.handleCloudFeed)
-
-	// Simple API routes
-	mux.HandleFunc("/api/status", server.handleStatus)
-	mux.HandleFunc("/api/interact", server.handleInteract)
-	mux.HandleFunc("/api/rename", server.handleRename)
-	mux.HandleFunc("/api/create", server.handleCreate)
-	mux.HandleFunc("/api/save", server.handleSave)
-	mux.HandleFunc("/api/saves", server.handleListSaves)
-	mux.HandleFunc("/api/saves/pause", server.handlePausePet)
-	mux.HandleFunc("/api/books", server.handleBooks)
-	mux.HandleFunc("/api/projects", server.handleProjects)
-	mux.HandleFunc("/api/books/candle", server.handleBookCandle)
-	mux.HandleFunc("/api/books/delete", server.handleDeleteBook)
-	mux.HandleFunc("/api/load", server.handleLoad)
-	mux.HandleFunc("/api/pause", server.handlePause)
-	mux.HandleFunc("/api/revive", server.handleRevive)
-	mux.HandleFunc("/api/hibernation", server.handleHibernation)
-	mux.HandleFunc("/api/delete", server.handleDelete)
-	mux.HandleFunc("/api/shop", server.handleShop)
-	mux.HandleFunc("/api/shop/buy", server.handleBuy)
-	mux.HandleFunc("/api/train", server.handleTrick(false))
-	mux.HandleFunc("/api/perform", server.handleTrick(true))
-	mux.HandleFunc("/api/hideseek/start", server.handleHideSeekStart)
-	mux.HandleFunc("/api/hideseek/guess", server.handleHideSeekGuess)
-	mux.HandleFunc("/api/explore", server.handleExplore)
-	mux.HandleFunc("/api/breed", server.handleBreed)
-	mux.HandleFunc("/api/breed/partners", server.handleBreedPartners)
-	mux.HandleFunc("/api/explore/recall", server.handleRecall)
-	mux.HandleFunc("/api/explore/places", server.handlePlaces)
-	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
-	mux.HandleFunc("/api/guide", server.handleGuide)
-	mux.HandleFunc("/api/species", server.handleSpecies)
-	mux.HandleFunc("/api/breeds", server.handleBreeds)
-	mux.HandleFunc("/api/shows", server.handleShows)
-	mux.HandleFunc("/api/shows/enter", server.handleEnterShow)
-	mux.HandleFunc("/api/happening", server.handleHappening)
-	mux.HandleFunc("/api/games", server.handleMiniGames)
-	mux.HandleFunc("/api/games/finish", server.handleFinishMiniGame)
-	mux.HandleFunc("/api/tips/seen", server.handleTipSeen)
-	mux.HandleFunc("/api/collection", server.handleCollection)
-	mux.HandleFunc("/api/home/shelf", server.handleShelf)
-	mux.HandleFunc("/api/souvenirs/gift", server.handleGiveSouvenir)
-	mux.HandleFunc("/api/privacy", server.handlePrivacy)
-	mux.HandleFunc("/api/stats", server.handleStats)
-	mux.HandleFunc("/api/home", server.handleHome)
-	mux.HandleFunc("/api/home/buy", server.handleHomeBuy)
-	mux.HandleFunc("/api/home/look", server.handleHomeLook)
-	mux.HandleFunc("/api/settings", server.handleSettings)
-	mux.HandleFunc("/api/family", server.handleFamily)
-	mux.HandleFunc("/api/cosmetics/buy", server.handleBuyCosmetic)
-	mux.HandleFunc("/api/wear", server.handleWear)
-	mux.HandleFunc("/api/care/give", server.handleGiveCare)
-	mux.HandleFunc("/api/holidays", server.handleHolidays)
-	mux.HandleFunc("/api/family/transfer", server.handleFamilyTransfer)
-	mux.HandleFunc("/api/family/pass_on", server.handleFamilyPassOn)
-	mux.HandleFunc("/api/popup/dismiss", server.handlePopupDismiss)
-	mux.HandleFunc("/api/potion", server.handlePotion)
-	mux.HandleFunc("/api/events", server.handleEvents)
-	mux.HandleFunc("/api/care/options", server.handleCareOptions)
-	mux.HandleFunc("/api/supplies", server.handleSupplies)
-	mux.HandleFunc("/api/supplies/buy", server.handleBuySupply)
-	mux.HandleFunc("/api/enrich", server.handleEnrich)
-	mux.HandleFunc("/api/introduce", server.handleIntroduce)
-	mux.HandleFunc("/api/group", server.handleGroup)
-	mux.HandleFunc("/api/introduce/partners", server.handleIntroducePartners)
-	mux.HandleFunc("/api/ar", server.handleARState)
-	mux.HandleFunc("/api/ar/session", server.handleARSession)
-	mux.HandleFunc("/api/ar/plane", server.handleARPlane)
-	mux.HandleFunc("/api/ar/camera", server.handleARCamera)
-	mux.HandleFunc("/api/ar/place", server.handleARPlace)
-	mux.HandleFunc("/api/ar/gesture", server.handleARGesture)
-	mux.HandleFunc("/api/ar/exercise", server.handleARExercise)
-	mux.HandleFunc("/api/playdate", server.handlePlaydate)
-	mux.HandleFunc("/api/playdate/update", server.handlePlaydateUpdate)
-	mux.HandleFunc("/api/playdate/play", server.handlePlaydatePlay)
+	for _, r := range server.routes() {
+		mux.HandleFunc(r.pattern, r.handler)
+	}
 
 	// Static files, cacheable by browsers and proxies (see staticHandler)
 	if server.staticVersion, err = staticVersion(filepath.Join(webDir, "static")); err != nil {
@@ -4060,7 +3979,7 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "No pet found"})
 		return
 	}
-	s.pet.Name = req.Name
+	s.pet.SetName(req.Name)
 	s.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, APIResponse{Success: true})
@@ -4148,4 +4067,100 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+// route is a page route: its pattern and handler
+type route struct {
+	pattern string
+	handler http.HandlerFunc
+}
+
+// routes are the routes the page uses (the REST API, the cloud hub, static
+// files and the page itself are added separately)
+func (s *Server) routes() []route {
+	return []route{
+		{"/api/cloud", s.handleCloud},
+		{"/api/cloud/connect", s.handleCloudConnect},
+		{"/api/cloud/disconnect", s.handleCloudDisconnect},
+		{"/api/cloud/sync", s.handleCloudSync},
+		{"/api/cloud/profile", s.handleCloudProfile},
+		{"/api/cloud/key", s.handleCloudKey},
+		{"/api/pairing", s.handlePairing},
+		{"/pair", s.handlePair},
+		{"/api/cloud/feed", s.handleCloudFeed},
+		// Simple API routes
+		{"/api/status", s.handleStatus},
+		{"/api/interact", s.handleInteract},
+		{"/api/rename", s.handleRename},
+		{"/api/create", s.handleCreate},
+		{"/api/save", s.handleSave},
+		{"/api/saves", s.handleListSaves},
+		{"/api/saves/pause", s.handlePausePet},
+		{"/api/books", s.handleBooks},
+		{"/api/projects", s.handleProjects},
+		{"/api/books/candle", s.handleBookCandle},
+		{"/api/books/delete", s.handleDeleteBook},
+		{"/api/load", s.handleLoad},
+		{"/api/pause", s.handlePause},
+		{"/api/revive", s.handleRevive},
+		{"/api/hibernation", s.handleHibernation},
+		{"/api/delete", s.handleDelete},
+		{"/api/shop", s.handleShop},
+		{"/api/shop/buy", s.handleBuy},
+		{"/api/train", s.handleTrick(false)},
+		{"/api/perform", s.handleTrick(true)},
+		{"/api/hideseek/start", s.handleHideSeekStart},
+		{"/api/hideseek/guess", s.handleHideSeekGuess},
+		{"/api/explore", s.handleExplore},
+		{"/api/breed", s.handleBreed},
+		{"/api/breed/partners", s.handleBreedPartners},
+		{"/api/explore/recall", s.handleRecall},
+		{"/api/explore/places", s.handlePlaces},
+		{"/api/hideseek/quit", s.handleHideSeekQuit},
+		{"/api/guide", s.handleGuide},
+		{"/api/species", s.handleSpecies},
+		{"/api/breeds", s.handleBreeds},
+		{"/api/shows", s.handleShows},
+		{"/api/shows/enter", s.handleEnterShow},
+		{"/api/happening", s.handleHappening},
+		{"/api/games", s.handleMiniGames},
+		{"/api/games/finish", s.handleFinishMiniGame},
+		{"/api/tips/seen", s.handleTipSeen},
+		{"/api/collection", s.handleCollection},
+		{"/api/home/shelf", s.handleShelf},
+		{"/api/souvenirs/gift", s.handleGiveSouvenir},
+		{"/api/privacy", s.handlePrivacy},
+		{"/api/stats", s.handleStats},
+		{"/api/home", s.handleHome},
+		{"/api/home/buy", s.handleHomeBuy},
+		{"/api/home/look", s.handleHomeLook},
+		{"/api/settings", s.handleSettings},
+		{"/api/family", s.handleFamily},
+		{"/api/cosmetics/buy", s.handleBuyCosmetic},
+		{"/api/wear", s.handleWear},
+		{"/api/care/give", s.handleGiveCare},
+		{"/api/holidays", s.handleHolidays},
+		{"/api/family/transfer", s.handleFamilyTransfer},
+		{"/api/family/pass_on", s.handleFamilyPassOn},
+		{"/api/popup/dismiss", s.handlePopupDismiss},
+		{"/api/potion", s.handlePotion},
+		{"/api/events", s.handleEvents},
+		{"/api/care/options", s.handleCareOptions},
+		{"/api/supplies", s.handleSupplies},
+		{"/api/supplies/buy", s.handleBuySupply},
+		{"/api/enrich", s.handleEnrich},
+		{"/api/introduce", s.handleIntroduce},
+		{"/api/group", s.handleGroup},
+		{"/api/introduce/partners", s.handleIntroducePartners},
+		{"/api/ar", s.handleARState},
+		{"/api/ar/session", s.handleARSession},
+		{"/api/ar/plane", s.handleARPlane},
+		{"/api/ar/camera", s.handleARCamera},
+		{"/api/ar/place", s.handleARPlace},
+		{"/api/ar/gesture", s.handleARGesture},
+		{"/api/ar/exercise", s.handleARExercise},
+		{"/api/playdate", s.handlePlaydate},
+		{"/api/playdate/update", s.handlePlaydateUpdate},
+		{"/api/playdate/play", s.handlePlaydatePlay},
+	}
 }

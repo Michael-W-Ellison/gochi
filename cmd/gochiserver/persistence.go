@@ -145,16 +145,17 @@ func (ps *petStore) Load(slot string) (pet *core.DigitalPet, path string, warnin
 		}
 	}
 
-	saveData, path, err := ps.dm.LoadLatest(slot)
+	// The newest save the pet can be restored from: a save whose pet is
+	// damaged is skipped like an unreadable one, for a backup
+	saveData, path, err := ps.dm.LoadLatestUsable(slot, func(sd *data.SaveData) error {
+		restored, err := core.Load(sd.PetData)
+		pet = restored
+		return err
+	})
 	if err != nil {
 		return nil, "", nil, err
 	}
 	warning = ps.dm.GetLastError()
-
-	pet, err = core.Load(saveData.PetData)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("failed to restore pet from %s: %w", path, err)
-	}
 
 	ps.saves[slot] = saveData
 	if path == ps.SavePath(slot) && warning == nil {

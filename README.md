@@ -1038,8 +1038,17 @@ the rest of the game.
 ### Development
 
 ```bash
-# Run tests (go test -short skips the twelve-hour play test)
+# Run every test under the race detector (go test -short skips the long ones)
 make test
+
+# Run the tests without the long ones (under a minute)
+make test-quick
+
+# Play the game at random for a long while (100 seeds; PLAY_SEEDS=n for more, PLAY_SEED=n replays one)
+make test-play
+
+# Play the page in a headless browser (needs node and Playwright; NODE_PATH finds Playwright)
+make e2e
 
 # Run benchmarks (pet creation, updates, saving and loading, server ticks)
 go test -run '^$' -bench . ./internal/core ./cmd/gochiserver
@@ -1059,6 +1068,30 @@ make dev
 # Build release folders for Windows, macOS and Linux in dist/
 make release
 ```
+
+**Tests that look for bugs across the whole game** (in `cmd/gochiserver`, using a server set up as
+the game sets one up, with its files in a temporary data folder):
+
+- **Route sweep** (`routesweep_test.go`): every page route, in every state the game can be in (no
+  pet, young, grown, dead, away exploring, hibernating, paused), is sent empty, malformed and
+  nonsense requests. It must answer with JSON and never crash or fail with a server error.
+- **Older files** (`oldsaves_test.go`): the game starts on household files as older versions wrote
+  them (without the newest fields, then without more), and on a played pet's save with each field
+  in turn missing, then plays. Afterwards the household must have recorded every saved pet's
+  souvenirs and achievements, and a damaged save falls back to its backup.
+- **Random play** (`randomplay_test.go`): a player who does anything the page offers, in any order,
+  mostly with choices the game offers at that moment, with time passing in between. After every
+  step: no server errors, the pet's numbers finite and in range, its save loading back unchanged,
+  the household's collection holding every pet's souvenirs, and every saved pet with a book. The
+  game's chances and clock follow the seed, so a seed always plays the same way and a failure can
+  be replayed (`PLAY_SEED`). A concurrent version plays from several players at once while time
+  passes; run with `-race`, it finds unsafe sharing.
+- **The page** (`page_test.go`): the page's scripts don't declare the same name twice, every
+  button's handler exists, every `/api/` path the page calls is a route, every element the scripts
+  look up exists, and every script parses (`node --check`, when node is installed).
+- **Browser smoke test** (`test/e2e/smoke.js`, run by `TestBrowserSmoke`): creates a cat and a dog
+  through the page, gives every kind of care, opens every panel, plays every game and answers a
+  home happening, failing on any error in the page.
 
 **Adding a species**: everything that differs between kinds of pet is in one definition per
 species: `internal/core/species_cat.go` and `species_dog.go`. A new kind of pet is a new file with a

@@ -191,10 +191,10 @@ func (h *Handler) HandleUpdatePet(w http.ResponseWriter, r *http.Request) {
 
 	pet, err := h.petStore.ModifyPet(petID, func(pet *core.DigitalPet) error {
 		if req.Name != "" {
-			pet.Name = strings.TrimSpace(req.Name)
+			pet.SetName(strings.TrimSpace(req.Name))
 		}
 		if req.Location != "" {
-			pet.Location = req.Location
+			pet.SetLocation(req.Location)
 		}
 		return nil
 	})
