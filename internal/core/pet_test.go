@@ -180,6 +180,9 @@ func setCalmHealthyState(pet *DigitalPet) {
 	v.Health, v.Energy, v.Nutrition, v.Hydration = 1.0, 0.8, 0.8, 0.8
 	v.Happiness, v.Cleanliness, v.Stress, v.Fatigue = 0.8, 0.8, 0.0, 0.0
 	pet.Emotions = ai.NewEmotionState()
+	if ph := pet.Biology.Physiology; ph != nil {
+		ph.DentalHealth = 1 // Plaque builds every day; these tests aren't about teeth
+	}
 }
 
 func TestBalancedPetIdlesWithoutLearning(t *testing.T) {

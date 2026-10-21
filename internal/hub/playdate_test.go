@@ -121,6 +121,8 @@ func TestPlaydatesCarryNoText(t *testing.T) {
 			Outfit: map[string]string{"call 555 0100": "beret"}},
 		"outfit slot mismatch": {PetKey: PetKey("a"), Species: "cat", Look: "idle",
 			Outfit: map[string]string{"body": "beret"}},
+		"breed":         {PetKey: PetKey("a"), Species: "cat", Look: "idle", Breed: "meet me at 4"},
+		"breed species": {PetKey: PetKey("a"), Species: "cat", Look: "idle", Breed: "labrador"},
 	} {
 		if _, err := alice.StartPlaydate(ctx, bad); !strings.Contains(errString(err), "invalid pet card") {
 			t.Errorf("A card with a bad %s should be refused: %v", name, err)
@@ -133,6 +135,7 @@ func TestPlaydatesCarryNoText(t *testing.T) {
 	}
 	dressed := card("Biscuit")
 	dressed.Outfit = map[string]string{"head": "beret", "neck": "bow_tie"}
+	dressed.Species, dressed.Breed = "cat", "siamese"
 	pd, err := alice.StartPlaydate(ctx, dressed)
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +226,7 @@ func TestPlaydateRateLimitIsPerPlayer(t *testing.T) {
 	alice, bob := register(t, server), register(t, server)
 	dressed := card("Biscuit")
 	dressed.Outfit = map[string]string{"head": "beret", "neck": "bow_tie"}
+	dressed.Species, dressed.Breed = "cat", "siamese"
 	pd, err := alice.StartPlaydate(ctx, dressed)
 	if err != nil {
 		t.Fatal(err)

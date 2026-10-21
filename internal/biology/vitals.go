@@ -140,9 +140,10 @@ type BiologicalSystems struct {
 	// Set by the pet before each update (not saved): how long its species
 	// lives relative to BaseLifespan (0 means 1), whether it can die of
 	// old age, and what its body responds to from outside
-	SpeciesLifespan float64    `json:"-"`
-	OldAgeDeath     bool       `json:"-"`
-	Inputs          BodyInputs `json:"-"`
+	SpeciesLifespan float64         `json:"-"`
+	Predispositions Predispositions `json:"-"` // What its breed and species make it prone to
+	OldAgeDeath     bool            `json:"-"`
+	Inputs          BodyInputs      `json:"-"`
 
 	// DecayMultipliers scale how fast needs build up (set by the pet's
 	// belongings each update; not saved)
@@ -179,6 +180,13 @@ type DecayMultipliers struct {
 	Rest              float64
 	SleepDebt         float64
 	DigestiveRecovery float64
+
+	// How fast the kidneys' reserve is lost, the eyes are irritated,
+	// plaque builds on the teeth and the heart ages
+	KidneyDecline float64
+	EyeIrritation float64
+	DentalDecline float64
+	HeartAging    float64
 }
 
 // rate returns the multiplier to apply, treating 0 as the normal rate
@@ -247,6 +255,7 @@ func (b *BiologicalSystems) EnsurePhysiology() {
 	if b.Physiology == nil {
 		b.Physiology = NewPhysiology()
 	}
+	b.Physiology.EnsureSenses()
 }
 
 // EnsureCircadian gives a pet saved before the sleep cycle was tracked a
@@ -296,7 +305,7 @@ func (b *BiologicalSystems) processMetabolism(deltaTime float64) {
 // decayVitalStats handles natural decay of stats over time
 func (b *BiologicalSystems) decayVitalStats(deltaTime float64) {
 	// Natural decay rates (per game day)
-	b.Vitals.Hydration -= deltaTime * 0.05 * rate(b.DecayMultipliers.Hydration)
+	b.Vitals.Hydration -= deltaTime * 0.05 * rate(b.DecayMultipliers.Hydration) * b.KidneyThirst()
 	b.Vitals.Nutrition -= deltaTime * 0.03 * rate(b.DecayMultipliers.Nutrition) * b.Processes.MetabolicRate
 	b.Vitals.Energy -= deltaTime * 0.02 * rate(b.DecayMultipliers.Energy) * b.EnergyDrain()
 

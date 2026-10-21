@@ -51,6 +51,18 @@ func (p *DigitalPet) timedEffectsLocked() []itemEffect {
 	if p.usedTodayLocked("joint_supplement") {
 		effects = append(effects, effWhen(effFitnessLoss, 0.85, seniors))
 	}
+	if p.usedTodayLocked("kidney_diet") {
+		effects = append(effects, eff(effKidneyDecline, 0.5))
+	}
+	if p.usedTodayLocked("eye_wipes") {
+		effects = append(effects, eff(effEyeIrritation, 0.5))
+	}
+	if p.usedTodayLocked("pet_toothpaste") {
+		effects = append(effects, eff(effDentalDecline, 0.5))
+	}
+	if p.usedTodayLocked("dental_chews") {
+		effects = append(effects, eff(effDentalDecline, 0.8))
+	}
 	return effects
 }
 
@@ -73,10 +85,16 @@ var careSupplies = []supply{
 		"Seniors: fitness fades a little slower for the day. One a day counts."),
 	careSupply("freeze_dried_treats", "Freeze-dried treats", "🍗", 50, interaction.RarityRare, 5,
 		"A high-value reward: the next training session counts 50% more."),
+	careSupply("pet_toothpaste", "Pet toothbrush and toothpaste", "🪥", 20, interaction.RarityCommon, 10,
+		"Brush the teeth: removes plaque, and plaque builds half as fast for the rest of the day. One a day counts."),
+	careSupply("eye_wipes", "Eye wipes", "👁️", 15, interaction.RarityCommon, 10,
+		"Gently clean sore eyes: they feel better, and are irritated half as much for the rest of the day. One a day counts."),
+	careSupply("kidney_diet", "Kidney-support diet", "🩺", 60, interaction.RarityRare, 5,
+		"A vet's diet for pets with weak kidneys: kidney damage builds half as fast for the day. One a day counts."),
 	careSupply("fresh_bedding", "Fresh bedding", "🧺", 25, interaction.RarityCommon, 1,
 		"Beds work fully for another 200 game days."),
 	forSpecies(careSupply("dental_chews", "Dental chews", "🦷", 30, interaction.RarityCommon, 7,
-		"A little help for the gut and some stress relief. One a day counts."), SpeciesDog),
+		"Slows plaque by a fifth for the day, helps the gut a little and eases stress. One a day counts."), SpeciesDog),
 	forSpecies(careSupply("cat_grass", "Cat grass", "🌿", 20, interaction.RarityCommon, 5,
 		"Helps with hairballs (digestive health)."), SpeciesCat),
 }
@@ -221,6 +239,15 @@ func (p *DigitalPet) applyCareSupplyLocked(id string) (string, error) {
 			ph.DigestiveHealth += 0.05
 			v.Stress -= 0.03
 		})
+	case "pet_toothpaste":
+		return once(p.Name+"'s teeth are brushed.", func() { ph.DentalHealth += 0.1 })
+	case "eye_wipes":
+		return once(p.Name+"'s eyes are cleaned.", func() { ph.EyeHealth += 0.08 })
+	case "kidney_diet":
+		if ph.KidneyReserve >= 0.9 && p.predispositionsLocked().KidneyDisease == 0 {
+			return "", fmt.Errorf("%w: %s's kidneys are healthy, so it doesn't need a special diet", ErrNotNeeded, p.Name)
+		}
+		return once(p.Name+" had its kidney-support diet.", func() { v.Hydration += 0.1 })
 	case "cat_grass":
 		ph.DigestiveHealth = min(ph.DigestiveHealth+0.05, 1)
 		return p.Name + " nibbled some cat grass.", nil

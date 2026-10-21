@@ -171,6 +171,8 @@ var dogSpecies = &SpeciesDef{
 		IllnessParasites:   "Intestinal parasites",
 		IllnessRespiratory: "Respiratory infection",
 		IllnessPoisoning:   "Chocolate poisoning",
+		IllnessEye:         "Eye infection",
+		IllnessDental:      "Dental disease",
 	},
 	IllnessSigns: map[string]Symptom{
 		IllnessUrinary: {"Needing to go out far more often",
@@ -183,6 +185,11 @@ var dogSpecies = &SpeciesDef{
 		IllnessRespiratory: {"Coughing and sneezing",
 			"Signs of a respiratory infection, which gets worse until treated. Give medical care (Heal).",
 			"breathing", false},
+		IllnessEye: {"Pawing at a red, runny eye",
+			"Signs of an eye infection, which gets worse until treated. Give medical care (Heal).", "eyes", false},
+		IllnessDental: {"Dropping food and pawing at the mouth",
+			"Signs of painful dental disease. Give medical care (Heal): a vet cleans the teeth. Then brush them daily.",
+			"teeth", false},
 	},
 	GroupLessons: map[string]string{
 		GroupPlay: "Watch dogs at play: play bows, loose bodies and taking turns chasing are good signs; stiff bodies and pinning mean it's time for a break.",

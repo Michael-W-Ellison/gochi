@@ -644,6 +644,10 @@ func (p *DigitalPet) decayMultipliersLocked() biology.DecayMultipliers {
 		Rest:              e[effRest],
 		SleepDebt:         e[effSleepDebt],
 		DigestiveRecovery: e[effDigestiveRecovery],
+		KidneyDecline:     e[effKidneyDecline],
+		EyeIrritation:     e[effEyeIrritation],
+		DentalDecline:     e[effDentalDecline],
+		HeartAging:        e[effHeartAging],
 	}
 }
 

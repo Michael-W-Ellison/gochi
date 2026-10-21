@@ -164,6 +164,8 @@ var catSpecies = &SpeciesDef{
 		IllnessParasites:   "Intestinal parasites",
 		IllnessRespiratory: "Upper respiratory infection",
 		IllnessPoisoning:   "Poisoning",
+		IllnessEye:         "Eye infection",
+		IllnessDental:      "Dental disease",
 	},
 	IllnessSigns: map[string]Symptom{
 		IllnessUrinary: {"Straining and making frequent trips to the litter box",
@@ -175,6 +177,11 @@ var catSpecies = &SpeciesDef{
 		IllnessRespiratory: {"Sneezing, with runny eyes and nose",
 			"Signs of an upper respiratory infection, which gets worse until treated. Give medical care (Heal).",
 			"breathing", false},
+		IllnessEye: {"A red, half-closed eye with discharge",
+			"Signs of an eye infection, which gets worse until treated. Give medical care (Heal).", "eyes", false},
+		IllnessDental: {"Drooling and chewing on one side",
+			"Signs of painful dental disease. Give medical care (Heal): a vet cleans the teeth. Then brush them daily.",
+			"teeth", false},
 	},
 	GroupLessons: map[string]string{
 		GroupPlay: "Cats play best with cats they know. Give each cat its own toy, and stop the game if ears go flat or tails lash.",

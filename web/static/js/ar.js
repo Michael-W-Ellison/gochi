@@ -588,8 +588,8 @@ const GochiAR = (function() {
         const mainPetSprite = document.getElementById('pet-sprite');
         if (config.petSprite) {
             // Sized like the drawn pet (200px) before the AR scale applies
-            petElement.innerHTML = '<div class="pet-sprite" style="font-size: 200px; line-height: 1;"></div>';
-            petElement.querySelector('.pet-sprite').textContent = config.petSprite();
+            petElement.innerHTML = '<div class="pet-sprite" style="width: 200px; height: 200px; line-height: 0;"></div>';
+            petElement.querySelector('.pet-sprite').innerHTML = config.petSprite(); // SVG drawn by GochiArt
         } else if (mainPetSprite) {
             petElement.innerHTML = mainPetSprite.outerHTML;
         } else {

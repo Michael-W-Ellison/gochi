@@ -156,8 +156,11 @@ along with the game speed and autosave interval it was played with.
 
 **Achievements** are milestones a pet reaches: learning a first trick or every trick, finding a first
 souvenir or a crystal, discovering every place, growing up, becoming a senior, living past a typical
-lifespan, a best friend, a baby, 500 Friendship Points earned, and owning five shop items. They are
-listed under **About** and announced under **Recently** when earned.
+lifespan, a best friend, a baby, 500 Friendship Points earned, owning five shop items, and three for
+care: **Daily Carer** (all of a day's goals finished on 3 different days), **Nurse** (an illness
+treated with medical care) and **Attentive Carer** (an adult's care record at 80% or more). They are
+listed under **About** and announced under **Recently** when earned. Care achievements also unlock
+more breeds (see [Breeds](#breeds)).
 
 ### Cloud: Backup, Sync and Sharing
 
@@ -368,7 +371,7 @@ your computer.
 
 ### Health and Learning Real Care
 
-Your pet has a body that works like a real animal's. Under **Body**, four bars show its organ
+Your pet has a body that works like a real animal's. Under **Body**, eight bars show its body
 systems:
 
 - **Digestion**: food passes through the stomach and becomes waste. Eating too much at once, for
@@ -381,7 +384,23 @@ systems:
 - **Nerves**: worn down by long-term stress, and restored by calm. A worn nervous system makes the
   pet more easily stressed.
 
-An organ system that gets too weak costs the pet health.
+- **Kidneys**: wear with age (more in cats, for whom kidney disease is one of the most common
+  illnesses of old age) and, in some breeds, from inherited kidney disease. Severe dehydration harms
+  them; they recover once the pet drinks, but only up to what age and disease have left. Failing
+  kidneys make the pet thirstier ("drinking and peeing more than usual"). Medical care (**Heal**) gives
+  fluids; a **kidney-support diet** from the pantry halves the damage for the day (only for pets that
+  need it).
+- **Eyes**: irritated by foul air and, in breeds with prominent eyes, a little every day. Sore eyes
+  are stressful and can become an eye infection (**Heal** treats it). **Eye wipes** soothe them and
+  halve the irritation for the day.
+- **Teeth**: plaque builds every day, faster in small and short-faced breeds. Neglected teeth hurt and
+  can become dental disease; **Heal** is a cleaning at the vet. Brushing with **pet toothpaste** (once
+  a day counts) removes plaque and halves it for the day; dental chews help a little.
+- **Hearing**: some pets are born deaf in one or both ears (white cats with blue eyes, double merle
+  dogs, some white Boxers), and hearing fades a little in old age. Words and the clicker work less
+  well for a pet that can't hear; train it with **hand signals** instead.
+
+A body system that gets too weak (kidneys, teeth or the first four) costs the pet health.
 
 Under the organ bars, the page shows your pet's **age and life stage**, its **sleep** (awake,
 drowsy, or the stage of sleep it is in, and any sleep debt) and its **hormones**, which respond to
@@ -516,8 +535,10 @@ Several kinds of care come in variants, each with its own effect and lesson:
   and a pat on top of the head can feel threatening. Personality matters: affectionate, calm pets
   accept sensitive spots, and nervous ones less so. A cuddly, calm dog may love a belly rub.
 - **🎓 Train**: choose a training method: clicker and reward (fastest, needs a clicker and treats),
-  treat rewards (needs treats), praise (works best for pets that love attention) or scolding (slow,
-  and makes the pet more anxious).
+  hand signals and reward (needs treats; works whether or not the pet can hear), treat rewards (needs
+  treats), praise (works best for pets that love attention) or scolding (slow, and makes the pet more
+  anxious). Clicker, praise and scolding rely on sound, so they work less well for a pet that is
+  hard of hearing.
 - **🏠 Enrich**: change something at home: for a cat a cardboard box, a window perch, food to
   hunt for, a scratching post or a toy swap; for a dog a treat-sniffing game, new things to sniff, a
   quiet den, a frozen food toy or a toy swap. Each keeps the pet's mind busy in its own way, and
@@ -608,6 +629,57 @@ personality is inherited from both parents through their genes, with an occasion
 the **About** panel shows its generation. After having a baby, each parent must wait 3 game days
 before breeding again.
 
+Two parents of the same breed have a baby of that breed. Any other pairing has a mixed breed (a
+domestic shorthair or longhair cat, or a mixed breed dog): each body feature (build, ears, muzzle,
+coat, legs, tail, colors, pattern, eyes) comes from one parent or the other, its size is between
+theirs, and its lifespan is the average of their breeds'. It inherits a breed tendency only if both
+parents have it, and then at half strength. This simplifies the finding that crossbreeds have fewer
+inherited disorders; it is not a claim that mixed breeds are always healthier. A mixed breed's
+**About** panel shows its parents and their breeds (and their parents' breeds, if they were mixed
+too), which parent each feature came from, and what this means for its health. Two merle parents
+can have a double merle puppy (one in four), which is often deaf and has eye problems; the About
+panel explains why merle is never bred to merle.
+
+### Breeds
+
+Each new pet is a breed of its species, chosen in the new pet form (or **Surprise me** for a random
+one you have unlocked). There are 21 cat breeds and 22 dog breeds, each drawn with its own body
+(build, ears, muzzle, coat, legs, tail and size); a pet's coat colors, pattern and eye colors are
+picked from its breed's by its genes, so no two look exactly alike. A breed's temperament is where
+its personality starts: a new Border Collie is usually energetic and clever, but each one differs.
+
+| | Cats | Dogs |
+|---|---|---|
+| **Easy care** (from the start) | Domestic Shorthair, Domestic Longhair, British Shorthair, Russian Blue, Birman, Bombay | Mixed Breed, Labrador Retriever, Golden Retriever, Beagle, Poodle, Shiba Inu |
+| **More care** (after the **All Grown Up** and **Daily Carer** achievements) | Siamese, Ragdoll, Maine Coon, Abyssinian, Norwegian Forest Cat, Burmese, Devon Rex, Oriental Shorthair, Turkish Van, Siberian | German Shepherd, Chihuahua, Yorkshire Terrier, Greyhound, Jack Russell Terrier, Boxer, Cavalier King Charles Spaniel |
+| **Demanding care** (after also **Nurse** and **Attentive Carer**) | Persian, Exotic Shorthair, Sphynx, Bengal, Cornish Rex | French Bulldog, Bulldog, Pug, Shih Tzu, Border Collie, Siberian Husky, Australian Shepherd, Great Dane, Bernese Mountain Dog |
+
+Achievements earned by any of your pets count, and unlocked breeds go to your other devices with
+your Home Stars. A pop-up says when more breeds are unlocked.
+
+Breeds have real tendencies, each changing something the game already simulates, with a care lesson
+in the breed's description and the pet's **About** panel:
+
+| Tendency | In the game |
+|---|---|
+| High energy / low energy | The needs for exercise and things to do build 30% faster / exercise 25% slower |
+| Grooming need, skin care | The coat (or skin) gets dirty 40% / 30% faster |
+| Short airways (flat-faced breeds) | Above 27 °C weather stress 50% higher; foul air harms the airways 30% faster; play tires 15% faster |
+| Feels the cold / feels the heat | Weather stress 50% higher below 10 °C / 30% higher above 27 °C |
+| Joints | Seniors lose fitness 25% faster; trip injuries 2 points likelier |
+| Heart | The heart ages 20% faster |
+| Food-motivated | Hunger builds 15% faster; training with treats does 20% more |
+| Separation stress | Stress builds 30% faster when left alone |
+| Kidney disease | Inherited kidney disease lowers what the kidneys can do from adulthood |
+| Eyes | The eyes get sore a little every day and heal more slowly |
+| Teeth | Plaque builds 50% faster |
+
+Breeds also live longer or shorter lives (from about 65% of a typical lifespan for a Great Dane or
+Bernese Mountain Dog to 115% for a Chihuahua or Jack Russell Terrier). Breeds whose defining looks come
+from a condition that harms the animal (the Scottish Fold's folded ears, and the short legs of the
+Munchkin, Dachshund and Corgi) are left out. Pets from before breeds are a Domestic Shorthair or Mixed
+Breed, with looks from the genes they already had.
+
 ### Friendship Points and the Shop
 
 Caring for a pet earns it Friendship Points: 5 points for each kind of care (including training
@@ -684,8 +756,8 @@ pet's species. Two supplies are on sale (25% off) each day.
   depending on their genes) and a laser pointer; for dogs a tennis ball, a rope toy and a chew toy;
   and a puzzle feeder for either. Most toys wear out after a number of play sessions.
 - **Care**: fountain filters, fresh bedding, replacement flea collars, first-aid refills,
-  vaccinations, a dewormer, probiotics, joint supplements for seniors, dental chews (dogs) and cat
-  grass (cats). Press **Give** in the pantry to use one; some count once a day.
+  vaccinations, a dewormer, probiotics, joint supplements for seniors, pet toothpaste, eye wipes, a
+  kidney-support diet, dental chews (dogs) and cat grass (cats). Press **Give** in the pantry to use one; some count once a day.
 - **Health**: the life-extension potion (see Health and Learning Real Care).
 
 ### Home Stars and the House
@@ -870,7 +942,8 @@ pet from their own game.
 3. Everyone agrees on a spot they can all see, such as the middle of a table, and taps it in their
    own AR view. That marks the playdate's center; each pet walks to its own place around it, and
    the other players' pets appear around it too, named by their owner's handle and species, such as
-   "Blue Otter 42's dog".
+   "Blue Otter 42's dog". Each pet's breed is sent (an ID from the game's list, which the hub checks),
+   and the other pets are drawn in their breed's typical look.
 4. Tap another player's pet to have yours play with it. How it goes is worked out like an
    introduction (both pets' sociability, their species and how earlier meetings went), and both
    pets remember it: your game records it for your pet, earning care points as usual, and the

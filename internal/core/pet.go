@@ -94,6 +94,21 @@ type DigitalPet struct {
 	PassedOnTo   types.PetID   `json:"passed_on_to,omitempty"`
 	AdultWarned  bool          `json:"adult_warned,omitempty"`
 
+	// Breed (breeds.go): the breed, how the pet looks, the tendencies it
+	// has (by how strongly), its lifespan relative to its species, and for
+	// a mixed breed where it comes from
+	Breed         string             `json:"breed,omitempty"`
+	Look          *PetLook           `json:"look,omitempty"`
+	Tendencies    map[string]float64 `json:"tendencies,omitempty"`
+	BreedLifespan float64            `json:"breed_lifespan,omitempty"`
+	Lineage       *Lineage           `json:"lineage,omitempty"`
+
+	// Care records for care achievements: days all of the day's goals
+	// were finished, the last of them, and illnesses treated
+	GoalDays         int    `json:"goal_days,omitempty"`
+	LastGoalDay      string `json:"last_goal_day,omitempty"`
+	IllnessesTreated int    `json:"illnesses_treated,omitempty"`
+
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`
@@ -401,6 +416,7 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	if interactionType == types.InteractionMedicalCare {
 		p.Injured = false
 		treated = p.treatIllnessLocked()
+		p.giveFluidsLocked()
 	}
 	before := *p.Biology.Vitals
 

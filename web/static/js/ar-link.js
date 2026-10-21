@@ -78,10 +78,9 @@ const GochiARLink = (function() {
      * @param {object} opts
      * @param {function} opts.onMessage - (text, kind) shows a message
      * @param {function} opts.onCare - (result) shows the result of care
-     * @param {function} opts.petSprite - returns the pet's current sprite
+     * @param {function} opts.petSprite - returns the pet's current drawing (SVG markup from GochiArt), with what it wears
      * @param {function} opts.petLook - returns which of its species' sprites the pet shows (idle, happy, ...)
-     * @param {function} opts.spriteFor - (species, look) returns the sprite another player's pet shows
-     * @param {function} opts.petOutfit - returns the icons of what the pet wears
+     * @param {function} opts.spriteFor - (mate) returns the drawing (SVG markup from GochiArt) of another player's pet
      * @param {function} opts.statusText - returns what the pet is doing
      * @param {function} opts.onEnd - called when AR closes
      * @param {boolean} opts.playdate - AR for the playdate the player is at
@@ -283,7 +282,8 @@ const GochiARLink = (function() {
                 container.append(el);
             }
             el.dataset.handle = mate.handle;
-            el.querySelector('.pet-sprite').textContent = options.spriteFor ? options.spriteFor(mate.species, mate.look) : '🐾';
+            // Drawn by GochiArt from fixed lists only
+            el.querySelector('.pet-sprite').innerHTML = options.spriteFor ? options.spriteFor(mate) : '';
             // What it wears, from the game's list of cosmetics
             const outfit = Object.values(mate.outfit || {}).map(c => c.icon).join('');
             el.querySelector('.ar-playmate-name').textContent = mate.name + (outfit ? ' ' + outfit : '') +
@@ -431,18 +431,7 @@ const GochiARLink = (function() {
 
         const sprite = document.querySelector('#ar-pet .pet-sprite');
         if (sprite && options.petSprite) {
-            sprite.textContent = options.petSprite();
-        }
-        // What the pet wears, shown under it
-        if (sprite && options.petOutfit) {
-            let outfit = document.querySelector('#ar-pet .ar-outfit');
-            if (!outfit) {
-                outfit = document.createElement('div');
-                outfit.className = 'ar-outfit';
-                outfit.style.cssText = 'text-align:center;font-size:18px;line-height:1;';
-                sprite.after(outfit);
-            }
-            outfit.textContent = options.petOutfit();
+            sprite.innerHTML = options.petSprite(); // Drawn by GochiArt from fixed lists only
         }
         const status = document.querySelector('.ar-status-text');
         if (status && options.statusText) {

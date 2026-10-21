@@ -429,8 +429,8 @@ func TestPetCareThroughServer(t *testing.T) {
 	if status["species"] != "dog" {
 		t.Errorf("The pet should be a dog: %v", status["species"])
 	}
-	if body, _ := status["body"].([]interface{}); len(body) != 4 {
-		t.Errorf("Status should list four organ systems: %v", status["body"])
+	if body, _ := status["body"].([]interface{}); len(body) != 8 {
+		t.Errorf("Status should list eight body systems: %v", status["body"])
 	}
 	if area, _ := status["living_area"].(map[string]interface{}); area["name"] != "Home" || area["cleanliness"] != 1.0 {
 		t.Errorf("A dog's living area is its home: %v", status["living_area"])

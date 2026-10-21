@@ -44,6 +44,11 @@ func (p *DigitalPet) repair() error {
 	if p.Relationships == nil {
 		p.Relationships = social.NewSocialRelationships(20)
 	}
+	if p.Biology.Physiology != nil {
+		p.Biology.Physiology.EnsureSenses()
+		p.Biology.Physiology.Clamp()
+	}
+	p.repairBreed()
 	p.repairNeeds()
 	p.repairEnvironment()
 	if p.Checklist != nil && p.Checklist.Done == nil {

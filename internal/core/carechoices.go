@@ -193,6 +193,8 @@ type trainingMethod struct {
 var trainingMethods = []trainingMethod{
 	{ID: "clicker", Name: "Clicker and reward", liking: 0.15,
 		lesson: "The click marks the exact moment your pet does it right, so it learns faster; always follow it with a reward."},
+	{ID: "signals", Name: "Hand signals and reward", progress: 1.25, liking: 0.2,
+		lesson: "A clear hand signal, then a treat, works whether or not your pet can hear: the way to train a deaf pet."},
 	{ID: "treats", Name: "Treat rewards", progress: 1.3, liking: 0.2,
 		lesson: "A treat straight after the behavior tells your pet exactly what earned it; use tiny pieces."},
 	{ID: "praise", Name: "Praise", progress: 1.0, liking: 0,
@@ -217,7 +219,7 @@ func (p *DigitalPet) methodAvailableLocked(m trainingMethod) error {
 	p.ensureSuppliesLocked()
 	treats := p.Supplies.GetItemQuantity(p.defLocked().Treats) > 0
 	switch m.ID {
-	case "treats":
+	case "treats", "signals":
 		if !treats {
 			return ErrNoTreats
 		}
@@ -234,10 +236,20 @@ func (p *DigitalPet) methodAvailableLocked(m trainingMethod) error {
 
 // methodProgressLocked is how fast a method teaches. Caller must hold p.mu.
 func (p *DigitalPet) methodProgressLocked(m trainingMethod) float64 {
+	progress := m.progress
 	if m.ID == "clicker" {
-		return clickerProgress
+		progress = clickerProgress
 	}
-	return m.progress
+	// Words and clicks need hearing
+	if m.ID == "clicker" || m.ID == "praise" || m.ID == "punishment" {
+		p.Biology.EnsurePhysiology()
+		progress *= hearingFactor(p.Biology.Physiology.Hearing)
+	}
+	// A food-motivated breed learns faster for food
+	if m.ID == "clicker" || m.ID == "treats" || m.ID == "signals" {
+		progress *= p.effectLocked(effTreatTraining)
+	}
+	return progress
 }
 
 // methodLikingLocked is how much the pet enjoys a method; praise means
