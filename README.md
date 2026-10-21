@@ -311,7 +311,14 @@ Pets need regular care, so time only passes while you are playing:
 - **Program closed**: no time passes while the program is not running. A restored pet continues
   exactly where it was saved.
 
-Only the active pet's time passes; pets that are not loaded wait in their save files.
+While time passes for the active pet, your other pets **live on with the household**: they age at
+the same rate, and the household looks after them, keeping them fed, watered, rested, clean and
+content, so they don't fall ill from neglect (and don't earn points). Pets that have met grow a
+little closer living together. Their upkeep runs, young pets grow up (with the same warning before
+a young pet with a living parent grows up), and old pets reach the end of their lives on schedule;
+a pop-up says when one has died. Saved pets are brought up to date every 5 minutes of play. To
+keep a pet as it is, press **⏸ Pause** next to it in the pet list (**Switch Pet**); **▶ Live on**
+lets it live with the household again. Hibernating pets and pets away exploring stay as they are.
 
 ### Caring for Your Pet
 

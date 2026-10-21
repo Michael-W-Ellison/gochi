@@ -132,6 +132,10 @@ type DigitalPet struct {
 	LastHappening    time.Time         `json:"last_happening,omitempty"`
 	happeningChecked time.Time
 
+	// Kept as it is while it isn't the active pet, instead of living on
+	// with the household (householdtime.go)
+	HouseholdPaused bool `json:"household_paused,omitempty"`
+
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`

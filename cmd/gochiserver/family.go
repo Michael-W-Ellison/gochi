@@ -305,7 +305,14 @@ func (s *Server) handlePopupDismiss(w http.ResponseWriter, r *http.Request) {
 // with a living parent, has adultWarning of play left before it grows up.
 // Caller must hold s.mu.
 func (s *Server) checkGrowingUpLocked() {
-	pet := s.pet
+	s.growingUpWarningLocked(s.pet, s.slot)
+}
+
+// growingUpWarningLocked warns the player when a young pet with a living
+// parent has adultWarning of play left before it grows up: the active pet,
+// or a saved one growing up in the household. The caller saves a saved
+// pet. Caller must hold s.mu.
+func (s *Server) growingUpWarningLocked(pet *core.DigitalPet, slot string) {
 	if pet == nil || !pet.IsAlive() || !pet.IsYoung() ||
 		s.realDuration(pet.YoungDaysLeft()) > adultWarning {
 		return
@@ -313,7 +320,7 @@ func (s *Server) checkGrowingUpLocked() {
 	if pet.MarkAdultWarned() {
 		return
 	}
-	parents, _ := s.familyOf(pet, s.slot)
+	parents, _ := s.familyOf(pet, slot)
 	if len(parents) == 0 {
 		return
 	}

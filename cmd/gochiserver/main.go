@@ -60,6 +60,11 @@ type Server struct {
 	// When the household achievements were last checked
 	lastHouseholdAwards time.Time
 
+	// Game days played since the saved pets were last brought up to date,
+	// and when that was (householdtime.go)
+	householdDays     float64
+	lastHouseholdTime time.Time
+
 	// The AR playdate the player is at, through the cloud hub
 	playdates playdateState
 
@@ -413,6 +418,7 @@ func main() {
 	mux.HandleFunc("/api/create", server.handleCreate)
 	mux.HandleFunc("/api/save", server.handleSave)
 	mux.HandleFunc("/api/saves", server.handleListSaves)
+	mux.HandleFunc("/api/saves/pause", server.handlePausePet)
 	mux.HandleFunc("/api/load", server.handleLoad)
 	mux.HandleFunc("/api/pause", server.handlePause)
 	mux.HandleFunc("/api/revive", server.handleRevive)
@@ -611,6 +617,7 @@ func (s *Server) safeTick(now time.Time) {
 	}()
 	s.tick(now)
 	s.shareTripWithFriend()
+	s.householdTime(now)
 }
 
 // tick advances the active pet to now, unless the game is paused
@@ -631,6 +638,7 @@ func (s *Server) tick(now time.Time) {
 	if paused {
 		return
 	}
+	s.householdDays += gameSeconds / secondsPerGameDay
 
 	// The pet's simulation counts time in game days
 	before := s.pet.Conditions()
@@ -1473,7 +1481,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         meta.className = 'saved-pet-meta';
                         const state = pet.unreadable ? 'This save is damaged and can\'t be loaded' :
                             !pet.is_alive ? 'Passed away' :
-                            pet.hibernating ? 'Hibernating · ' + formatAge(pet.age) : formatAge(pet.age);
+                            pet.hibernating ? 'Hibernating · ' + formatAge(pet.age) :
+                            formatAge(pet.age) + (pet.paused ? ' · paused' : '');
                         meta.textContent = state + ' · saved ' + new Date(pet.saved_at).toLocaleString();
                         info.append(name, meta);
 
@@ -1490,7 +1499,20 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
                         const actions = document.createElement('div');
                         actions.className = 'saved-pet-actions';
-                        actions.append(btn, del);
+                        actions.append(btn);
+                        // While it isn't the active pet, a pet lives on with the household
+                        // unless it is paused
+                        if (pet.is_alive && !pet.unreadable) {
+                            const pause = document.createElement('button');
+                            pause.className = 'save-btn';
+                            pause.textContent = pet.paused ? '▶ Live on' : '⏸ Pause';
+                            pause.title = pet.paused ? 'Let it age and be looked after by the household while you play another pet' :
+                                'Keep it as it is while you play another pet';
+                            pause.onclick = () => postJSON('/api/saves/pause', {slot: pet.slot, paused: !pet.paused})
+                                .then(() => loadSavedPets()).catch(console.error);
+                            actions.append(pause);
+                        }
+                        actions.append(del);
 
                         item.append(info, actions);
                         list.append(item);

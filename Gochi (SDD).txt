@@ -276,7 +276,8 @@ cppclass TimeManager {
 };
 
 The server keeps one clock, chosen at startup (-time-scale game, 24x, 4x or realtime). Each
-update advances only the active pet, by the clock's game time converted to game days. While the
+update advances the active pet, by the clock's game time converted to game days (saved pets
+live on in the household's care, 3.10.1). While the
 game is paused (section 3.10) the clock records the time but advances nothing, so no game time
 passes and nothing is made up later.
 3.2.2 Needs Management System
@@ -849,7 +850,16 @@ with the other settings by time), silences every sound and hides the player's so
 3.10.1 Pausing
 Time passes only while the player is playing. Time stops when the player presses Pause, when the
 player has not used the page for the away-pause period (2 minutes by default), and while the
-program is not running. Only the active pet's time passes; other pets wait in their save files.
+program is not running. While time passes, the other living saved pets live on in the
+household's care (householdtime.go): the server adds up the game days played and every 5 minutes
+loads each saved pet that is alive, not hibernating, not away exploring and not paused by the
+player (HouseholdPaused), adds the days to its age, raises its food, water, energy and
+cleanliness to at least 0.8, happiness to at least 0.7, lowers stress and fatigue to at most 0.2,
+empties its living area, keeps its needs at 0.8 or more, checks for death of old age, and saves
+it. It earns no points and doesn't progress an illness. Every pair of pets that have met, both
+alive and living on (the active pet always is), grows 0.002 closer a game day, up to 0.8, both
+ways. A saved young pet with a living parent gets the growing-up warning, and a saved pet that
+dies of old age is announced with a pop-up.
 3.10.2 Hibernation (Gentle Mode)
 cppclass Hibernation {
     const float CRITICAL_LEVEL = 0.1;

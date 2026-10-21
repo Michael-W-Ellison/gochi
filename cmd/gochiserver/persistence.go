@@ -67,6 +67,7 @@ type savedPet struct {
 	Age         float64       `json:"age"`
 	IsAlive     bool          `json:"is_alive"`
 	Hibernating bool          `json:"hibernating"`
+	Paused      bool          `json:"paused,omitempty"` // Kept as it is instead of living on with the household
 	SavedAt     time.Time     `json:"saved_at"`
 	Unreadable  bool          `json:"unreadable,omitempty"` // Neither the save nor its backups can be read
 	Outfit      string        `json:"outfit,omitempty"`     // Icons of what it wears
@@ -285,6 +286,7 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		Name        string            `json:"name"`
 		Species     string            `json:"species"`
 		Hibernating bool              `json:"hibernating"`
+		Paused      bool              `json:"household_paused"`
 		Outfit      map[string]string `json:"outfit"`
 		Breed       string            `json:"breed"`
 		Look        *core.PetLook     `json:"look"`
@@ -311,6 +313,7 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		Age:         summary.Biology.Processes.Age,
 		IsAlive:     summary.Biology.IsAlive,
 		Hibernating: summary.Hibernating,
+		Paused:      summary.Paused,
 		SavedAt:     savedAt,
 		Outfit:      outfitIcons(summary.Outfit),
 		Breed:       summary.Breed,
