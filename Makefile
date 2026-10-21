@@ -1,4 +1,4 @@
-.PHONY: build run test test-quick test-play e2e clean install lint fmt vet help release
+.PHONY: build run test test-quick test-play e2e clean install tools lint check fmt vet help release
 
 # Build variables
 BINARY_NAME=gochi
@@ -6,6 +6,11 @@ MAIN_PATH=./cmd/gochiserver
 BUILD_DIR=./bin
 GO=go
 GOFLAGS=-v
+
+# Development tools, at the versions pinned in tools/go.mod
+TOOLS_DIR=$(BUILD_DIR)/tools
+TOOLS=github.com/golangci/golangci-lint/v2/cmd/golangci-lint golang.org/x/tools/cmd/deadcode \
+	golang.org/x/tools/cmd/goimports honnef.co/go/tools/cmd/staticcheck
 
 # Version info
 VERSION?=0.1.0-alpha
@@ -73,10 +78,25 @@ bench: ## Run benchmarks
 	@echo "Running benchmarks..."
 	$(GO) test -bench=. -benchmem ./...
 
-lint: ## Run linter
+tools: $(TOOLS_DIR)/.built ## Build the development tools at their pinned versions
+
+# Rebuilt when the pinned versions change
+$(TOOLS_DIR)/.built: tools/go.mod tools/go.sum
+	@echo "Building the development tools..."
+	@mkdir -p $(TOOLS_DIR)
+	$(GO) -C tools build -o $(abspath $(TOOLS_DIR))/ $(TOOLS)
+	@touch $@
+
+lint: tools ## Run linter
 	@echo "Running linter..."
-	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
-	golangci-lint run ./...
+	$(TOOLS_DIR)/golangci-lint run ./...
+
+check: tools ## List unformatted imports and unused code, and run staticcheck
+	@echo "Files whose imports need formatting (goimports):"
+	@$(TOOLS_DIR)/goimports -l $$($(GO) list -f '{{.Dir}}' ./...)
+	@echo "Unused code (deadcode):"
+	@$(TOOLS_DIR)/deadcode ./...
+	$(TOOLS_DIR)/staticcheck ./...
 
 fmt: ## Format code
 	@echo "Formatting code..."

@@ -63,6 +63,7 @@ gochi/
 ├── configs/            # Configuration files
 ├── web/                # Web UI assets (static/, built into the game by embed.go)
 ├── test/               # Integration tests
+├── tools/              # Development tools pinned to fixed versions (its own module)
 └── docs/               # Documentation
 ```
 
@@ -1061,8 +1062,14 @@ make test-coverage
 # Format code
 make fmt
 
-# Run linter
+# Run linter (golangci-lint)
 make lint
+
+# List unformatted imports (goimports) and unused code (deadcode), and run staticcheck
+make check
+
+# Work on the page without rebuilding: serve its files from web/static instead of the built-in copies
+go run ./cmd/gochiserver -web-dir web/static
 
 # Run in development mode with live reload
 make dev
@@ -1070,6 +1077,12 @@ make dev
 # Build release folders for Windows, macOS and Linux in dist/
 make release
 ```
+
+**Development tools**: `make lint` and `make check` build golangci-lint, staticcheck, deadcode and
+goimports into `bin/tools` at the versions pinned in `tools/go.mod` (`make tools` builds them alone),
+so every computer runs the same versions. They're a module of their own, so the game's `go.mod`
+lists only what the game uses. To change a version: `cd tools && go get <module>@<version> && go mod
+tidy`.
 
 **Tests that look for bugs across the whole game** (in `cmd/gochiserver`, using a server set up as
 the game sets one up, with its files in a temporary data folder):
