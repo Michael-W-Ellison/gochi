@@ -713,9 +713,25 @@ Home Stars, with a rosette; winning a level opens the next. Entry costs 20 (tric
 neuroticism) stress. First places at Champion level in 3 different shows give the Grand Champion
 title. No show judges looks against a breed standard.
 3.8.2 Hide and Seek
-The pet hides in one of four places and the player has two guesses. Finding it counts as play
+The pet hides in one of six places and the player has two guesses. Finding it counts as play
 and earns a 5-point game bonus at most once per reward cooldown. The player can stop the game at
 any time; an unfinished game earns nothing.
+3.8.2a Mini-games
+Mini-games (minigames.go) are played on the page, which reports how well a game went as a number
+from 0 to 1; nothing else is sent and nothing is scored or kept. Fetch (dogs) and the feather
+wand (cats) count as playing, the puzzle feeder and the scent trail as environmental enrichment,
+and gentle grooming as grooming, applied at intensity 0.4 + 0.6 x quality under the usual care
+rules (refusals, the 3-minute points limit). A game opens once the pet has had its kind of care
+(for enrichment, a trip or a change to its surroundings), and the list gives the refusal reason
+before play. The pet's enjoyment is described from the quality: loved (0.8 or more), enjoyed
+(0.5), had some fun (0.2), lost interest. The page computes quality as: fetch, good throws of 5
+(the marker between 55% and 80%); feather wand, 0.3 x min(fast moves / 6, 1) + 0.3 x min(slow
+moves / 6, 1) + 0.4 if the cat catches it (30 seconds, no limit in relaxed mode); puzzle feeder,
+kibble found / kibble, with 3 + round(3 x intelligence) tiles, kibble under half (rounded up),
+and 3 empty tiles allowed; scent trail, min(1, 6 / guesses) for 3 treats in 6 rooms; gentle
+grooming, regions brushed with the fur (and gently where the pet's liking of the petting region
+is below 0) / regions.
+
 3.8.3 Exploring
 cppclass Exploring {
     const float TRIP_LENGTH = 2.0;       // Game days

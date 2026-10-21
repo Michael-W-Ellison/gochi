@@ -298,6 +298,8 @@ var hidingSpots = []HidingSpot{
 	{"behind the couch", "🛋️"},
 	{"in the toy box", "🧸"},
 	{"behind the curtain", "🪟"},
+	{"in the laundry basket", "🧺"},
+	{"under the table", "🪑"},
 }
 
 // hideAndSeekGuesses is how many guesses the player gets

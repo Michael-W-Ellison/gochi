@@ -434,6 +434,8 @@ func main() {
 	mux.HandleFunc("/api/shows", server.handleShows)
 	mux.HandleFunc("/api/shows/enter", server.handleEnterShow)
 	mux.HandleFunc("/api/happening", server.handleHappening)
+	mux.HandleFunc("/api/games", server.handleMiniGames)
+	mux.HandleFunc("/api/games/finish", server.handleFinishMiniGame)
 	mux.HandleFunc("/api/collection", server.handleCollection)
 	mux.HandleFunc("/api/home/shelf", server.handleShelf)
 	mux.HandleFunc("/api/souvenirs/gift", server.handleGiveSouvenir)
@@ -975,6 +977,17 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .collection-items .missing { filter: grayscale(1); opacity: 0.25; }
         .shelf-pick { display: inline-flex; align-items: center; gap: 2px; margin: 2px 6px 2px 0; font-size: 1.1em; }
         .show-box { border: 1px solid #eee; border-radius: 10px; padding: 8px; margin: 8px 0; text-align: left; }
+        .game-box { margin: 8px 0; }
+        .game-meter { position: relative; height: 22px; border-radius: 11px; background: #eee; margin: 8px 0; overflow: hidden; }
+        .game-zone { position: absolute; left: 55%; width: 25%; top: 0; bottom: 0; background: #b7e4b0; }
+        .game-marker { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: #667eea; }
+        .game-field { min-height: 2.6em; margin: 6px 0; }
+        .game-area { position: relative; height: 180px; border-radius: 10px; background: #f6f3ea; touch-action: none; overflow: hidden; }
+        .game-area:focus { outline: 2px solid #667eea; }
+        .game-sprite { position: absolute; font-size: 1.6em; pointer-events: none; }
+        .game-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+        .game-tile { font-size: 1.5em; padding: 10px 0; border-radius: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+        .game-tile.wide { font-size: 0.95em; }
         .show-title { font-weight: 600; }
         .show-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
         .show-row select { padding: 4px; border-radius: 6px; border: 1px solid #ccc; max-width: 100%; }
@@ -1150,7 +1163,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="activity-btn" onclick="openMeet()">🤝 Meet</button>
                 <button class="activity-btn" onclick="openShows()">🏅 Shows</button>
                 <button class="activity-btn" onclick="openCollection()">🧺 Collection</button>
-                <button class="activity-btn ar" onclick="openAR()" style="grid-column: span 2;">📷 See in your room (AR)</button>
+                <button class="activity-btn" onclick="openGames()">🎮 Games</button>
+                <button class="activity-btn ar" onclick="openAR()">📷 See in your room (AR)</button>
             </div>
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
@@ -1316,6 +1330,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/breeds.js?v={{static}}"></script>
     <script src="/static/js/shows.js?v={{static}}"></script>
     <script src="/static/js/collection.js?v={{static}}"></script>
+    <script src="/static/js/minigames.js?v={{static}}"></script>
     <script>
         // The kinds of pet the game has (from /api/species): their names and
         // icons, and which care buttons each uses. The cat, the default species, is

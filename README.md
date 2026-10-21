@@ -651,9 +651,26 @@ Several kinds of care come in variants, each with its own effect and lesson:
   little, so it must rest a game day before the next; young, ill, injured and very old pets can't
   enter. Achievements: First Ribbon, Blue Rosette, Champion, Grand Champion, Best in Grooming (a
   Champion grooming win with a long coat) and Underdog (a mixed breed's Champion win).
-- **🙈 Hide & Seek**: your pet hides in one of four places and you get two guesses. Finding it
+- **🙈 Hide & Seek**: your pet hides in one of six places and you get two guesses. Finding it
   counts as play and earns a 5-point game bonus (at most once every 3 minutes). Press **Stop
   playing** (or close the panel) to end the game early; an unfinished game earns nothing.
+- **🎮 Games**: short games to play with your pet, with a mouse, a finger or the keyboard. There
+  are no scores: afterwards the game says how much your pet enjoyed it (loved it, enjoyed it, had
+  some fun, or lost interest), and it counts as the matching care, with its points under the usual
+  3-minute limit. A game opens once your pet has had that kind of care, and the list says why a
+  game can't be played now (asleep, too tired, already clean). **Relaxed mode** removes the time
+  limit from the feather wand and slows the marker in fetch; it is remembered on this device.
+
+  | Game | For | How it plays | Counts as |
+  |---|---|---|---|
+  | 🎾 Fetch | Dogs | Press **Throw!** when the moving marker is in the green; five throws | Play |
+  | 🪶 Feather wand | Cats | Move the wand like prey, mixing quick dashes and slow creeping (arrow keys, Shift for a dash), then let your cat catch it; 30 seconds | Play |
+  | 🧩 Puzzle feeder | Both | Lift tiles to find the kibble before your pet loses patience; 3 to 6 tiles, more for cleverer pets; your pet's nose can give a hint | Enrichment |
+  | 👃 Scent trail | Both | Find three treats hidden around the house; your pet's tail and ears say warmer or colder | Enrichment |
+  | 🪮 Gentle grooming | Both | Brush each part of the coat the way its fur lies, gently where your pet is sensitive (it watches your hand warily there) | Grooming |
+
+  Each game ends with a lesson, such as letting a cat catch the toy so it doesn't get frustrated,
+  or throwing a ball rather than a stick, which splinters.
 - **🧭 Explore**: send your pet out for about 2 minutes. Once it has discovered more than the
   park, pick where it goes. Places are discovered by finishing trips:
 
