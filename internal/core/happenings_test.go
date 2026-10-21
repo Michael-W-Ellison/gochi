@@ -10,7 +10,7 @@ import (
 )
 
 func TestHappeningCatalog(t *testing.T) {
-	if len(happenings) != 44 {
+	if len(happenings) != 46 {
 		t.Errorf("%d happenings", len(happenings))
 	}
 	ids, rightFirst := map[string]bool{}, 0

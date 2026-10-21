@@ -88,6 +88,7 @@ func (p *DigitalPet) LiveInHousehold(days float64) HouseholdNews {
 	}
 	p.LastInteractionAge = b.GetAgeInDays() // It has had company all along
 
+	p.keepLifeStageLocked(stage)
 	switch now := b.LifeStage(); {
 	case stage == biology.StageYoung && now != biology.StageYoung:
 		news.GrewUp = true

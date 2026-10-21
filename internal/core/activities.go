@@ -112,6 +112,7 @@ func (p *DigitalPet) markTrickLearnedLocked(id string) {
 		p.TricksLearned = make(map[string]bool)
 	}
 	p.TricksLearned[id] = true
+	p.keepLocked(KeepsakeTrick, id) // Only the first
 }
 
 // practiceTrickLocked records that the pet practiced a trick now. Caller
@@ -729,6 +730,10 @@ func (p *DigitalPet) finishExploringLocked() {
 	adventure.Text += note
 	if note != "" {
 		adventure.Discovered = p.lastDiscoveredLocked()
+	}
+	p.keepLocked(KeepsakeFirstTrip, place) // Only the first
+	if adventure.Discovered != "" {
+		p.keepLocked(KeepsakePlace, adventure.Discovered)
 	}
 
 	adventure.ReturnedAge = p.Biology.GetAgeInDays()

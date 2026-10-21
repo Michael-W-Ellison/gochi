@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
@@ -288,6 +289,21 @@ var happenings = []happeningDef{
 		choices: []happeningChoice{
 			{id: "slow", label: "Introduce them slowly", right: true, text: "The two sniff each other politely.", effect: calmed},
 			{id: "fast", label: "Put them together straight away", text: "{pet} is startled and hisses or growls.", effect: scared},
+		}},
+	{id: "water_bowl", icon: "🥣", title: "A stale water bowl",
+		text:   "{pet}'s water bowl has a slimy film on it and hasn't been changed today.",
+		lesson: "Pets need fresh, clean water every day. Wash the bowl daily: the slimy film is bacteria. Many cats drink more from a fountain or a wide bowl away from their food.",
+		choices: []happeningChoice{
+			{id: "wash", label: "Wash the bowl and refill it", right: true, text: "{pet} has a long drink of fresh water.", effect: calmed},
+			{id: "top", label: "Top it up", text: "{pet} sniffs the stale water and drinks less than it needs.", effect: frustrated},
+		}},
+	{id: "senior_stairs", icon: "🪜", title: "Stiff on the stairs",
+		text:   "{pet} hesitates at the bottom of the stairs, stiff in the back legs.",
+		lesson: "Older pets often have stiff, sore joints. Ramps or steps, non-slip rugs, a soft bed and gentle exercise help, and a vet can treat arthritis pain.",
+		when:   func(p *DigitalPet) bool { return p.Biology.LifeStage() == biology.StageSenior },
+		choices: []happeningChoice{
+			{id: "help", label: "Help it, and add a ramp", right: true, text: "{pet} takes the ramp slowly and comfortably.", effect: calmed},
+			{id: "hurry", label: "Call it to hurry up", text: "{pet} struggles up and is sore afterwards.", effect: hurt},
 		}},
 	{id: "gift", icon: "🍂", title: "A gift for you",
 		text:   "{pet} proudly brings you a leaf and drops it at your feet.",
@@ -595,16 +611,19 @@ func (p *DigitalPet) CheckHappening() *Happening {
 	if !chance(happeningChance) {
 		return nil
 	}
-	var fits []happeningDef
-	for _, h := range happenings {
-		if p.happeningFitsLocked(h) {
-			fits = append(fits, h)
+	h, themed := p.themeHappeningLocked() // The week's theme first
+	if !themed {
+		var fits []happeningDef
+		for _, h := range happenings {
+			if p.happeningFitsLocked(h) {
+				fits = append(fits, h)
+			}
 		}
+		if len(fits) == 0 {
+			return nil
+		}
+		h = fits[randIntn(len(fits))]
 	}
-	if len(fits) == 0 {
-		return nil
-	}
-	h := fits[randIntn(len(fits))]
 	p.Happening = &PendingHappening{ID: h.id, Since: t}
 	p.LastHappening = t
 	p.markHappeningLocked(h.id)

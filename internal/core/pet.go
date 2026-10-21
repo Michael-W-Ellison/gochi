@@ -136,6 +136,9 @@ type DigitalPet struct {
 	// with the household (householdtime.go)
 	HouseholdPaused bool `json:"household_paused,omitempty"`
 
+	// The pages of its book (keepsakes.go)
+	Keepsakes []Keepsake `json:"keepsakes,omitempty"`
+
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`
@@ -219,6 +222,7 @@ func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 	}
 	pet.Memory.SetLongTermCapacity(maxLongTermMemories)
 	pet.ensureGenomeLocked()
+	pet.keepLocked(KeepsakeHome, "") // A new pet; it owns itself alone
 	return pet
 }
 
@@ -260,6 +264,9 @@ func (p *DigitalPet) Update(deltaTime float64) {
 		p.hibernateLocked()
 		return
 	}
+
+	stage := p.Biology.LifeStage()
+	defer p.keepLifeStageLocked(stage)
 
 	// Belongings such as bowls and beds slow the pet's needs, and the body
 	// responds to its surroundings, needs and age
@@ -331,6 +338,7 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	// Goals kept up over time, and records for care achievements
 	p.updateTimedGoalsLocked()
 	p.updateCareRecordsLocked(deltaTime)
+	p.keepMomentsLocked()
 
 	// Loneliness and neglect change the pet's personality
 	p.evolveFromNeglectLocked(deltaTime)

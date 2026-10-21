@@ -367,6 +367,7 @@ func (p *DigitalPet) EnterShow(showID string, level int, routine []string) (Show
 		p.PointsEarned += result.Points
 		ribbon := Ribbon{Show: s.ID, Level: level, Place: result.Place, Day: today()}
 		p.Ribbons = append(p.Ribbons, ribbon)
+		p.keepLocked(KeepsakeRibbon, fmt.Sprintf("%s/%d/%d", s.ID, level, result.Place))
 		result.Ribbon = &ribbon
 		v.Happiness += 0.05
 		result.Text = fmt.Sprintf("%s placed %s at %s with %d points and won a %s! 🏅", p.Name,
@@ -423,6 +424,14 @@ func (p *DigitalPet) hasTitleLocked(title string) bool {
 
 // championWinsLocked counts the different shows the pet has won at
 // Champion level. Caller must hold p.mu.
+// ChampionWins returns how many different shows the pet has won at
+// Champion level
+func (p *DigitalPet) ChampionWins() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.championWinsLocked()
+}
+
 func (p *DigitalPet) championWinsLocked() int {
 	shows := map[string]bool{}
 	for _, r := range p.Ribbons {

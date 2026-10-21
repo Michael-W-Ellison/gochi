@@ -343,6 +343,11 @@ func (p *DigitalPet) ensureWeeklyLocked() {
 	}
 	_, n := t.ISOWeek()
 	g := options[n%len(options)]
+	if theme := themeFor(t); theme.weekly != "" { // The week's theme, when it can
+		if i := slices.IndexFunc(options, func(o Goal) bool { return o.Kind == theme.weekly }); i >= 0 {
+			g = options[i]
+		}
+	}
 	g.Reward, g.Stars = weeklyPoints, weeklyStars
 	p.Weekly = &WeeklyGoal{Week: week, Goal: g}
 }

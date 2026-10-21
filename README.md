@@ -751,14 +751,15 @@ Several kinds of care come in variants, each with its own effect and lesson:
 Now and then something happens at home while you play: a thunderstorm, chocolate left within
 reach, a cat climbing the curtains, a dog stealing socks. A pop-up describes it and offers two or
 three choices; afterwards it says what happened and explains the real care behind it. There are
-44 happenings: 16 for cats and dogs, 10 for cats only, 10 for dogs only, and 8 that come only in
+46 happenings: 18 for cats and dogs, 10 for cats only, 10 for dogs only, and 8 that come only in
 a season or around a holiday (fireworks at New Year, Lunar New Year and Diwali, a festive tree at
 Christmas, sweets at Easter, Halloween and Valentine's Day, candles at Hanukkah, Diwali, Kwanzaa
 and Vesak, hot pavement in summer, salt on paws in winter, pollen in spring and moldy leaves in
 fall). A holiday turned off in **🔒 Privacy**
 brings no happenings. Some come only when they
 make sense: a bad smell when the living area is dirty, a pet that won't eat when its teeth are
-sore, a tangled coat for long-haired pets, a pet hiding when it shows a warning sign.
+sore, a tangled coat for long-haired pets, a pet hiding when it shows a warning sign, stiffness on
+the stairs for seniors.
 
 - At most one happening every 20 minutes of play, only while you are using the page and your pet
   is home, awake and well. The same happening comes at most once a week.
@@ -788,6 +789,32 @@ sore, a tangled coat for long-haired pets, a pet hiding when it shows a warning 
   downloaded. In **⚙️ Settings**, sound can be turned off, made louder or quieter, and given quiet
   hours; these settings are kept on that device. A parent can turn sound off for the household in
   **🔒 Privacy** (with the parent PIN if one is set); players can't then turn it back on.
+
+### Theme of the week, projects and books
+
+- **Theme of the week**: each real week has a care theme, shown under the daily checklist with a
+  link to the matching care guide topic: Dental, Enrichment, Grooming, Hydration, Training, Senior
+  care, Calm & comfort, Explorer, Friendship, Nutrition, Safety at home and Paw care, in that order.
+  Hydration and Paw care weeks swap places when that puts Hydration in summer and Paw care in winter
+  (for your hemisphere). The week's goal follows the theme when it can (teeth brushing in Dental
+  week, trips in Explorer week, new tricks in Training week, play in Enrichment week, finished days
+  in Nutrition week), and one home happening that week is about it. Five topics were added to the
+  care guide for the themes: Training, Outdoors safely, Company and friends, A safe home and Paw care.
+- **🎯 Projects**: long-term goals for the household, with progress bars: raise a Grand Champion,
+  complete the collection, furnish the house, raise five generations, and raise every breed of a
+  care tier (the tier nearest done is shown). They are worked out from what you have done already.
+- **📔 Book**: each pet has a book of its life. A page is added when it comes home or is born, grows
+  up, becomes a senior, learns its first trick, goes on its first trip, discovers a place, wins a
+  ribbon, completes a set of souvenirs for the household, has its first baby, gets a best friend
+  (a bond of at least 80%), and for each holiday you play together. Each page shows how the pet
+  looked then (its look and outfit, kept as drawing settings, not a picture) and a line of text
+  from a fixed list. The book shows its family (grandparents, parents and children, each opening
+  their own book). When a pet dies, its book gets a gentle closing page: how long it lived, its
+  tricks, places and ribbons, what it loved most and who it was closest to, with a candle you can
+  light. **All books** lists every pet's book. Books are files on this computer
+  (`<data dir>/books`); if you back up pets to your own cloud hub, the pages travel inside each
+  pet's encrypted save. A book stays after its pet is deleted, unless you tick **Delete its book
+  too** when deleting the pet; a deleted pet's book can be deleted from All books.
 
 ### Breeding
 

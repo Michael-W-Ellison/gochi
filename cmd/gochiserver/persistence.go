@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,8 @@ type petStore struct {
 	dm    *data.DataManager
 	saves map[string]*data.SaveData // Save metadata per slot
 	cache *data.Cache               // *cachedSave per slot
+
+	books *bookStore // Each pet's keepsake book, written when it is saved
 }
 
 // saveCacheSize is how much pet data (in bytes) the store keeps in memory,
@@ -73,6 +76,7 @@ type savedPet struct {
 	Outfit      string        `json:"outfit,omitempty"`     // Icons of what it wears
 	Breed       string        `json:"breed,omitempty"`
 	Look        *core.PetLook `json:"look,omitempty"` // nil for pets from before breeds
+	Generation  int           `json:"-"`              // 1 for a pet that wasn't born in the household
 }
 
 // newPetStore creates a store that keeps saves and backups under dir
@@ -88,7 +92,8 @@ func newPetStore(dir string) (*petStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &petStore{dm: dm, saves: make(map[string]*data.SaveData), cache: data.NewCache(saveCacheSize, 0)}, nil
+	return &petStore{dm: dm, saves: make(map[string]*data.SaveData), cache: data.NewCache(saveCacheSize, 0),
+		books: &bookStore{dir: filepath.Join(filepath.Dir(config.SavePath), "books")}}, nil
 }
 
 // cached returns the cached contents of slot's save file, if it hasn't
@@ -199,7 +204,13 @@ func (ps *petStore) SavePet(slot string, pet *core.DigitalPet) error {
 		return err
 	}
 	record := pet.SaveRecord()
-	return ps.SaveWithRecord(slot, petData, &record)
+	if err := ps.SaveWithRecord(slot, petData, &record); err != nil {
+		return err
+	}
+	if err := ps.books.write(pet); err != nil {
+		log.Printf("Could not write %s's book: %v", pet.Name, err)
+	}
+	return nil
 }
 
 // SaveWithRecord writes serialized pet data to slot, with the pet's record
@@ -290,7 +301,10 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		Outfit      map[string]string `json:"outfit"`
 		Breed       string            `json:"breed"`
 		Look        *core.PetLook     `json:"look"`
-		Biology     struct {
+		Genome      struct {
+			Generation int `json:"generation"`
+		} `json:"genome"`
+		Biology struct {
 			IsAlive   bool
 			Processes struct {
 				Age float64 `json:"age"`
@@ -318,6 +332,7 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		Outfit:      outfitIcons(summary.Outfit),
 		Breed:       summary.Breed,
 		Look:        summary.Look,
+		Generation:  summary.Genome.Generation,
 	}, nil
 }
 

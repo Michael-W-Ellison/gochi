@@ -151,6 +151,7 @@ after('showResult', () => {
     lastCare = null;
 });
 after('updateActivities', status => {
+    renderTheme(status);
     const points = status.friendship_points, signs = (status.symptoms || []).filter(s => !s.good).length;
     if (lastPoints !== null && points > lastPoints) playSound('chime');
     if (lastSigns !== null && signs > lastSigns) playSound('alert');

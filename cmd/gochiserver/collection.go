@@ -139,6 +139,7 @@ func (s *Server) collectLocked(pet *core.DigitalPet, ids []string) {
 		s.awardStarsLocked(starsSet, "set:"+place, true, "completing a set of souvenirs")
 		if pet != nil {
 			pet.Award("set_collector")
+			pet.KeepSetCompleted(place)
 		}
 	}
 	for _, id := range news.Rare {

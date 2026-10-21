@@ -35,6 +35,9 @@ func (p *DigitalPet) repair() error {
 	}
 	// Saves from before potions were limited could have more
 	p.Biology.LifeExtension = min(p.Biology.LifeExtension, MaxLifePotions*lifePotionDays)
+	if len(p.Keepsakes) > maxKeepsakes {
+		p.Keepsakes = p.Keepsakes[:maxKeepsakes]
+	}
 	if p.Emotions == nil {
 		p.Emotions = ai.NewEmotionStateWithPersonality(p.Personality.Traits)
 	}

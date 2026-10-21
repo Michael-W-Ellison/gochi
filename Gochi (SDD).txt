@@ -783,8 +783,8 @@ active pet to a saved pet that has a relationship with it: bond +0.05, a shared 
 happiness +0.05. Gifts only pass between saved pets on this computer.
 
 3.8.4 Home Happenings
-Happenings (happenings.go) are 44 events at home, each with 2 or 3 choices, of which exactly one
-is right: 16 for both species, 10 for cats, 10 for dogs and 8 for seasons and holidays (fireworks
+Happenings (happenings.go) are 46 events at home, each with 2 or 3 choices, of which exactly one
+is right: 18 for both species, 10 for cats, 10 for dogs and 8 for seasons and holidays (fireworks
 around New Year, Lunar New Year and Diwali; a festive tree at Christmas; sweets at Easter,
 Halloween and Valentine's Day; candles at Hanukkah, Diwali, Kwanzaa and Vesak, all only while
 the holiday is turned on and within a week of it; hot pavement in summer and salt on paws in
@@ -845,6 +845,33 @@ recipes of oscillators and filtered noise; nothing is downloaded. The player's s
 volume, quiet hours) are kept in the browser's local storage, defaulting to on at 0.5. A parent
 setting, SoundOff in the household file (PIN-protected like the other parental settings, merged
 with the other settings by time), silences every sound and hides the player's sound settings.
+
+3.9b Themes, Projects and Keepsake Books
+Themes (themes.go): ISO week number mod 12 picks dental, enrichment, grooming, hydration, training,
+senior, calm, explorer, friendship, nutrition, safety or paws. Hydration and paws (8 weeks apart
+in a round) swap when the hydration week is in winter or the paw care week in summer, by the real
+season for the household's hemisphere. Each has a care guide topic (teeth, exercise, grooming,
+water, training, senior, stress, outdoors, company, feeding, safety, paws; the five not in the
+species guides are added to both), a preferred weekly goal kind (used when it is among the week's
+options) and a list of happenings: the first that fits comes as the week's first happening, once
+a week. Two happenings were added for themes: a stale water bowl, and a senior stiff on the
+stairs (seniors only).
+Projects (projects.go, GET /api/projects): Grand Champion (Champion wins of the active pet, 3, or
+done if the household has the achievement), the collection (complete sets of 12), the house
+(upgrades owned of all), generations (highest genome generation among saved pets, of 5), and the
+care tier of one species with the largest share of its purebred breeds among saved pets.
+Keepsakes (keepsakes.go): pages are added to the pet's save (at most 120) for: home (made, or
+"born"), grew up, senior, first trick, first trip, each place discovered, each ribbon
+(show/level/place), each set completed, first baby (its name), first best friend (bond 0.8, its
+name), and each holiday played (once a year, checked once a day). Each page keeps the age, date,
+look and outfit. The text comes from fixed templates. When the pet is saved, the server writes
+<data dir>/books/<pet ID>.json with its name, species, breed, look, parents, pages, a memorial for
+a pet that has died (age, cause, tricks learned, places visited, ribbons, its strongest like, the
+pet it was closest to) and whether the memorial candle is lit (kept between writes). GET
+/api/books lists books; ?id= returns one with page text, outfit cosmetics and its family
+(parents, their parents, and children, from the other books). A book stays after its pet is
+deleted, unless delete_book is set when deleting; POST /api/books/delete removes the book of a pet
+no longer saved. Book IDs must match [A-Za-z0-9_-]{1,80}.
 
 3.10 Session and Lifecycle Management
 3.10.1 Pausing

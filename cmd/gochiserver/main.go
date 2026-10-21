@@ -109,6 +109,7 @@ type APIResponse struct {
 
 // PetStatus represents the pet's current state for the frontend
 type PetStatus struct {
+	ID       types.PetID      `json:"id"`
 	Name     string           `json:"name"`
 	Age      float64          `json:"age"`
 	IsAlive  bool             `json:"is_alive"`
@@ -135,6 +136,7 @@ type PetStatus struct {
 	Shelf        []core.Souvenir  `json:"shelf"`
 	Happening    *core.Happening  `json:"happening"`
 	TipsSeen     []string         `json:"tips_seen"`
+	Theme        core.Theme       `json:"theme"`     // This week's care theme
 	SoundOff     bool             `json:"sound_off"` // A parent has turned the game's sounds off
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
@@ -419,6 +421,10 @@ func main() {
 	mux.HandleFunc("/api/save", server.handleSave)
 	mux.HandleFunc("/api/saves", server.handleListSaves)
 	mux.HandleFunc("/api/saves/pause", server.handlePausePet)
+	mux.HandleFunc("/api/books", server.handleBooks)
+	mux.HandleFunc("/api/projects", server.handleProjects)
+	mux.HandleFunc("/api/books/candle", server.handleBookCandle)
+	mux.HandleFunc("/api/books/delete", server.handleDeleteBook)
 	mux.HandleFunc("/api/load", server.handleLoad)
 	mux.HandleFunc("/api/pause", server.handlePause)
 	mux.HandleFunc("/api/revive", server.handleRevive)
@@ -1059,6 +1065,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         #popupText { white-space: pre-line; }
         .tour-box { position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 420px; margin: 0 auto; z-index: 10002;
             background: #fff; border-radius: 14px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); }
+        .theme-line { margin: 8px 0; padding: 8px 10px; border-radius: 10px; background: #f3f0ff; font-size: 0.9em; text-align: left; }
+        .book-cover { text-align: center; }
+        .book-page { display: flex; gap: 10px; align-items: center; border-top: 1px solid #eee; padding: 6px 0; text-align: left; }
+        .book-family { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+        .book-relative { border: 1px solid #ddd; border-radius: 10px; background: #fff; padding: 2px 8px; cursor: pointer; }
+        .book-memorial { margin-top: 10px; padding: 10px; border-radius: 10px; background: #f7f5ef; text-align: center; }
         .tour-highlight { outline: 3px solid #667eea; outline-offset: 4px; border-radius: 10px; }
         .danger-btn { padding: 8px 16px; border: none; border-radius: 20px; background: #d9534f; color: white; font-weight: bold; cursor: pointer; }
         .danger-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1246,6 +1258,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <div class="illness hidden" id="illnessLine"></div>
                 <div id="symptoms"></div>
             </div>
+            <div class="theme-line" id="themeLine"></div>
             <div class="checklist" id="checklist"></div>
             <div class="goals hidden" id="goals"></div>
             <div class="forecast hidden" id="forecast"></div>
@@ -1264,6 +1277,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="save-btn" onclick="openPrivacy()">🔒 Privacy</button>
                 <button class="save-btn" onclick="openStats()">📊 My stats</button>
                 <button class="save-btn" onclick="openSettings()">⚙️ Settings</button>
+                <button class="save-btn" onclick="openBook()">📔 Book</button>
+                <button class="save-btn" onclick="openProjects()">🎯 Projects</button>
                 <button class="save-btn" onclick="openHelp()">❓ Help</button>
             </div>
             <div class="save-row">
@@ -1330,6 +1345,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <h3>Are you sure?</h3>
                 <p id="deletePrompt"></p>
                 <input type="text" id="deleteConfirmInput" autocomplete="off" oninput="updateDeleteButton()">
+                <label class="setting"><input type="checkbox" id="deleteBookInput"> <span>Delete its book too</span></label>
                 <div class="modal-actions">
                     <button class="save-btn" onclick="closeDeleteModal()">Cancel</button>
                     <button class="danger-btn" id="deleteFinalBtn" onclick="confirmDelete()" disabled>Delete forever</button>
@@ -1347,6 +1363,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/collection.js?v={{static}}"></script>
     <script src="/static/js/minigames.js?v={{static}}"></script>
     <script src="/static/js/sounds.js?v={{static}}"></script>
+    <script src="/static/js/book.js?v={{static}}"></script>
     <script>
         // The kinds of pet the game has (from /api/species): their names and
         // icons, and which care buttons each uses. The cat, the default species, is
@@ -1559,6 +1576,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('deleteWarning').textContent =
                 'This permanently deletes ' + pet.name + ' and all of its saved backups. It cannot be undone.';
             document.getElementById('deleteStep1').classList.remove('hidden');
+            document.getElementById('deleteBookInput').checked = false;
             document.getElementById('deleteStep2').classList.add('hidden');
             document.getElementById('deleteModal').classList.remove('hidden');
         }
@@ -1591,7 +1609,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             postJSON('/api/delete', {
                 slot: deleteTarget.slot,
-                confirm_name: document.getElementById('deleteConfirmInput').value
+                confirm_name: document.getElementById('deleteConfirmInput').value,
+                delete_book: document.getElementById('deleteBookInput').checked
             })
             .then(data => {
                 closeDeleteModal();
@@ -3339,7 +3358,7 @@ func (s *Server) saveNow() (bool, error) {
 		s.mu.RUnlock()
 		return false, nil
 	}
-	slot := s.slot
+	slot, pet := s.slot, s.pet
 	petData, err := s.pet.Save()
 	record := s.pet.SaveRecord()
 	s.mu.RUnlock()
@@ -3349,6 +3368,9 @@ func (s *Server) saveNow() (bool, error) {
 
 	if err := s.store.SaveWithRecord(slot, petData, &record); err != nil {
 		return false, err
+	}
+	if err := s.store.books.write(pet); err != nil {
+		log.Printf("Could not write %s's book: %v", pet.Name, err)
 	}
 	return true, nil
 }
@@ -3693,6 +3715,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		Slot        string `json:"slot"`
 		ConfirmName string `json:"confirm_name"`
 		ParentPIN   string `json:"parent_pin"`
+		DeleteBook  bool   `json:"delete_book"` // Delete its keepsake book too
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !ValidSlot(req.Slot) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid save slot"})
@@ -3757,6 +3780,11 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not delete pet"})
 		return
+	}
+	if req.DeleteBook && petID != "" {
+		if err := s.store.books.remove(petID); err != nil {
+			log.Printf("Could not delete %s's book: %v", name, err)
+		}
 	}
 	if active {
 		s.pet, s.slot = nil, ""
@@ -3843,6 +3871,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.pet.GetCurrentStatus()
 
 	petStatus := PetStatus{
+		ID:          s.pet.ID,
 		Name:        s.pet.Name,
 		Age:         status.Age,
 		IsAlive:     status.IsAlive,
@@ -3920,6 +3949,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	petStatus.Happening = s.pet.CurrentHappening()
+	petStatus.Theme = core.WeekTheme()
 	petStatus.Popups = append([]popup{}, s.popups...)
 	if s.owner != nil {
 		petStatus.PlaySchedule = s.owner.Summary()
