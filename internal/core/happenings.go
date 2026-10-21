@@ -92,6 +92,7 @@ type happeningDef struct {
 	species                       Species              // "" for both
 	seasons                       []environment.Season // Only in these seasons, if any
 	holidays                      []string             // Only around these holidays, if any
+	places                        []string             // For a trip event, the place it happens
 	when                          func(p *DigitalPet) bool
 	choices                       []happeningChoice
 }
@@ -508,13 +509,23 @@ var happenings = []happeningDef{
 		}},
 }
 
-// findHappening returns a happening
+// findHappening returns a happening or trip event
 func findHappening(id string) (happeningDef, bool) {
-	i := slices.IndexFunc(happenings, func(h happeningDef) bool { return h.id == id })
-	if i < 0 {
-		return happeningDef{}, false
+	for _, list := range [][]happeningDef{happenings, tripEvents} {
+		if i := slices.IndexFunc(list, func(h happeningDef) bool { return h.id == id }); i >= 0 {
+			return list[i], true
+		}
 	}
-	return happenings[i], true
+	return happeningDef{}, false
+}
+
+// markHappeningLocked records that a happening came today. Caller must
+// hold p.mu.
+func (p *DigitalPet) markHappeningLocked(id string) {
+	if p.Marks == nil {
+		p.Marks = make(map[string]string)
+	}
+	p.Marks["happening:"+id] = today()
 }
 
 // view returns the happening as the player sees it
@@ -596,10 +607,7 @@ func (p *DigitalPet) CheckHappening() *Happening {
 	h := fits[randIntn(len(fits))]
 	p.Happening = &PendingHappening{ID: h.id, Since: t}
 	p.LastHappening = t
-	if p.Marks == nil {
-		p.Marks = make(map[string]string)
-	}
-	p.Marks["happening:"+h.id] = today()
+	p.markHappeningLocked(h.id)
 	return h.view(p.Name)
 }
 

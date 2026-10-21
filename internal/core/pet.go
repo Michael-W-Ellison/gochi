@@ -148,9 +148,11 @@ type DigitalPet struct {
 	TrickPracticedAge map[string]float64   `json:"trick_practiced_age"` // Age each trick was last trained or performed
 	TricksLearned     map[string]bool      `json:"tricks_learned"`      // Tricks the pet has ever learned
 	ExploringUntilAge float64              `json:"exploring_until_age"`
-	ExploringTo       string               `json:"exploring_to"`      // Where the current or last trip went
-	ParasiteExposure  float64              `json:"parasite_exposure"` // Builds with trips to risky places (places.go)
-	TripsTaken        int                  `json:"trips_taken"`       // Trips finished, which discover new places
+	ExploringTo       string               `json:"exploring_to"`          // Where the current or last trip went
+	LongTrip          bool                 `json:"long_trip,omitempty"`   // The current or last trip is a long one
+	TripFriend        *TripFriend          `json:"trip_friend,omitempty"` // A friend on the current trip, until it shares the finds
+	ParasiteExposure  float64              `json:"parasite_exposure"`     // Builds with trips to risky places (places.go)
+	TripsTaken        int                  `json:"trips_taken"`           // Trips finished, which discover new places
 	Souvenirs         []string             `json:"souvenirs"`
 	LastAdventure     *Adventure           `json:"last_adventure"`
 	LastGameReward    time.Time            `json:"last_game_reward"`

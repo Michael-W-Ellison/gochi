@@ -520,10 +520,15 @@ func TestExplorePlacesThroughServer(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.handlePlaces(rec, httptest.NewRequest(http.MethodGet, "/api/explore/places", nil))
 	var resp struct {
-		Data []core.Place `json:"data"`
+		Data struct {
+			Places   []core.Place `json:"places"`
+			LongTrip string       `json:"long_trip"`
+		} `json:"data"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Data) != 6 ||
-		resp.Data[0].ID != "park" || !resp.Data[0].Discovered || resp.Data[1].Discovered {
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	places := resp.Data.Places
+	if err != nil || len(places) != 11 ||
+		places[0].ID != "park" || !places[0].Discovered || places[1].Discovered || resp.Data.LongTrip == "" {
 		t.Fatalf("Places: %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -535,7 +540,7 @@ func TestExplorePlacesThroughServer(t *testing.T) {
 		t.Errorf("Unknown place: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := post(t, server.handleExplore, `{"place":"park"}`); rec.Code != http.StatusOK ||
-		!strings.Contains(rec.Body.String(), "Biscuit sets off to explore the park!") {
+		!strings.Contains(rec.Body.String(), "Biscuit sets off on a harness walk at the park!") {
 		t.Errorf("Park: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -576,5 +581,34 @@ func TestLifeAndPotionThroughServer(t *testing.T) {
 	}
 	if server.pet.LifeStatus().Lifespan <= before {
 		t.Error("The potion should lengthen the pet's life")
+	}
+}
+
+func TestTripWithAFriendThroughServer(t *testing.T) {
+	server, pipSlot, pip := family(t)
+	if rec := post(t, server.handleExplore, `{"place":"park","friend_slot":"`+pipSlot+`"}`); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "closer friends") {
+		t.Errorf("A trip with a pet Mochi isn't close to: %d %s", rec.Code, rec.Body.String())
+	}
+	server.mu.Lock()
+	server.pet.Relationships.AddRelationship(pip.ID, types.RelationshipFriend).BondStrength = 0.6
+	server.mu.Unlock()
+	if rec := post(t, server.handleExplore, `{"place":"park","friend_slot":"`+pipSlot+`"}`); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), "with Pip") {
+		t.Fatalf("A trip with Pip: %d %s", rec.Code, rec.Body.String())
+	}
+	server.mu.Lock()
+	server.pet.Update(3)
+	server.mu.Unlock()
+	server.shareTripWithFriend()
+	saved, _, _, err := server.store.Load(pipSlot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := saved.Relationships.GetRelationship(server.pet.ID); !ok || saved.PlaceVisits["park"] != 1 {
+		t.Errorf("Pip should have been on the trip: %v", saved.PlaceVisits)
+	}
+	if _, ok := server.pet.TripFriendToShare(); ok {
+		t.Error("The trip is shared once")
 	}
 }

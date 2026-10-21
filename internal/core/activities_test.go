@@ -199,7 +199,7 @@ func TestExploringTrip(t *testing.T) {
 	}
 	if pet.LastAdventure == nil || pet.LastAdventure.Outcome != OutcomeTreasure ||
 		pet.LastAdventure.Souvenir == nil || pet.LastAdventure.Souvenir.ID != "pebble" ||
-		pet.LastAdventure.Text != "Biscuit came home from the park with a shiny pebble! 🪨 Biscuit made some friends along the way." {
+		pet.LastAdventure.Text != "Biscuit came home from a harness walk at the park with a shiny pebble! 🪨 Biscuit made some friends along the way." {
 		t.Errorf("Unexpected adventure: %+v", pet.LastAdventure)
 	}
 	if c := pet.SouvenirCollection(); len(c) != 1 || c[0].ID != "pebble" || c[0].Count != 1 {
@@ -292,7 +292,7 @@ func TestTripCanFindNothing(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 
 	a := exploreOnce(t, pet)
-	if a.Outcome != OutcomeNothing || a.Souvenir != nil || a.Text != "Biscuit came home from the park with a muddy stick. Not much of a treasure! Biscuit made some friends along the way." {
+	if a.Outcome != OutcomeNothing || a.Souvenir != nil || a.Text != "Biscuit came home from a harness walk at the park with a muddy stick. Not much of a treasure! Biscuit made some friends along the way." {
 		t.Errorf("Unexpected adventure: %+v", a)
 	}
 	if len(pet.SouvenirCollection()) != 0 {
@@ -303,7 +303,7 @@ func TestTripCanFindNothing(t *testing.T) {
 	}
 
 	useRandom(t, 99, 3) // Nothing at all; the second trip discovers the beach
-	if a := exploreOnce(t, pet); a.Text != "Biscuit came home from the park empty-handed. Biscuit made some friends along the way. 🗺️ Biscuit can now explore the beach!" {
+	if a := exploreOnce(t, pet); a.Text != "Biscuit came home from a harness walk at the park empty-handed. Biscuit made some friends along the way. 🗺️ Biscuit can now explore the beach!" {
 		t.Errorf("Text = %q", a.Text)
 	}
 }

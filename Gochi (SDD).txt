@@ -738,9 +738,21 @@ the pet warier of exploring. An injured pet asks to be healed and cannot explore
 A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
 cared for while away. A pet that enjoys exploring investigates at home on its own (the
 INVESTIGATING state); only the player starts a trip.
-Places: a trip goes to one of the environment's locations: park, beach, farm, forest, city or
-mountain, discovered after 0, 2, 4, 6, 9 and 12 finished trips (a trip called home early does not
-count). A place adds (danger - 0.1) x 30 points to the injury chance and multiplies the treasure
+Places: a trip goes to one of the environment's locations: park, beach, meadow, farm, garden
+(cats only), dog park (dogs only), forest, river, snowy hill, city, lakeside and mountain,
+discovered after 0, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10 and 12 finished trips (a trip called home early
+does not count). The river can't be visited in winter, the snowy hill only in winter and the
+lakeside only in summer. Environments saved before a place existed get it added. Cats go on a
+harness walk with the owner. A long trip (longExploreDuration 5 game days) needs an adult that
+isn't a senior with the "come" trick learned and at skill 1; it adds 3 points to the injury
+chance, rolls the outcome a second time for a second souvenir, and costs 0.1 more energy. A friend
+(a saved pet of the same species, alive, home, well, energy, water and food at least 0.4, to
+which the pet's bond is at least 0.5, and fit for a long trip if it is long) is recorded with the
+trip; when the trip ends the server loads it and ShareTrip gives it a copy of each souvenir, a
+place visit, energy -0.1 (-0.2 on a long trip), happiness +0.05, exploration need +0.5, and both
+pets bond +0.05 with a shared experience. A trip that wasn't an injury ends with a trip event with
+chance 1/3 (tripevents.go): 30 events, 2 or 3 per place, handled like home happenings (3.8.4),
+some of whose right choices add a souvenir from the place. A place adds (danger - 0.1) x 30 points to the injury chance and multiplies the treasure
 chance by exploration value / 0.7 x (0.3 + 0.7 x resources), up to 90%. Each place's resources
 (1.0 when untouched) fall by 0.3 when the pet finds a souvenir there and 0.1 when it finds nothing,
 and grow back by 0.05 per game day.

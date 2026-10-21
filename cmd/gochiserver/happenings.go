@@ -51,6 +51,7 @@ func (s *Server) handleHappening(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown choice"})
 		default:
+			s.collectLocked(s.pet, souvenirIDs(s.pet)) // A good choice on a trip can find something
 			writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: result})
 		}
 	})

@@ -605,6 +605,7 @@ func (s *Server) safeTick(now time.Time) {
 		}
 	}()
 	s.tick(now)
+	s.shareTripWithFriend()
 }
 
 // tick advances the active pet to now, unless the game is paused
@@ -2914,43 +2915,75 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .catch(console.error);
         }
 
-        // Exploring: with only the park discovered, the pet goes straight
-        // there; otherwise the player picks a place
+        // Exploring: with only the park discovered and nothing else to
+        // choose, the pet goes straight there; otherwise the player picks
+        // a place, and can choose a long trip or a friend to take along
         function explore() {
-            fetch('/api/explore/places')
-                .then(r => r.json())
-                .then(data => {
+            Promise.all([fetch('/api/explore/places').then(r => r.json()), fetch('/api/saves').then(r => r.json())])
+                .then(([data, saves]) => {
                     if (!data.success) {
                         showPointsToast(data.error || 'Something went wrong');
                         return;
                     }
-                    const discovered = data.data.filter(place => place.discovered);
-                    if (discovered.length <= 1) exploreTo(discovered.length ? discovered[0].id : 'park');
-                    else renderPlaces(data.data);
+                    const places = data.data.places;
+                    const species = (lastStatus && lastStatus.species) || 'cat';
+                    const friends = ((saves.success && saves.data.pets) || []).filter(pet =>
+                        pet.slot !== saves.data.active_slot && pet.is_alive && !pet.unreadable && !pet.hibernating &&
+                        (pet.species || 'cat') === species);
+                    const discovered = places.filter(place => place.discovered);
+                    if (discovered.length <= 1 && data.data.long_trip && !friends.length) exploreTo('park');
+                    else renderPlaces(places, data.data.long_trip, friends);
                 })
                 .catch(console.error);
         }
 
-        function renderPlaces(places) {
+        function renderPlaces(places, longTrip, friends) {
             panelMode = 'places';
             const p = panel();
             p.replaceChildren(panelHeader('Explore'));
             const name = (lastStatus && lastStatus.name) || 'Your pet';
+            const cat = lastStatus && lastStatus.species !== 'dog';
             const intro = document.createElement('div');
             intro.className = 'panel-text';
             intro.textContent = 'Where should ' + name + ' explore? Wilder places hold more to find and more danger. ' +
-                'What ' + name + ' finds is taken from the place and grows back over time.';
+                'What ' + name + ' finds is taken from the place and grows back over time.' +
+                (cat ? ' Cats go exploring on a harness walk with you, the safe way for a cat to be outdoors.' : '');
             p.append(intro);
+
+            // A long trip and a friend
+            const options = el('div', 'show-row');
+            const length = el('select', 'show-level');
+            length.setAttribute('aria-label', 'Trip length');
+            [['short', 'Short trip'], ['long', 'Long trip (two chances to find something)']].forEach(([v, text]) => {
+                const o = el('option', '', text);
+                o.value = v;
+                o.disabled = v === 'long' && !!longTrip;
+                length.append(o);
+            });
+            const friend = el('select', 'show-level');
+            friend.setAttribute('aria-label', 'Friend');
+            const alone = el('option', '', 'On its own');
+            alone.value = '';
+            friend.append(alone);
+            friends.forEach(pet => {
+                const o = el('option', '', 'With ' + pet.name);
+                o.value = pet.slot;
+                friend.append(o);
+            });
+            options.append(length, friend);
+            p.append(options);
+            if (longTrip) cloudText(p, 'Long trips: ' + longTrip, 'panel-text cloud-note');
+
             places.forEach(place => {
                 const row = document.createElement('div');
                 row.className = 'trick-row';
                 const label = document.createElement('span');
                 label.className = 'trick-name';
                 label.textContent = place.icon + ' ' + place.name;
-                if (!place.discovered) {
+                if (!place.discovered || place.unavailable) {
                     const info = document.createElement('span');
                     info.style.cssText = 'flex: 1; font-size: 0.8em; color: #777;';
-                    info.textContent = 'Discovered after ' + place.trips_needed + ' trips';
+                    info.textContent = place.discovered ? place.unavailable : 'Discovered after ' + place.trips_needed + ' trips';
                     row.append(label, info);
                 } else {
                     const bar = document.createElement('div');
@@ -2964,7 +2997,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     const btn = document.createElement('button');
                     btn.className = 'save-btn';
                     btn.textContent = 'Go';
-                    btn.onclick = () => exploreTo(place.id);
+                    btn.onclick = () => exploreTo(place.id, length.value === 'long', friend.value);
                     row.append(label, bar, btn);
                 }
                 p.append(row);
@@ -2972,8 +3005,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             p.classList.remove('hidden');
         }
 
-        function exploreTo(place) {
-            postJSON('/api/explore', {place: place})
+        function exploreTo(place, long, friendSlot) {
+            postJSON('/api/explore', {place: place, long: !!long, friend_slot: friendSlot || ''})
                 .then(data => {
                     if (data.success) {
                         closePanel();

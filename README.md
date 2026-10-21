@@ -655,16 +655,33 @@ Several kinds of care come in variants, each with its own effect and lesson:
   counts as play and earns a 5-point game bonus (at most once every 3 minutes). Press **Stop
   playing** (or close the panel) to end the game early; an unfinished game earns nothing.
 - **🧭 Explore**: send your pet out for about 2 minutes. Once it has discovered more than the
-  park, pick where it goes: the park, then the beach (discovered after 2 trips), the farm (4),
-  the forest (6), the city (9) and the mountain (12). Wilder places hold more to find and are more
+  park, pick where it goes. Places are discovered by finishing trips:
+
+  | Place | Discovered after | Notes |
+  |---|---|---|
+  | 🌳 Park | – | |
+  | 🏖️ Beach | 2 trips | |
+  | 🌼 Meadow | 3 | |
+  | 🚜 Farm | 4 | |
+  | 🌷 Garden | 5 | Cats only: a quiet, safe garden |
+  | 🐕 Dog park | 5 | Dogs only |
+  | 🌲 Forest | 6 | |
+  | 🏞️ River | 7 | Not in winter |
+  | 🏔️ Snowy hill | 8 | Winter only |
+  | 🏙️ City | 9 | |
+  | 🛶 Lakeside | 10 | Summer only |
+  | ⛰️ Mountain | 12 | |
+
+  Cats go everywhere except the dog park on a **harness walk** with you: most vets advise keeping
+  cats indoors or giving them supervised time outdoors. Wilder places hold more to find and are more
   dangerous. What your pet finds is taken from the place (a souvenir takes more than looking
   around and finding nothing), shown as a bar of what is left to find; a place grows back over
   about 20 game days (faster in summer and fall, when food is plentiful, and slower in winter), so
   going to the same place again and again finds less. Places differ in other ways too: the park and
   the city have the most animals and people around, so trips there do the most for your pet's need
   for company (and a sociable pet comes home happier, having made friends), while wilder places do
-  more for its need for adventure. Every place carries some risk of parasites, lowest at the park
-  and the farm and highest on the mountain; it builds up over visits (faster for a pet with a weak
+  more for its need for adventure. Every place carries some risk of parasites, lowest in the garden,
+  the park and the farm and highest on the mountain; it builds up over visits (faster for a pet with a weak
   immune system) until the pet catches them and needs medical care. It needs energy, water and food to go,
   and can't be cared for while it is away, though you can still clean its living area. Pausing
   time pauses the trip too. Trips don't always go well:
@@ -676,7 +693,20 @@ Several kinds of care come in variants, each with its own effect and lesson:
     **Heal**. Adaptable pets get hurt less often. A badly hurt pet can die, or hibernates if gentle mode is on.
 
   Press **Call home early** to bring your pet back before the trip ends; it comes home with
-  nothing from the trip. A pet that enjoys exploring sniffs around the house on its own; it only
+  nothing from the trip.
+
+  - **Long trips** (about 5 minutes) give two chances to find a souvenir, but are a little riskier
+    and more tiring. Only a grown-up pet that isn't a senior, and that comes reliably when called
+    (the **Come** trick learned and not rusty), can go: recall keeps a pet safe.
+  - **A friend** can come along: another of your saved pets of the same species that your pet is
+    close to (a bond of at least 50%) and that is well, fed and rested. When the trip ends, the
+    friend gets a copy of each souvenir found, the trip's fun and exercise, and the two grow closer.
+    The friend's save changes only then; nothing leaves the computer.
+  - **Trip choices**: one trip in three ends with a choice about something that happened there,
+    such as your pet wanting to drink from a still pond at the river, or a loud truck in the city.
+    There are 30 of them, 2 or 3 for each place. A good choice cheers your pet up, sometimes finds
+    something extra, and earns points like a home happening (see below); a poor one has a mild
+    effect, and each explains why. A pet that enjoys exploring sniffs around the house on its own; it only
   goes on a trip when you press **Explore**.
 - **🧺 Collection**: every place has a set of five souvenirs, four common and one rare (the park's
   is a four-leaf clover, the beach's a pearl), 60 in all. The collection belongs to the household:

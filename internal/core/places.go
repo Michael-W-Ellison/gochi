@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
@@ -25,18 +26,27 @@ var (
 // trips from saves made before places existed went
 const defaultPlace = "park"
 
-// placeDetails are how each place is shown, and how many trips it takes
-// to discover it
+// placeDetails are how each place is shown, how many trips it takes to
+// discover it, the one species that goes there (if only one), and the
+// seasons it can be visited in (if not all)
 var placeDetails = map[string]struct {
 	icon, phrase string
 	tripsNeeded  int
+	species      Species
+	seasons      []environment.Season
 }{
-	"park":     {"🌳", "the park", 0},
-	"beach":    {"🏖️", "the beach", 2},
-	"farm":     {"🚜", "the farm", 4},
-	"forest":   {"🌲", "the forest", 6},
-	"city":     {"🏙️", "the city", 9},
-	"mountain": {"⛰️", "the mountain", 12},
+	"park":       {"🌳", "the park", 0, "", nil},
+	"beach":      {"🏖️", "the beach", 2, "", nil},
+	"meadow":     {"🌼", "the meadow", 3, "", nil},
+	"farm":       {"🚜", "the farm", 4, "", nil},
+	"garden":     {"🌷", "the garden", 5, SpeciesCat, nil},
+	"dog_park":   {"🐕", "the dog park", 5, SpeciesDog, nil},
+	"forest":     {"🌲", "the forest", 6, "", nil},
+	"river":      {"🏞️", "the river", 7, "", []environment.Season{environment.SeasonSpring, environment.SeasonSummer, environment.SeasonFall}},
+	"snowy_hill": {"🏔️", "the snowy hill", 8, "", []environment.Season{environment.SeasonWinter}},
+	"city":       {"🏙️", "the city", 9, "", nil},
+	"lakeside":   {"🛶", "the lakeside", 10, "", []environment.Season{environment.SeasonSummer}},
+	"mountain":   {"⛰️", "the mountain", 12, "", nil},
 }
 
 // How a place changes a trip. Danger adds dangerInjury percentage points
@@ -64,9 +74,10 @@ type Place struct {
 	Icon        string  `json:"icon"`
 	Description string  `json:"description"`
 	Discovered  bool    `json:"discovered"`
-	TripsNeeded int     `json:"trips_needed"` // Total trips that discover it
-	Resources   float64 `json:"resources"`    // How much is left to find (0.0 to 1.0)
-	Danger      float64 `json:"danger"`       // 0.0 to 1.0
+	TripsNeeded int     `json:"trips_needed"`          // Total trips that discover it
+	Resources   float64 `json:"resources"`             // How much is left to find (0.0 to 1.0)
+	Danger      float64 `json:"danger"`                // 0.0 to 1.0
+	Unavailable string  `json:"unavailable,omitempty"` // Why it can't be visited now (out of season)
 }
 
 // ensureLocationsLocked creates the locations for environments saved
@@ -76,12 +87,14 @@ func (p *DigitalPet) ensureLocationsLocked() *environment.LocationManager {
 	if p.Environment.Locations == nil {
 		p.Environment.Locations = environment.NewLocationManager()
 	}
+	p.Environment.Locations.AddMissing()
 	return p.Environment.Locations
 }
 
-// placeLocked returns the location for a place. Caller must hold p.mu.
+// placeLocked returns the location for a place the pet's species goes to.
+// Caller must hold p.mu.
 func (p *DigitalPet) placeLocked(id string) (*environment.Location, bool) {
-	if _, ok := placeDetails[id]; !ok {
+	if d, ok := placeDetails[id]; !ok || (d.species != "" && d.species != p.speciesLocked()) {
 		return nil, false
 	}
 	loc, ok := p.ensureLocationsLocked().Locations[id]
@@ -93,6 +106,23 @@ func (p *DigitalPet) placeLocked(id string) (*environment.Location, bool) {
 // hold p.mu.
 func (p *DigitalPet) discoveredLocked(id string, loc *environment.Location) bool {
 	return loc.Unlocked || p.TripsTaken >= placeDetails[id].tripsNeeded
+}
+
+// placeSeasonLocked says why a place can't be visited in this season, or
+// returns "". Caller must hold p.mu.
+func (p *DigitalPet) placeSeasonLocked(id string) string {
+	seasons := placeDetails[id].seasons
+	if len(seasons) == 0 {
+		return ""
+	}
+	p.ensureEnvironmentLocked()
+	if slices.Contains(seasons, p.Environment.GetSeason()) {
+		return ""
+	}
+	if len(seasons) == 1 {
+		return fmt.Sprintf("Only in %s", strings.ToLower(seasons[0].String()))
+	}
+	return "Not in winter"
 }
 
 // Places returns the places the pet can explore, nearest first
@@ -109,7 +139,7 @@ func (p *DigitalPet) Places() []Place {
 		places = append(places, Place{
 			ID: id, Name: loc.Name, Icon: placeDetails[id].icon, Description: loc.Description,
 			Discovered: p.discoveredLocked(id, loc), TripsNeeded: placeDetails[id].tripsNeeded,
-			Resources: loc.ResourceLevel(), Danger: loc.Features.DangerLevel,
+			Resources: loc.ResourceLevel(), Danger: loc.Features.DangerLevel, Unavailable: p.placeSeasonLocked(id),
 		})
 	}
 	return places
@@ -156,7 +186,7 @@ func (p *DigitalPet) takeFromPlaceLocked(outcome string) string {
 	p.TripsTaken++
 	for _, id := range environment.TripDestinations() {
 		if needed := placeDetails[id].tripsNeeded; needed > 0 && needed == p.TripsTaken {
-			if loc, ok := p.placeLocked(id); ok {
+			if loc, ok := p.placeLocked(id); ok { // Only places for its species
 				loc.Unlocked = true
 				return fmt.Sprintf(" 🗺️ %s can now explore %s!", p.Name, placeDetails[id].phrase)
 			}
@@ -169,7 +199,7 @@ func (p *DigitalPet) takeFromPlaceLocked(outcome string) string {
 // recently. Caller must hold p.mu.
 func (p *DigitalPet) lastDiscoveredLocked() string {
 	for _, id := range environment.TripDestinations() {
-		if placeDetails[id].tripsNeeded == p.TripsTaken {
+		if _, ok := p.placeLocked(id); ok && placeDetails[id].tripsNeeded == p.TripsTaken {
 			return id
 		}
 	}

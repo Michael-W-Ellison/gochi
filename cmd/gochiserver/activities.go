@@ -253,7 +253,9 @@ func (s *Server) handleHideSeekGuess(w http.ResponseWriter, r *http.Request) {
 // - sends the pet exploring (to the park if no place is given)
 func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Place string `json:"place"`
+		Place      string `json:"place"`
+		Long       bool   `json:"long"`
+		FriendSlot string `json:"friend_slot"`
 	}
 	if r.Method == http.MethodPost && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -264,8 +266,25 @@ func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 	if req.Place == "" {
 		req.Place = "park"
 	}
+	if req.FriendSlot != "" && (!ValidSlot(req.FriendSlot) || s.store == nil) {
+		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid friend"})
+		return
+	}
 	s.withActivePet(w, r, func() {
-		if err := s.pet.SendExploringTo(req.Place); err != nil {
+		opts := core.TripOptions{Place: req.Place, Long: req.Long}
+		if req.FriendSlot != "" {
+			if req.FriendSlot == s.slot {
+				writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Choose another of your pets"})
+				return
+			}
+			friend, _, _, err := s.store.Load(req.FriendSlot)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No saved pet in that slot"})
+				return
+			}
+			opts.Friend, opts.FriendSlot = friend, req.FriendSlot
+		}
+		if err := s.pet.SendExploringWith(opts); err != nil {
 			writeActivityError(w, s.pet.Name, err)
 			return
 		}
@@ -275,15 +294,26 @@ func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 				name = strings.ToLower(place.Name)
 			}
 		}
+		text := s.pet.Name + " sets off to explore the " + name
+		if s.pet.GetSpecies() == core.SpeciesCat {
+			text = s.pet.Name + " sets off on a harness walk at the " + name
+		}
+		if opts.Friend != nil {
+			text += " with " + opts.Friend.Name
+		}
+		if req.Long {
+			text += " for a long trip"
+		}
 		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
-			"text":              s.pet.Name + " sets off to explore the " + name + "!",
+			"text":              text + "!",
 			"exploring_seconds": gameDaysToSeconds(s.pet.ExploringRemaining()),
 		}})
 	})
 }
 
 // handlePlaces handles GET /api/explore/places - where the active pet can
-// explore, how much is left to find there and how dangerous it is
+// explore, how much is left to find there and how dangerous it is, and
+// why it can't go on a long trip ("" if it can)
 func (s *Server) handlePlaces(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
@@ -295,7 +325,9 @@ func (s *Server) handlePlaces(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
 		return
 	}
-	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.pet.Places()})
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
+		"places": s.pet.Places(), "long_trip": s.pet.LongTripProblem(),
+	}})
 }
 
 // handleRecall handles POST /api/explore/recall - calls the pet home
@@ -547,4 +579,49 @@ func (s *Server) handlePotion(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"text": text}})
 	}
+}
+
+// shareTripWithFriend gives the friend on the active pet's last trip its
+// share once the trip is over, and saves both pets. It takes the save lock
+// itself, so it runs after tick rather than inside it.
+func (s *Server) shareTripWithFriend() {
+	s.mu.RLock()
+	pending := s.pet != nil && s.store != nil
+	if pending {
+		_, pending = s.pet.TripFriendToShare()
+	}
+	s.mu.RUnlock()
+	if !pending {
+		return
+	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pet == nil {
+		return
+	}
+	slot, ok := s.pet.TripFriendToShare()
+	if !ok {
+		return
+	}
+	var friend *core.DigitalPet
+	if ValidSlot(slot) && slot != s.slot {
+		friend, _, _, _ = s.store.Load(slot)
+	}
+	if friend == nil {
+		s.pet.ClearTripFriend() // The friend's save is gone
+		return
+	}
+	text, err := core.ShareTrip(s.pet, friend)
+	if err != nil {
+		return // The friend can't take its share; ShareTrip has cleared it
+	}
+	if err := s.store.SavePet(slot, friend); err != nil {
+		log.Printf("Failed to save %s after a trip: %v", friend.Name, err)
+	}
+	if err := s.saveActiveLocked(); err != nil {
+		log.Printf("Failed to save %s after a trip: %v", s.pet.Name, err)
+	}
+	s.events.Emit(core.GameEvent{Type: core.EventAchievement, PetID: s.pet.ID, Good: true, Message: "🐾 " + text})
 }
