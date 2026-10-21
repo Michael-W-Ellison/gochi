@@ -60,21 +60,6 @@ func NewEnvironment() *Environment {
 	return env
 }
 
-// NewEnvironmentWithConfig creates an environment with custom settings
-func NewEnvironmentWithConfig(baseTemp float64, daysPerSeason int) *Environment {
-	env := &Environment{
-		Weather:         NewWeatherSystemWithConfig(baseTemp, 15.0, 6.0),
-		Seasons:         NewSeasonalCycleWithConfig(daysPerSeason, SeasonSpring),
-		Locations:       NewLocationManager(),
-		TimeOfDay:       12.0,
-		GameTimeElapsed: 0,
-		LastRealUpdate:  time.Now(),
-	}
-
-	env.calculateCombinedEffects()
-	return env
-}
-
 // Update advances all environmental systems
 func (e *Environment) Update(deltaTimeHours float64) {
 	// Update game time

@@ -22,7 +22,7 @@ func wealthyPet(t *testing.T, species Species) *DigitalPet {
 
 func TestCatalogCounts(t *testing.T) {
 	everyday := 0
-	for _, c := range Cosmetics() {
+	for _, c := range cosmeticCatalog {
 		if c.Season == "" && c.Holiday == "" {
 			everyday++
 		}

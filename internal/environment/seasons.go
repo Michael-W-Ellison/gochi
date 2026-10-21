@@ -62,15 +62,6 @@ func NewSeasonalCycle() *SeasonalCycle {
 	return sc
 }
 
-// NewSeasonalCycleWithConfig creates a seasonal cycle with custom settings
-func NewSeasonalCycleWithConfig(daysPerSeason int, startSeason Season) *SeasonalCycle {
-	sc := NewSeasonalCycle()
-	sc.DaysPerSeason = daysPerSeason
-	sc.CurrentSeason = startSeason
-	sc.Effects = sc.calculateSeasonalEffects()
-	return sc
-}
-
 // Update advances the seasonal cycle based on elapsed game days
 func (sc *SeasonalCycle) Update(gameDaysPassed float64) {
 	if math.IsNaN(gameDaysPassed) || math.IsInf(gameDaysPassed, 0) || gameDaysPassed < 0 {

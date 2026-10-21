@@ -272,58 +272,6 @@ func TestMapStringToInteractionType(t *testing.T) {
 	}
 }
 
-func TestGetQueryParam(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test?foo=bar", nil)
-
-	value := getQueryParam(req, "foo", "default")
-	if value != "bar" {
-		t.Errorf("Expected 'bar', got '%s'", value)
-	}
-
-	defaultValue := getQueryParam(req, "missing", "default")
-	if defaultValue != "default" {
-		t.Errorf("Expected 'default', got '%s'", defaultValue)
-	}
-}
-
-func TestGetQueryParamInt(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test?num=42&invalid=abc", nil)
-
-	value := getQueryParamInt(req, "num", 0)
-	if value != 42 {
-		t.Errorf("Expected 42, got %d", value)
-	}
-
-	defaultValue := getQueryParamInt(req, "missing", 10)
-	if defaultValue != 10 {
-		t.Errorf("Expected 10, got %d", defaultValue)
-	}
-
-	invalidValue := getQueryParamInt(req, "invalid", 5)
-	if invalidValue != 5 {
-		t.Errorf("Expected 5 for invalid int, got %d", invalidValue)
-	}
-}
-
-func TestGetQueryParamFloat(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test?num=3.14&invalid=abc", nil)
-
-	value := getQueryParamFloat(req, "num", 0)
-	if value != 3.14 {
-		t.Errorf("Expected 3.14, got %f", value)
-	}
-
-	defaultValue := getQueryParamFloat(req, "missing", 1.5)
-	if defaultValue != 1.5 {
-		t.Errorf("Expected 1.5, got %f", defaultValue)
-	}
-
-	invalidValue := getQueryParamFloat(req, "invalid", 2.5)
-	if invalidValue != 2.5 {
-		t.Errorf("Expected 2.5 for invalid float, got %f", invalidValue)
-	}
-}
-
 // ============================================================================
 // API Response Tests
 // ============================================================================

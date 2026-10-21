@@ -151,7 +151,7 @@ func TestSeasonString(t *testing.T) {
 }
 
 func TestSeasonalCycleUpdate(t *testing.T) {
-	sc := NewSeasonalCycleWithConfig(10, SeasonSpring) // 10 days per season
+	sc := newSeasonalCycle(10, SeasonSpring) // 10 days per season
 
 	// Advance 15 days (should change season)
 	sc.Update(15.0)
@@ -162,7 +162,7 @@ func TestSeasonalCycleUpdate(t *testing.T) {
 }
 
 func TestSeasonalCycleYearChange(t *testing.T) {
-	sc := NewSeasonalCycleWithConfig(10, SeasonWinter)
+	sc := newSeasonalCycle(10, SeasonWinter)
 
 	// Advance past winter (should increment year)
 	sc.Update(11.0)
@@ -740,7 +740,13 @@ func TestSeasonsFollowTheCalendar(t *testing.T) {
 	if env.GetSeason() != SeasonWinter {
 		t.Errorf("July in the Southern Hemisphere is winter: %v", env.GetSeason())
 	}
-	if season, h, ok := CalendarSeason(); !ok || season != SeasonWinter || h != Southern {
-		t.Errorf("CalendarSeason = %v %v %v", season, h, ok)
-	}
+}
+
+// newSeasonalCycle creates a seasonal cycle with custom settings, for tests
+func newSeasonalCycle(daysPerSeason int, startSeason Season) *SeasonalCycle {
+	sc := NewSeasonalCycle()
+	sc.DaysPerSeason = daysPerSeason
+	sc.CurrentSeason = startSeason
+	sc.Effects = sc.calculateSeasonalEffects()
+	return sc
 }

@@ -78,7 +78,7 @@ func TestParentPINGuardsSocialFeatures(t *testing.T) {
 	s := cloudServer(t)
 	s.parental, _ = loadParentalControls("")
 	s.owner = &ai.OwnerSchedule{}
-	if err := s.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := s.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	hubURL := testHubURL(t)

@@ -139,16 +139,6 @@ func lowerFirst(s string) string {
 	return string(s[0]|0x20) + s[1:]
 }
 
-// reactionScoreFor is the pet's reaction score to care with a variant,
-// without giving it (for tests and comparisons)
-func (p *DigitalPet) reactionScoreFor(interactionType types.InteractionType, choice careChoice) float64 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.choice = &choice
-	defer func() { p.choice = nil }()
-	return 0.5*p.Memory.GetLearnedAffinity(interactionType) + p.innateReactionLocked(interactionType)
-}
-
 // Petting regions
 
 // petRegion is a part of the body to pet

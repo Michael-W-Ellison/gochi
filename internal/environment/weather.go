@@ -73,16 +73,6 @@ func NewWeatherSystem() *WeatherSystem {
 	return ws
 }
 
-// NewWeatherSystemWithConfig creates a weather system with custom settings
-func NewWeatherSystemWithConfig(baseTemp, tempRange, changeFreq float64) *WeatherSystem {
-	ws := NewWeatherSystem()
-	ws.BaseTemperature = baseTemp
-	ws.TemperatureRange = tempRange
-	ws.ChangeFrequency = changeFreq
-	ws.Current = ws.generateWeather(WeatherClear)
-	return ws
-}
-
 // Update advances the weather simulation
 func (ws *WeatherSystem) Update(deltaTime float64, season Season, timeOfDay float64) {
 	// Check if we should start a weather transition, counting game hours

@@ -76,30 +76,6 @@ func TestNewMemorySystem(t *testing.T) {
 	}
 }
 
-func TestNewMemorySystemWithPersonality(t *testing.T) {
-	// High openness = more working memory
-	ms := NewMemorySystemWithPersonality(100, 1.0, 1.0)
-
-	if ms.WorkingMemoryCap != 9 {
-		t.Errorf("Expected working memory cap 9 with high openness, got %d", ms.WorkingMemoryCap)
-	}
-
-	if ms.RetentionBonus != 0.2 {
-		t.Errorf("Expected retention bonus 0.2 with high conscientiousness, got %f", ms.RetentionBonus)
-	}
-
-	// Low personality
-	ms2 := NewMemorySystemWithPersonality(100, 0.0, 0.0)
-
-	if ms2.WorkingMemoryCap != 5 {
-		t.Errorf("Expected working memory cap 5 with low openness, got %d", ms2.WorkingMemoryCap)
-	}
-
-	if ms2.RetentionBonus != 0.0 {
-		t.Errorf("Expected retention bonus 0.0 with low conscientiousness, got %f", ms2.RetentionBonus)
-	}
-}
-
 func TestRecordMemory(t *testing.T) {
 	ms := NewMemorySystem(100)
 

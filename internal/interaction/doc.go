@@ -1,13 +1,10 @@
-// Package interaction handles user interactions with digital pets in Gochi.
+// Package interaction provides the rules and items behind caring for a
+// pet in Gochi:
+//   - Which interactions a pet's state allows (ValidateInteraction), and
+//     a description of each
+//   - Items with types and rarities, an inventory (a pet's pantry), item
+//     catalogs, and a shop that applies discounts and takes payment
 //
-// This package provides:
-//   - User input processing
-//   - Interaction effect application
-//   - Feedback generation
-//   - Training and skill development
-//   - Reward/discipline mechanics
-//   - Item and toy management
-//
-// The interaction systems translate user actions into meaningful changes
-// in pet state and behavior, forming the core of the gameplay loop.
+// The core package applies interactions to the pet and builds its
+// catalogs and shop from these.
 package interaction

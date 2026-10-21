@@ -185,15 +185,6 @@ func NewMemorySystem(capacity int) *MemorySystem {
 	}
 }
 
-// NewMemorySystemWithPersonality creates a memory system tuned by personality:
-// openness widens working memory (5-9 items), conscientiousness adds retention (0.0-0.2)
-func NewMemorySystemWithPersonality(capacity int, openness, conscientiousness float64) *MemorySystem {
-	m := NewMemorySystem(capacity)
-	m.WorkingMemoryCap = 5 + int(clamp(openness, 0.0, 1.0)*4.0+0.5)
-	m.RetentionBonus = clamp(conscientiousness, 0.0, 1.0) * 0.2
-	return m
-}
-
 // RecordMemory adds a new memory to short-term storage
 func (m *MemorySystem) RecordMemory(memType MemoryType, description string, gameTime float64, strength float64, emotion string, details map[string]interface{}) *Memory {
 	return m.RecordMemoryFull(memType, description, gameTime, strength, emotion, details, 0.0, 0.5, ImportanceMinor, nil)

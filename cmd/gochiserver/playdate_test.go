@@ -27,7 +27,7 @@ func playdateData(t *testing.T, body string) PlaydateStatus {
 // sociableDog makes the active pet a sociable dog, so meetings go well
 func sociableDog(t *testing.T, s *Server, name string) {
 	t.Helper()
-	if err := s.createPet(name, core.SpeciesDog, false, false); err != nil {
+	if err := s.createPet(name, core.SpeciesDog, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	tr := s.pet.Personality.Traits

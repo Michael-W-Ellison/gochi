@@ -8,9 +8,6 @@ import (
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
-// spriteStates are the sprites the page needs for each species
-var spriteStates = []string{"idle", "happy", "eating", "playing", "sleeping", "sick", "exploring", "social", "hibernating", "dead"}
-
 func TestRegisteredSpeciesAreComplete(t *testing.T) {
 	list := SpeciesList()
 	if len(list) < 2 || list[0].ID != defaultSpecies {
@@ -20,11 +17,6 @@ func TestRegisteredSpeciesAreComplete(t *testing.T) {
 		for _, kind := range []string{IllnessUrinary, IllnessParasites, IllnessRespiratory, IllnessPoisoning, IllnessEye, IllnessDental} {
 			if def.IllnessNames[kind] == "" || def.IllnessSigns[kind].Sign == "" {
 				t.Errorf("%s has no name or sign for illness %s", def.ID, kind)
-			}
-		}
-		for _, state := range spriteStates {
-			if def.Sprites[state] == "" {
-				t.Errorf("%s has no %s sprite", def.ID, state)
 			}
 		}
 		if s, ok := findSupply(def.Treats); !ok || !s.forSpecies(def.ID) || s.kind != SupplyTreat {

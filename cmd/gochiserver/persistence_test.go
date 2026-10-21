@@ -235,7 +235,7 @@ func TestHandleSave(t *testing.T) {
 		t.Errorf("Save without a pet: status %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if rec := post(t, server.handleSave, ""); rec.Code != http.StatusOK {
@@ -255,13 +255,13 @@ func TestHandleSave(t *testing.T) {
 func TestCreateKeepsPreviousPet(t *testing.T) {
 	server := newTestServer(t)
 
-	if err := server.createPet("First", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("First", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	firstSlot := server.slot
 	server.pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 
-	if err := server.createPet("Second", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Second", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if server.pet.Name != "Second" || server.slot == firstSlot {
@@ -281,11 +281,11 @@ func TestCreateKeepsPreviousPet(t *testing.T) {
 func TestHandleLoadSwitchesPets(t *testing.T) {
 	server := newTestServer(t)
 
-	if err := server.createPet("First", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("First", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	firstSlot := server.slot
-	if err := server.createPet("Second", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Second", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	secondSlot := server.slot
@@ -339,7 +339,7 @@ func TestHandleLoadRejectsBadSlots(t *testing.T) {
 
 func TestManualPauseStopsTime(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -362,7 +362,7 @@ func TestManualPauseStopsTime(t *testing.T) {
 
 func TestAwayPauseKeepsPetAlive(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -398,11 +398,11 @@ func TestAwayPauseKeepsPetAlive(t *testing.T) {
 
 func TestHandleDeleteRequiresName(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	slot := server.slot
-	if err := server.createPet("Bean", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Bean", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -440,7 +440,7 @@ func TestHandleDeleteRequiresName(t *testing.T) {
 
 func TestHandleDeleteActivePet(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	slot := server.slot
@@ -471,7 +471,7 @@ func TestHandleDeleteActivePet(t *testing.T) {
 func TestHibernationThroughServer(t *testing.T) {
 	server := newTestServer(t)
 	server.awayTimeout = 0
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.HibernationEnabled = true
@@ -514,7 +514,7 @@ func TestHibernationThroughServer(t *testing.T) {
 
 func TestDrinkAndPointsThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.Biology.Vitals.Hydration = 0.3
@@ -545,7 +545,7 @@ func TestDrinkAndPointsThroughServer(t *testing.T) {
 
 func TestShopThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -606,7 +606,7 @@ func TestShopThroughServer(t *testing.T) {
 
 func TestInteractionEffectsThroughServer(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.FriendshipPoints, server.pet.PointsEarned = 500, 500
@@ -647,7 +647,7 @@ func TestInteractionEffectsThroughServer(t *testing.T) {
 
 func TestStatusShowsPersonalityAndPreferences(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -676,7 +676,7 @@ func TestStatusShowsPersonalityAndPreferences(t *testing.T) {
 
 func TestStatusShowsRequest(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -698,7 +698,7 @@ func TestStatusShowsRequest(t *testing.T) {
 
 func TestInteractReportsReaction(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.Biology.Vitals.Nutrition = 0.1

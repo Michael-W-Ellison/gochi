@@ -16,7 +16,7 @@ import (
 func TestStatusShowsGoalsAndForecasts(t *testing.T) {
 	s := newTestServer(t)
 	s.owner = &ai.OwnerSchedule{}
-	if err := s.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := s.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	s.pet.Biology.Vitals.Nutrition = 0.4 // Hungry soon
@@ -52,7 +52,7 @@ func TestStatusShowsGoalsAndForecasts(t *testing.T) {
 
 func TestCompletedGoalIsAnnounced(t *testing.T) {
 	s := newTestServer(t)
-	if err := s.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := s.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	s.pet.Goals = &core.GoalBoard{Day: time.Now().Format("2006-01-02"), Level: 1, Goals: []core.Goal{

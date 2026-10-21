@@ -58,13 +58,12 @@ func (s *Server) handleGuide(w http.ResponseWriter, r *http.Request) {
 
 // speciesSummary is a species as the page sees it
 type speciesSummary struct {
-	ID         core.Species      `json:"id"`
-	Name       string            `json:"name"`
-	Plural     string            `json:"plural"`
-	Icon       string            `json:"icon"`
-	Sprites    map[string]string `json:"sprites"`
-	CleanLabel string            `json:"clean_label"`
-	Walks      bool              `json:"walks"`
+	ID         core.Species `json:"id"`
+	Name       string       `json:"name"`
+	Plural     string       `json:"plural"`
+	Icon       string       `json:"icon"`
+	CleanLabel string       `json:"clean_label"`
+	Walks      bool         `json:"walks"`
 }
 
 // handleSpecies handles GET /api/species - the kinds of pet, the default
@@ -77,7 +76,7 @@ func (s *Server) handleSpecies(w http.ResponseWriter, r *http.Request) {
 	list := []speciesSummary{}
 	for _, def := range core.SpeciesList() {
 		list = append(list, speciesSummary{ID: def.ID, Name: def.Name, Plural: def.Plural, Icon: def.Icon,
-			Sprites: def.Sprites, CleanLabel: def.CleanLabel, Walks: def.Walks})
+			CleanLabel: def.CleanLabel, Walks: def.Walks})
 	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: list})
 }

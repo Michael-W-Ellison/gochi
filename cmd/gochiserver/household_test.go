@@ -234,7 +234,7 @@ func TestHolidaySwitchesNeedThePIN(t *testing.T) {
 
 func TestOneHolidayItemPerSession(t *testing.T) {
 	server := newTestServer(t)
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	bought := 0
@@ -258,7 +258,7 @@ func family(t *testing.T) (server *Server, pipSlot string, pip *core.DigitalPet)
 	t.Helper()
 	server = newTestServer(t)
 	server.parental, _ = loadParentalControls("")
-	if err := server.createPet("Mochi", core.SpeciesCat, false, false); err != nil {
+	if err := server.createPet("Mochi", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	server.pet.FriendshipPoints = 500

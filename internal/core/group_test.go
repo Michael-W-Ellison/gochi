@@ -98,16 +98,16 @@ func TestGroupConflicts(t *testing.T) {
 	}
 }
 
-func TestHandleConflict(t *testing.T) {
+func TestConflict(t *testing.T) {
 	a, b := grumpyAdult("Tom", SpeciesCat), grumpyAdult("Felix", SpeciesCat)
-	result, err := HandleConflict(a, b)
+	result, err := handleConflict(a, b)
 	if err != nil || result.Outcome != "scuffle" {
 		t.Fatalf("HandleConflict = %+v, %v", result, err)
 	}
 	if relation := a.Relations(); len(relation) != 1 || relation[0].LastShared != "clashed" {
 		t.Errorf("The clash should be recorded: %+v", relation)
 	}
-	if _, err := HandleConflict(a, a); !errors.Is(err, ErrSamePet) {
+	if _, err := handleConflict(a, a); !errors.Is(err, ErrSamePet) {
 		t.Errorf("A pet can't clash with itself: %v", err)
 	}
 }
@@ -203,4 +203,25 @@ func TestDominance(t *testing.T) {
 	if dominance(young) >= dominance(bold) {
 		t.Error("The young rank lower")
 	}
+}
+
+// handleConflict settles a clash between two pets: the lower-ranked one
+// backs down if their ranks are clearly apart, otherwise they scuffle and
+// both are stressed. Both relationships record it.
+func handleConflict(a, b *DigitalPet) (ConflictResult, error) {
+	if a == b {
+		return ConflictResult{}, ErrSamePet
+	}
+	infoA, infoB := a.socialInfo(), b.socialInfo()
+	result, bond, loser := conflict(infoA, infoB, 0)
+	for i, side := range []struct {
+		pet   *DigitalPet
+		other socialInfo
+	}{{a, infoB}, {b, infoA}} {
+		side.pet.mu.Lock()
+		side.pet.conflictLocked(loser == neitherBackedDown, loser == i)
+		side.pet.recordMeetingLocked(side.other, bond, "clashed")
+		side.pet.mu.Unlock()
+	}
+	return result, nil
 }

@@ -43,7 +43,7 @@ func TestCloudSyncBetweenDevices(t *testing.T) {
 	hubURL := testHubURL(t)
 	laptop, phone := cloudServer(t), cloudServer(t)
 
-	if err := laptop.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := laptop.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := laptop.cloudConnect(ctx, hubURL, "code", ""); err != nil {
@@ -126,7 +126,7 @@ func TestCloudDeletion(t *testing.T) {
 	ctx := context.Background()
 	hubURL := testHubURL(t)
 	laptop, phone := cloudServer(t), cloudServer(t)
-	laptop.createPet("Biscuit", core.SpeciesCat, false, false)
+	laptop.createPet("Biscuit", core.SpeciesCat, "", false, false)
 	laptop.cloudConnect(ctx, hubURL, "code", "")
 	laptop.cloudSync(ctx)
 	phone.cloudConnect(ctx, hubURL, "", accountKey(laptop))
@@ -156,8 +156,8 @@ func TestCloudSocialThroughServer(t *testing.T) {
 	ctx := context.Background()
 	hubURL := testHubURL(t)
 	alice, bob := cloudServer(t), cloudServer(t)
-	alice.createPet("Biscuit", core.SpeciesCat, false, false)
-	bob.createPet("Rex", core.SpeciesDog, false, false)
+	alice.createPet("Biscuit", core.SpeciesCat, "", false, false)
+	bob.createPet("Rex", core.SpeciesDog, "", false, false)
 	for _, p := range []struct {
 		s    *Server
 		name string
@@ -214,7 +214,7 @@ func TestCloudSocialThroughServer(t *testing.T) {
 
 func TestSaveFileRecordsHistory(t *testing.T) {
 	s := newTestServer(t)
-	if err := s.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+	if err := s.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	s.store.timeScale, s.store.autosaveSeconds = "game", 60

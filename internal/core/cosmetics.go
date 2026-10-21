@@ -121,11 +121,6 @@ var cosmeticCatalog = []Cosmetic{
 	{ID: "snowflake_bandana", Name: "Snowflake bandana", Icon: "❄️", Slot: SlotNeck, Price: 50, Season: "Winter", Color: "#90caf9"},
 }
 
-// Cosmetics returns every cosmetic
-func Cosmetics() []Cosmetic {
-	return append([]Cosmetic(nil), cosmeticCatalog...)
-}
-
 // FindCosmetic returns a cosmetic by ID
 func FindCosmetic(id string) (Cosmetic, bool) {
 	for _, c := range cosmeticCatalog {

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -85,41 +84,6 @@ func getPathParam(r *http.Request, name string) string {
 	// This would be implemented based on the actual router being used
 	// For example, with gorilla/mux: mux.Vars(r)[name]
 	return r.PathValue(name)
-}
-
-// getQueryParam extracts a query parameter with default value
-func getQueryParam(r *http.Request, name, defaultValue string) string {
-	value := r.URL.Query().Get(name)
-	if value == "" {
-		return defaultValue
-	}
-	return value
-}
-
-// getQueryParamInt extracts an integer query parameter with default value
-func getQueryParamInt(r *http.Request, name string, defaultValue int) int {
-	value := r.URL.Query().Get(name)
-	if value == "" {
-		return defaultValue
-	}
-	intValue, err := strconv.Atoi(value)
-	if err != nil {
-		return defaultValue
-	}
-	return intValue
-}
-
-// getQueryParamFloat extracts a float query parameter with default value
-func getQueryParamFloat(r *http.Request, name string, defaultValue float64) float64 {
-	value := r.URL.Query().Get(name)
-	if value == "" {
-		return defaultValue
-	}
-	floatValue, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return defaultValue
-	}
-	return floatValue
 }
 
 // getUserIDFromContext extracts user ID from request context (set by auth middleware)

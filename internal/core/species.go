@@ -42,11 +42,9 @@ type SpeciesDef struct {
 	Name   string // "Cat"
 	Plural string // "cats"
 
-	// How the page shows it: an icon, sprites by state (idle, happy,
-	// eating, playing, sleeping, sick, exploring, social, hibernating,
-	// dead), and the label of the clean-up button
+	// How the page shows it: an icon and the label of the clean-up button
+	// (pets themselves are drawn by the page from their breed's look)
 	Icon       string
-	Sprites    map[string]string
 	CleanLabel string
 
 	// Body
@@ -97,8 +95,8 @@ type SpeciesDef struct {
 	ConflictLesson      string
 }
 
-// SpriteStates are the states a species has a sprite for. Another
-// player's game is told only which of these its pet shows.
+// SpriteStates are the states a pet is drawn in. Another player's game is
+// told only which of these its pet shows.
 var SpriteStates = []string{"idle", "happy", "eating", "playing", "sleeping", "sick", "exploring", "social",
 	"hibernating", "dead"}
 

@@ -1,49 +1,26 @@
 package api
 
 import (
-	"context"
-	"fmt"
-	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
-// ServerConfig holds server configuration
+// ServerConfig holds the API's configuration (the game server serves it)
 type ServerConfig struct {
-	Host            string
-	Port            int
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	IdleTimeout     time.Duration
-	ShutdownTimeout time.Duration
-	TLSCertFile     string
-	TLSKeyFile      string
-	RateLimit       int           // Requests each client may make per RateWindow; 0 turns the limit off
-	RateWindow      time.Duration // Window for RateLimit
+	RateLimit  int           // Requests each client may make per RateWindow; 0 turns the limit off
+	RateWindow time.Duration // Window for RateLimit
 }
 
 // DefaultServerConfig returns default server configuration
 func DefaultServerConfig() ServerConfig {
-	return ServerConfig{
-		Host:            "",
-		Port:            8080,
-		ReadTimeout:     15 * time.Second,
-		WriteTimeout:    15 * time.Second,
-		IdleTimeout:     60 * time.Second,
-		ShutdownTimeout: 30 * time.Second,
-		RateWindow:      time.Minute,
-	}
+	return ServerConfig{RateWindow: time.Minute}
 }
 
 // Server represents the HTTP API server
 type Server struct {
-	config     ServerConfig
-	handler    *Handler
-	httpServer *http.Server
-	validator  TokenValidator
+	config    ServerConfig
+	handler   *Handler
+	validator TokenValidator
 }
 
 // NewServer creates a new API server
@@ -130,171 +107,4 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 			"interactions": "/api/v1/pets/{petId}/interactions",
 		},
 	})
-}
-
-// Start starts the HTTP server
-func (s *Server) Start() error {
-	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
-
-	s.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      s.SetupRoutes(),
-		ReadTimeout:  s.config.ReadTimeout,
-		WriteTimeout: s.config.WriteTimeout,
-		IdleTimeout:  s.config.IdleTimeout,
-	}
-
-	log.Printf("Starting server on %s", addr)
-
-	if s.config.TLSCertFile != "" && s.config.TLSKeyFile != "" {
-		return s.httpServer.ListenAndServeTLS(s.config.TLSCertFile, s.config.TLSKeyFile)
-	}
-
-	return s.httpServer.ListenAndServe()
-}
-
-// StartWithGracefulShutdown starts the server with graceful shutdown support
-func (s *Server) StartWithGracefulShutdown() error {
-	// Channel to receive OS signals
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	// Start server in goroutine
-	errChan := make(chan error, 1)
-	go func() {
-		if err := s.Start(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
-		}
-	}()
-
-	// Wait for shutdown signal or error
-	select {
-	case err := <-errChan:
-		return err
-	case <-stop:
-		log.Println("Shutting down server...")
-	}
-
-	// Create shutdown context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.ShutdownTimeout)
-	defer cancel()
-
-	// Attempt graceful shutdown
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		log.Printf("Server forced to shutdown: %v", err)
-		return err
-	}
-
-	log.Println("Server stopped gracefully")
-	return nil
-}
-
-// Stop stops the HTTP server
-func (s *Server) Stop(ctx context.Context) error {
-	if s.httpServer == nil {
-		return nil
-	}
-	return s.httpServer.Shutdown(ctx)
-}
-
-// ============================================================================
-// API Documentation Types
-// ============================================================================
-
-// APIDoc represents API documentation
-type APIDoc struct {
-	Title       string        `json:"title"`
-	Version     string        `json:"version"`
-	Description string        `json:"description"`
-	BaseURL     string        `json:"base_url"`
-	Endpoints   []EndpointDoc `json:"endpoints"`
-}
-
-// EndpointDoc represents documentation for a single endpoint
-type EndpointDoc struct {
-	Method       string          `json:"method"`
-	Path         string          `json:"path"`
-	Description  string          `json:"description"`
-	RequiresAuth bool            `json:"requires_auth"`
-	Parameters   []ParameterDoc  `json:"parameters,omitempty"`
-	RequestBody  *RequestBodyDoc `json:"request_body,omitempty"`
-	Responses    []ResponseDoc   `json:"responses"`
-}
-
-// ParameterDoc represents a parameter in API documentation
-type ParameterDoc struct {
-	Name        string `json:"name"`
-	In          string `json:"in"` // path, query, header
-	Type        string `json:"type"`
-	Required    bool   `json:"required"`
-	Description string `json:"description"`
-}
-
-// RequestBodyDoc represents request body documentation
-type RequestBodyDoc struct {
-	ContentType string      `json:"content_type"`
-	Schema      interface{} `json:"schema"`
-	Example     interface{} `json:"example,omitempty"`
-}
-
-// ResponseDoc represents response documentation
-type ResponseDoc struct {
-	StatusCode  int         `json:"status_code"`
-	Description string      `json:"description"`
-	Schema      interface{} `json:"schema,omitempty"`
-	Example     interface{} `json:"example,omitempty"`
-}
-
-// GenerateAPIDoc generates API documentation
-func GenerateAPIDoc(baseURL string) *APIDoc {
-	return &APIDoc{
-		Title:       "Gochi Digital Pet API",
-		Version:     "1.0.0",
-		Description: "RESTful API for the Gochi digital pet system",
-		BaseURL:     baseURL,
-		Endpoints:   generateEndpointDocs(),
-	}
-}
-
-// generateEndpointDocs generates documentation for all endpoints
-func generateEndpointDocs() []EndpointDoc {
-	var docs []EndpointDoc
-
-	for _, route := range endpoints {
-		{
-			docs = append(docs, EndpointDoc{
-				Method:       route.method,
-				Path:         route.path,
-				Description:  route.description,
-				RequiresAuth: route.auth,
-				Responses: []ResponseDoc{
-					{StatusCode: 200, Description: "Success"},
-					{StatusCode: 400, Description: "Bad Request"},
-					{StatusCode: 401, Description: "Unauthorized"},
-					{StatusCode: 500, Description: "Internal Server Error"},
-				},
-			})
-		}
-	}
-
-	return docs
-}
-
-// endpoints are the API's routes, for its documentation
-var endpoints = []struct {
-	method, path, description string
-	auth                      bool
-}{
-	{"GET", "/health", "Health check", false},
-	{"GET", "/ready", "Readiness check", false},
-	{"GET", "/api/v1", "API information", false},
-	{"POST", "/api/v1/pets", "Create a pet", true},
-	{"GET", "/api/v1/pets", "List pets", true},
-	{"GET", "/api/v1/pets/{petId}", "Get a pet", true},
-	{"PUT", "/api/v1/pets/{petId}", "Update a pet", true},
-	{"DELETE", "/api/v1/pets/{petId}", "Delete a pet", true},
-	{"GET", "/api/v1/pets/{petId}/status", "A pet's status", true},
-	{"POST", "/api/v1/pets/{petId}/interactions", "Care for a pet", true},
-	{"POST", "/api/v1/pets/{petId}/interactions/feed", "Feed a pet", true},
-	{"POST", "/api/v1/pets/{petId}/interactions/play", "Play with a pet", true},
 }

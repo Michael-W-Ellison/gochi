@@ -11,18 +11,6 @@ import (
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
-// TestDataManagerCreation tests data manager initialization
-func TestDataManagerCreation(t *testing.T) {
-	manager, err := data.NewDataManager()
-	if err != nil {
-		t.Fatalf("Failed to create DataManager: %v", err)
-	}
-
-	if manager == nil {
-		t.Fatal("DataManager should not be nil")
-	}
-}
-
 // TestDataManagerWithConfig tests custom configuration
 func TestDataManagerWithConfig(t *testing.T) {
 	tempDir := t.TempDir()

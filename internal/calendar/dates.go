@@ -87,11 +87,6 @@ func Vesak(year int) Date {
 // Rata Die numbers days from January 1 of year 1 (day 1)
 const unixEpochRD = 719163 // January 1, 1970
 
-// toRD returns a date's day number
-func toRD(d Date) int {
-	return int(d.Time().Unix()/86400) + unixEpochRD
-}
-
 // fromRD returns the date of a day number
 func fromRD(rd int) Date {
 	return DateOf(time.Unix(int64(rd-unixEpochRD)*86400, 0).UTC())
