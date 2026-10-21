@@ -43,7 +43,7 @@ type GuideTopic struct {
 
 // CareGuide returns the care guide for a species
 func CareGuide(species Species) []GuideTopic {
-	return append([]GuideTopic(nil), species.Def().CareGuide...)
+	return append(append([]GuideTopic(nil), species.Def().CareGuide...), senseGuide(species)...)
 }
 
 // Symptom is a warning sign the pet shows, with what it means and the
@@ -116,6 +116,7 @@ func (p *DigitalPet) symptomsLocked() []Symptom {
 				"senior", false})
 		}
 	}
+	symptoms = append(symptoms, p.senseSymptomsLocked(early)...)
 	if ph.DigestiveHealth < 0.6+early && (p.Illness == nil || p.Illness.Kind != IllnessParasites) {
 		symptoms = append(symptoms, Symptom{"Upset stomach",
 			"From too much food or too many treats at once. Smaller, measured meals help.", "feeding", false})

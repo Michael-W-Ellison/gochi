@@ -60,16 +60,18 @@ func (ps *petStore) Full() bool {
 
 // savedPet summarizes a saved pet for the pet list
 type savedPet struct {
-	ID          string    `json:"-"`
-	Slot        string    `json:"slot"`
-	Name        string    `json:"name"`
-	Species     string    `json:"species"` // cat or dog
-	Age         float64   `json:"age"`
-	IsAlive     bool      `json:"is_alive"`
-	Hibernating bool      `json:"hibernating"`
-	SavedAt     time.Time `json:"saved_at"`
-	Unreadable  bool      `json:"unreadable,omitempty"` // Neither the save nor its backups can be read
-	Outfit      string    `json:"outfit,omitempty"`     // Icons of what it wears
+	ID          string        `json:"-"`
+	Slot        string        `json:"slot"`
+	Name        string        `json:"name"`
+	Species     string        `json:"species"` // cat or dog
+	Age         float64       `json:"age"`
+	IsAlive     bool          `json:"is_alive"`
+	Hibernating bool          `json:"hibernating"`
+	SavedAt     time.Time     `json:"saved_at"`
+	Unreadable  bool          `json:"unreadable,omitempty"` // Neither the save nor its backups can be read
+	Outfit      string        `json:"outfit,omitempty"`     // Icons of what it wears
+	Breed       string        `json:"breed,omitempty"`
+	Look        *core.PetLook `json:"look,omitempty"` // nil for pets from before breeds
 }
 
 // newPetStore creates a store that keeps saves and backups under dir
@@ -284,6 +286,8 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		Species     string            `json:"species"`
 		Hibernating bool              `json:"hibernating"`
 		Outfit      map[string]string `json:"outfit"`
+		Breed       string            `json:"breed"`
+		Look        *core.PetLook     `json:"look"`
 		Biology     struct {
 			IsAlive   bool
 			Processes struct {
@@ -309,6 +313,8 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		Hibernating: summary.Hibernating,
 		SavedAt:     savedAt,
 		Outfit:      outfitIcons(summary.Outfit),
+		Breed:       summary.Breed,
+		Look:        summary.Look,
 	}, nil
 }
 

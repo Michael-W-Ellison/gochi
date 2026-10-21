@@ -174,6 +174,10 @@ type PetStatus struct {
 	HomeStars    int                       `json:"home_stars"`
 	Popups       []popup                   `json:"popups"`
 
+	// Its breed, how it looks and what it is prone to, and where it
+	// comes from
+	Breed core.BreedInfo `json:"breed"`
+
 	FriendshipPoints int             `json:"friendship_points"`
 	Items            []core.ShopItem `json:"items"`   // Owned items
 	Effects          []core.ShopItem `json:"effects"` // Items whose effects currently apply
@@ -330,6 +334,7 @@ func main() {
 		log.Printf("Starting without a pet; the save files have been left in place in %s", store.SaveDir())
 	}
 	server.recordSavedPets()
+	server.scanAchievements()
 	server.observePet(server.pet, false)
 	if config.Simulation.AwayPause > 0 {
 		log.Printf("Time pauses after %s without the player", config.Simulation.AwayPause)
@@ -418,6 +423,7 @@ func main() {
 	mux.HandleFunc("/api/hideseek/quit", server.handleHideSeekQuit)
 	mux.HandleFunc("/api/guide", server.handleGuide)
 	mux.HandleFunc("/api/species", server.handleSpecies)
+	mux.HandleFunc("/api/breeds", server.handleBreeds)
 	mux.HandleFunc("/api/privacy", server.handlePrivacy)
 	mux.HandleFunc("/api/stats", server.handleStats)
 	mux.HandleFunc("/api/home", server.handleHome)
@@ -937,28 +943,30 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .pet-scene { position: relative; margin: 0 auto; max-width: 320px; border-radius: 18px; padding: 6px 0 10px; }
         .pet-scene.decorated { background: linear-gradient(to bottom, transparent 70%, rgba(0,0,0,0.05) 70%), var(--wall); }
         .pet-scene.decorated::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 28%; border-radius: 0 0 18px 18px; background: var(--floor); opacity: 0.9; z-index: 0; }
-        .pet-figure { position: relative; display: inline-block; z-index: 1; }
+        .pet-figure { position: relative; display: block; z-index: 1; }
         .scene-window { position: absolute; top: 8px; right: 12px; font-size: 1.6em; z-index: 1; }
         .scene-window:not(:empty) { background: #e3f2fd; border: 3px solid #fff; border-radius: 8px; padding: 0 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
         .scene-nameplate { position: relative; z-index: 1; display: inline-block; color: #fff; font-size: 0.8em; padding: 0 10px; border-radius: 6px; }
         .scene-nameplate:empty { display: none; }
-        .pet-outfit { position: absolute; left: 0; right: 0; top: 20px; height: 96px; pointer-events: none; }
-        .wear { position: absolute; left: 50%; transform: translateX(-50%); line-height: 1; }
-        .wear-head { top: -14%; font-size: 34px; }
-        .wear-eyes { top: 30%; font-size: 26px; }
-        .wear-neck { top: 62%; font-size: 22px; }
-        .wear-collar { top: 68%; }
-        .wear-tag { top: 74%; font-size: 14px; }
-        .wear-body { top: 70%; font-size: 30px; }
-        .wear.tinted:not(.shape) { filter: drop-shadow(0 0 2px var(--c)) drop-shadow(0 0 1px var(--c)); }
-        .wear-collar.shape { width: 40px; height: 6px; border-radius: 3px; background: var(--c); }
-        .wear-charm { position: absolute; left: 50%; top: 2px; transform: translateX(-50%); font-size: 14px; }
-        .wear-neck.shape { width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 16px solid var(--c); }
-        .wear-body.shape { width: 46px; height: 22px; border-radius: 45% 45% 25% 25%; background: var(--c); opacity: 0.6; }
         .upkeep { font-size: 0.85em; color: #2b8a3e; }
         .upkeep.due { color: #c92a2a; }
         .family-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
         .family-name { flex: 1 1 160px; }
+        .pet-display svg { display: block; margin: 0 auto; }
+        #petSprite { width: fit-content; margin-left: auto; margin-right: auto; }
+        .breed-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; margin: 12px 0 6px; }
+        .breed-tier { grid-column: 1 / -1; font-weight: 600; color: #555; font-size: 0.85em; margin-top: 4px; text-align: left; }
+        .breed-card { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; border: 2px solid #e0e0e0; border-radius: 10px; background: #fff; cursor: pointer; font: inherit; font-size: 0.75em; color: #333; }
+        .breed-card.chosen { border-color: #667eea; background: #eef0fd; }
+        .breed-card.locked { opacity: 0.5; }
+        .breed-art { width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; }
+        .breed-surprise { font-size: 40px; }
+        .breed-detail { text-align: left; font-size: 0.85em; background: #fafafa; border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
+        .breed-title { font-weight: 600; margin-bottom: 4px; }
+        .breed-locked { color: #8a6d00; background: #fff8e1; border-radius: 8px; padding: 4px 8px; margin-top: 6px; }
+        .tendency-list { margin: 4px 0; padding-left: 18px; text-align: left; }
+        .tendency-list li { margin: 3px 0; }
+        .saved-pet-art { display: inline-block; width: 44px; height: 44px; vertical-align: middle; margin-right: 6px; flex: none; }
         .family-amount { width: 80px; padding: 4px 6px; border: 2px solid #ddd; border-radius: 8px; }
         .popup-icon { font-size: 2.4em; text-align: center; }
         .shop-warning { font-size: 0.8em; color: #c92a2a; }
@@ -1063,13 +1071,15 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <ul class="saved-pet-list" id="savedPetList"></ul>
             </div>
             <p class="subtitle">Create a new virtual pet companion</p>
-            <div class="pet-display">🐣</div>
+            <div class="pet-display" id="createPreview"><span style="font-size: 100px">🐣</span></div>
             <div class="form-group">
                 <label for="petNameInput">What will you name your pet?</label>
                 <input type="text" id="petNameInput" placeholder="Enter a name..." maxlength="24" autofocus>
                 <div class="species-choice" id="speciesChoice" role="radiogroup" aria-label="Kind of pet">
                     <label><input type="radio" name="species" value="cat" checked><span>🐱 Cat</span></label>
                 </div>
+                <div class="breed-picker" id="breedPicker" aria-label="Breed"></div>
+                <div class="breed-detail" id="breedDetail"></div>
                 <label class="setting">
                     <input type="checkbox" id="hibernationInput">
                     <span>Gentle mode: hibernate instead of dying if neglected</span>
@@ -1091,8 +1101,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="pet-scene" id="petScene">
                 <div class="scene-window" id="sceneWindow" aria-hidden="true"></div>
                 <div class="pet-figure">
-                    <div class="pet-display" id="petSprite">🐱</div>
-                    <div class="pet-outfit" id="petOutfit" aria-hidden="true"></div>
+                    <div class="pet-display" id="petSprite"></div>
                 </div>
                 <div class="scene-nameplate" id="sceneNameplate"></div>
             </div>
@@ -1203,6 +1212,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             </label>
 
             <div class="about" id="about">
+                <div id="aboutBreed"></div>
                 <div id="aboutPersonality"></div>
                 <div id="aboutAttention"></div>
                 <div id="aboutLikes"></div>
@@ -1265,9 +1275,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         </div>
     </div>
 
+    <script src="/static/js/pet-art.js?v={{static}}"></script>
     <script src="/static/js/ar.js?v={{static}}"></script>
     <script src="/static/js/ar-link.js?v={{static}}"></script>
     <script src="/static/js/shop.js?v={{static}}"></script>
+    <script src="/static/js/breeds.js?v={{static}}"></script>
     <script>
         // The kinds of pet the game has (from /api/species): how each looks
         // and which care buttons it uses. The cat, the default species, is
@@ -1287,6 +1299,19 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // An icon and a space, to put before a pet's name
         function speciesIcon(id) {
             return speciesInfo(id).icon + ' ';
+        }
+
+        // The drawing of a pet (SVG from GochiArt) in a state
+        function petArt(status, state, size) {
+            return GochiArt.draw({species: status.species, look: status.breed && status.breed.look, state: state,
+                outfit: status.outfit, size: size, label: status.name});
+        }
+
+        // Draws the active pet in a state (its current one if none given)
+        function drawPet(state, status) {
+            status = status || lastStatus;
+            if (!status) return;
+            document.getElementById('petSprite').innerHTML = petArt(status, state || spriteState(status), 170);
         }
 
         // Which sprite the pet shows now (one of each species' sprite states)
@@ -1321,8 +1346,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     const span = document.createElement('span');
                     span.textContent = s.icon + ' ' + s.name;
                     label.append(input, span);
+                    input.addEventListener('change', () => loadBreeds(s.id));
                     choice.append(label);
                 });
+                loadBreeds(speciesList[0].id);
             }).catch(console.error);
         }
 
@@ -1390,7 +1417,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         info.className = 'saved-pet-info';
                         const name = document.createElement('div');
                         name.className = 'saved-pet-name';
-                        name.textContent = speciesIcon(pet.species) + pet.name + (pet.outfit ? ' ' + pet.outfit : '');
+                        name.textContent = pet.name + (pet.outfit ? ' ' + pet.outfit : '');
+                        name.prepend(pet.unreadable ? speciesIcon(pet.species) : savedPetArt(pet));
                         const meta = document.createElement('div');
                         meta.className = 'saved-pet-meta';
                         const state = pet.unreadable ? 'This save is damaged and can\'t be loaded' :
@@ -1616,7 +1644,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({name: name, hibernation: document.getElementById('hibernationInput').checked,
-                    species: document.querySelector('input[name="species"]:checked').value})
+                    species: document.querySelector('input[name="species"]:checked').value, breed: selectedBreed()})
             })
             .then(r => r.json())
             .then(data => {
@@ -1672,6 +1700,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 env.icon + ' ' + env.weather + ', ' + env.temperature + '°C · ' + env.season + ' ' + env.day_phase.toLowerCase() +
                 (env.outdoor_safe ? '' : ' · risky for exploring') : '';
 
+            renderBreedAbout(status.breed, status.name);
             document.getElementById('aboutPersonality').textContent = status.personality;
             document.getElementById('aboutGeneration').textContent = 'Generation ' + (status.generation || 1);
             document.getElementById('aboutSeason').textContent = env && env.favorite_season ?
@@ -1758,8 +1787,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 (status.wellbeing * 100).toFixed(0) + '%';
 
             document.getElementById('petView').classList.toggle('dead', !status.is_alive);
-            document.getElementById('petSprite').textContent = spriteSet(status)[spriteState(status)];
-            renderOutfit(status.outfit);
+            drawPet(spriteState(status), status);
             renderHouseLook(status.house_look, status.name);
             renderUpkeep(status);
             showPopups(status.popups);
@@ -2063,10 +2091,9 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             setTimeout(() => btn.style.transform = '', 100);
 
             // Show reaction
-            const sprite = document.getElementById('petSprite');
-            if (action === 'feed' || action === 'drink') sprite.textContent = spriteSet().eating;
-            else if (action === 'play') sprite.textContent = spriteSet().playing;
-            else if (action === 'pet') sprite.textContent = spriteSet().happy;
+            if (action === 'feed' || action === 'drink') drawPet('eating');
+            else if (action === 'play') drawPet('playing');
+            else if (action === 'pet') drawPet('happy');
 
             fetch('/api/interact', {
                 method: 'POST',
@@ -2091,8 +2118,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const lines = [];
             if (headline) lines.push([headline, 'reaction']);
             if (result.reaction_text) lines.push([result.reaction_text, 'reaction']);
-            const face = {delighted: '😻', reluctant: '😾'}[result.reaction];
-            if (face) document.getElementById('petSprite').textContent = face;
+            const face = {delighted: 'happy', reluctant: 'reluctant'}[result.reaction];
+            if (face) drawPet(face);
             const changes = result.changes || [];
             if (changes.length > 0) lines.push([formatChanges(changes), 'changes']);
             const boost = result.boosted_by;
@@ -2921,10 +2948,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             const started = await GochiARLink.start({
                 onMessage: text => showPointsToast(text),
                 onCare: result => { showResult(result, result.text); setTimeout(fetchStatus, 500); },
-                petSprite: () => document.getElementById('petSprite').textContent,
-                petOutfit: () => lastStatus ? Object.values(lastStatus.outfit || {}).map(c => c.icon).join('') : '',
+                petSprite: () => lastStatus ? petArt(lastStatus, spriteState(lastStatus), 200) : '',
                 petLook: () => lastStatus ? spriteState(lastStatus) : 'idle',
-                spriteFor: (species, look) => speciesInfo(species).sprites[look] || speciesInfo(species).icon,
+                spriteFor: mate => GochiArt.draw({species: mate.species, look: mate.typical, state: mate.look,
+                    outfit: mate.outfit, size: 200, label: mate.name}),
                 statusText: () => lastStatus ? lastStatus.name + ' ' + lastStatus.activity : '',
                 onEnd: () => { document.body.classList.remove('ar-open'); fetchStatus(); },
                 playdate: !!(mode && mode.playdate)
@@ -3221,11 +3248,18 @@ func (s *Server) switchPet(next func() (*core.DigitalPet, string, error), save b
 		}
 	}
 	s.observePet(pet, false) // Once it is saved, so the statistics never count a pet that wasn't
+	s.noteAchievementsLocked(pet)
 	return nil
 }
 
 // createPet saves the active pet and replaces it with a new one
 func (s *Server) createPet(name string, species core.Species, randomize, hibernation bool) error {
+	return s.createPetOfBreed(name, species, "", randomize, hibernation)
+}
+
+// createPetOfBreed saves the active pet and replaces it with a new one of
+// a breed ("" for the species' default)
+func (s *Server) createPetOfBreed(name string, species core.Species, breed string, randomize, hibernation bool) error {
 	if name == "" {
 		name = "Gochi"
 	}
@@ -3235,8 +3269,8 @@ func (s *Server) createPet(name string, species core.Species, randomize, hiberna
 			return nil, "", errTooManyPets
 		}
 		pet := core.NewDigitalPet(name, localOwner)
-		if randomize {
-			pet = core.NewDigitalPetRandom(name, localOwner)
+		if randomize || breed != "" {
+			pet = core.NewPetOfBreed(name, localOwner, species, breed)
 		}
 		pet.HibernationEnabled = hibernation
 		pet.Species = species
@@ -3719,6 +3753,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.Goals, petStatus.GoalLevel = s.pet.DailyGoals()
 	petStatus.Forecasts = s.forecastsLocked(now)
 	petStatus.Outfit = s.pet.Worn()
+	petStatus.Breed = s.pet.BreedInfo()
 	petStatus.Upkeep = s.pet.UpkeepStatuses()
 	if petStatus.Upkeep == nil {
 		petStatus.Upkeep = []core.UpkeepStatus{}
@@ -3863,6 +3898,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		// Hibernate instead of dying from neglect (off by default)
 		Hibernation bool   `json:"hibernation"`
 		Species     string `json:"species"` // See /api/species; "" for the default (cat)
+		Breed       string `json:"breed"`   // See /api/breeds; "" for the default, "random" for any unlocked one
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
@@ -3878,7 +3914,12 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.createPet(strings.TrimSpace(req.Name), species, req.Randomize, req.Hibernation); errors.Is(err, errTooManyPets) {
+	breed, err := s.chooseBreed(species, req.Breed)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: capitalize(err.Error()) + "."})
+		return
+	}
+	if err := s.createPetOfBreed(strings.TrimSpace(req.Name), species, breed, req.Randomize, req.Hibernation); errors.Is(err, errTooManyPets) {
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: capitalize(err.Error()) + "."})
 		return
 	} else if err != nil {

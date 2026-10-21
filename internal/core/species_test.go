@@ -17,7 +17,7 @@ func TestRegisteredSpeciesAreComplete(t *testing.T) {
 		t.Fatalf("The default species should be listed first: %v", list)
 	}
 	for _, def := range list {
-		for _, kind := range []string{IllnessUrinary, IllnessParasites, IllnessRespiratory, IllnessPoisoning} {
+		for _, kind := range []string{IllnessUrinary, IllnessParasites, IllnessRespiratory, IllnessPoisoning, IllnessEye, IllnessDental} {
 			if def.IllnessNames[kind] == "" || def.IllnessSigns[kind].Sign == "" {
 				t.Errorf("%s has no name or sign for illness %s", def.ID, kind)
 			}

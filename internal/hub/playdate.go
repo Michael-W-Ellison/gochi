@@ -87,6 +87,7 @@ type CardRequest struct {
 	Unavailable string            `json:"unavailable,omitempty"` // A core Unavailable code, or ""
 	Look        string            `json:"look"`                  // One of core.SpriteStates
 	Outfit      map[string]string `json:"outfit,omitempty"`      // Cosmetic IDs from the game's list, by slot
+	Breed       string            `json:"breed,omitempty"`       // A breed ID from the game's list
 }
 
 // Card is a pet at a playdate as every member sees it. The hub fills in
@@ -101,6 +102,8 @@ type Card struct {
 	Look        string  `json:"look"`
 	// What the pet wears: a cosmetic ID from the game's list per slot
 	Outfit map[string]string `json:"outfit,omitempty"`
+	// Its breed: an ID from the game's list
+	Breed string `json:"breed,omitempty"`
 }
 
 // unavailableCodes are the reasons a card can give
@@ -115,10 +118,13 @@ func makeCard(accountID, handle string, req CardRequest) (Card, error) {
 		len(req.Outfit) > len(core.CosmeticSlots) || !core.ValidOutfit(req.Outfit) {
 		return Card{}, ErrBadCard
 	}
+	if b, ok := core.FindBreed(req.Breed); req.Breed != "" && (!ok || b.Species != species) {
+		return Card{}, ErrBadCard
+	}
 	sum := sha256.Sum256([]byte("playmate:" + accountID + ":" + req.PetKey))
 	return Card{ID: "playmate_" + hex.EncodeToString(sum[:12]), Name: handle + "'s " + strings.ToLower(species.Def().Name),
 		Species: req.Species, Young: req.Young, Sociability: roundLevel(req.Sociability, 0),
-		Unavailable: req.Unavailable, Look: req.Look, Outfit: req.Outfit}, nil
+		Unavailable: req.Unavailable, Look: req.Look, Outfit: req.Outfit, Breed: req.Breed}, nil
 }
 
 // PlaydateMember is a player at a playdate

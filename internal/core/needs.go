@@ -71,6 +71,11 @@ func (p *DigitalPet) syncPhysicalNeedsLocked() {
 // unmet psychological needs make the pet unhappier. Caller must hold p.mu.
 func (p *DigitalPet) updateNeedsLocked(deltaTime float64) {
 	p.ensureNeedsLocked()
+	// Energetic breeds need more exercise and things to do
+	need := p.effectLocked(effExerciseNeed)
+	for _, t := range []types.NeedType{types.NeedExercise, types.NeedMentalStimulation} {
+		p.Needs.SetDecayRate(t, simulation.NewNeed(t).DecayRate*need)
+	}
 	p.Needs.Update(deltaTime)
 	p.syncPhysicalNeedsLocked()
 

@@ -42,6 +42,7 @@ func (s *Server) starsForAchievementLocked(a core.Achievement) {
 		stars = 10
 	}
 	s.awardStarsLocked(stars, "achievement:"+string(s.pet.ID)+":"+a.ID, true, "the "+a.Name+" achievement")
+	s.noteAchievementsLocked(s.pet)
 }
 
 // starsForGoalsLocked awards Home Stars when all of today's goals are

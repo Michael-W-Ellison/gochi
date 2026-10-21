@@ -242,7 +242,7 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	if !result.Applied {
 		return TrickResult{}, RefusedError{result.Refusal}
 	}
-	if methodID == "treats" || methodID == "clicker" {
+	if methodID == "treats" || methodID == "clicker" || methodID == "signals" {
 		p.useSupplyLocked(p.defLocked().Treats)
 	}
 

@@ -41,6 +41,11 @@ const (
 	effFitnessLoss                         // How fast fitness fades
 	effAirDamage                           // How fast foul air harms the airways
 	effFoodUpset                           // How much unsuitable food upsets the stomach
+	effExerciseNeed                        // How fast the needs for exercise and stimulation build
+	effKidneyDecline                       // How fast the kidneys' reserve is lost
+	effEyeIrritation                       // How fast prone eyes get sore
+	effDentalDecline                       // How fast plaque builds
+	effHeartAging                          // How fast the heart ages
 	effStressRecovery                      // How fast stress eases
 	effRest                                // How fast sleep restores
 	effSleepDebt                           // How fast sleep debt is repaid
@@ -53,6 +58,7 @@ const (
 	effEnrichment                          // How much environment changes do
 	effPerch                               // How much the window perch and scratching post do
 	effAffection                           // Happiness from play and petting
+	effTreatTraining                       // How much training with food rewards does
 
 	// Amounts
 	effTripInjury      // Change to trip injury chance, in percentage points
@@ -249,6 +255,19 @@ func (p *DigitalPet) effectsLocked() [effectKinds]float64 {
 			total[k] *= 1 + min(max(decor[k], -maxDecoration), maxDecoration)
 			if kind.reduces() {
 				total[k] = max(total[k], maxReduction)
+			}
+		}
+	}
+
+	// The breed's tendencies come on top: care can offset them, within
+	// the limits above, but not remove them
+	for _, e := range p.breedEffectsLocked() {
+		if ok, strength := p.appliesLocked(e.when); ok {
+			value := scaled(e.kind, e.value, strength)
+			if e.kind.multiplier() {
+				total[e.kind] *= value
+			} else {
+				total[e.kind] += value
 			}
 		}
 	}

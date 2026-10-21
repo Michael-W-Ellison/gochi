@@ -21,6 +21,37 @@ type Physiology struct {
 	// Nervous system: how well the pet copes with stress, worn down by
 	// long-term stress
 	NervousHealth float64 `json:"nervous_health"`
+
+	// Kidneys: how well they work, and the most they can recover to.
+	// Dehydration harms them and they recover once the pet drinks; age and
+	// inherited kidney disease lower the reserve for good.
+	KidneyHealth  float64 `json:"kidney_health"`
+	KidneyReserve float64 `json:"kidney_reserve"`
+
+	// Eyes: irritated by foul air and, in breeds with prominent eyes or
+	// eyelid problems, a little every day
+	EyeHealth float64 `json:"eye_health"`
+
+	// Teeth and gums: plaque builds every day unless the teeth are brushed
+	DentalHealth float64 `json:"dental_health"`
+
+	// Hearing, 0.0 (deaf) to 1.0: some pets are born partly or fully deaf,
+	// and hearing fades a little in old age
+	Hearing float64 `json:"hearing"`
+
+	// SensesSet is false in saves made before the kidneys, eyes, teeth and
+	// hearing were modelled
+	SensesSet bool `json:"senses_set"`
+}
+
+// Predispositions are what a pet's breed and species make it prone to,
+// each 0 (not prone) to about 1 (strongly prone)
+type Predispositions struct {
+	KidneyAging   float64 // How much the kidneys wear with age (cats more than dogs)
+	KidneyDisease float64 // Inherited kidney disease, such as polycystic kidney disease
+	Eyes          float64 // Prominent eyes or eyelid problems
+	Dental        float64 // Crowded teeth (small and short-faced breeds); 1 is average
+	Heart         float64 // Inherited heart disease
 }
 
 const (
@@ -43,14 +74,39 @@ const (
 	organWarningLevel = 0.5
 )
 
+// Rates for the kidneys, eyes, teeth and hearing, per game day
+const (
+	kidneyAging     = 0.00012 // Reserve lost at full senescence, scaled by KidneyAging
+	kidneyDisease   = 0.00005 // Reserve lost by an adult with inherited kidney disease
+	kidneyDryDamage = 0.02    // Harm from severe dehydration
+	kidneyRecovery  = 0.01
+	eyeAirDamage    = 0.02
+	eyeIrritation   = 0.004 // Daily irritation in a breed prone to eye problems
+	eyeRecovery     = 0.01
+	plaque          = 0.0015 // Dental health lost each day without brushing
+	hearingAging    = 0.0001 // Hearing lost at full senescence
+)
+
 // NewPhysiology returns a healthy body with an empty stomach
 func NewPhysiology() *Physiology {
-	return &Physiology{
+	ph := &Physiology{
 		DigestiveHealth:      1.0,
 		CardiovascularHealth: 1.0,
 		RespiratoryHealth:    1.0,
 		NervousHealth:        1.0,
 	}
+	ph.EnsureSenses()
+	return ph
+}
+
+// EnsureSenses gives a body from before the kidneys, eyes, teeth and
+// hearing were modelled healthy ones
+func (ph *Physiology) EnsureSenses() {
+	if ph.SensesSet {
+		return
+	}
+	ph.KidneyHealth, ph.KidneyReserve, ph.EyeHealth, ph.DentalHealth, ph.Hearing = 1, 1, 1, 1, 1
+	ph.SensesSet = true
 }
 
 // Clamp keeps every level in its range
@@ -62,6 +118,11 @@ func (ph *Physiology) Clamp() {
 	ph.CardiovascularHealth = clamp(ph.CardiovascularHealth, 0, 1)
 	ph.RespiratoryHealth = clamp(ph.RespiratoryHealth, 0, 1)
 	ph.NervousHealth = clamp(ph.NervousHealth, 0, 1)
+	ph.KidneyReserve = clamp(ph.KidneyReserve, 0, 1)
+	ph.KidneyHealth = clamp(ph.KidneyHealth, 0, ph.KidneyReserve)
+	ph.EyeHealth = clamp(ph.EyeHealth, 0, 1)
+	ph.DentalHealth = clamp(ph.DentalHealth, 0, 1)
+	ph.Hearing = clamp(ph.Hearing, 0, 1)
 }
 
 // Eat puts food in the stomach. It returns true if the stomach is now
@@ -133,9 +194,12 @@ func (b *BiologicalSystems) updatePhysiology(deltaTime, airQuality float64) {
 		ph.DigestiveHealth += 0.02 * repair * deltaTime * rate(b.DecayMultipliers.DigestiveRecovery) // The gut recovers when not overloaded
 	}
 
-	// Fitness fades without exercise, faster in old age
+	// Fitness fades without exercise, faster in old age and faster still
+	// with inherited heart disease
+	pre := b.Predispositions
 	if ph.CardiovascularHealth > minFitness {
-		loss := (fitnessLoss + 0.01*b.Senescence()) * deltaTime * rate(b.DecayMultipliers.FitnessLoss)
+		aging := 0.01 * b.Senescence() * (1 + 0.2*pre.Heart) * rate(b.DecayMultipliers.HeartAging)
+		loss := (fitnessLoss + aging) * deltaTime * rate(b.DecayMultipliers.FitnessLoss)
 		ph.CardiovascularHealth = max(ph.CardiovascularHealth-loss, minFitness)
 	}
 
@@ -154,14 +218,74 @@ func (b *BiologicalSystems) updatePhysiology(deltaTime, airQuality float64) {
 		ph.NervousHealth += 0.02 * repair * deltaTime
 	}
 
+	b.updateSenses(deltaTime, airQuality, repair)
+
 	// Failing organ systems cost the pet health
-	for _, organ := range []float64{ph.DigestiveHealth, ph.CardiovascularHealth, ph.RespiratoryHealth, ph.NervousHealth} {
+	for _, organ := range []float64{ph.DigestiveHealth, ph.CardiovascularHealth, ph.RespiratoryHealth, ph.NervousHealth,
+		ph.KidneyHealth, ph.DentalHealth} {
 		if organ < organWarningLevel {
 			v.Health -= 0.02 * (organWarningLevel - organ) / organWarningLevel * deltaTime
 		}
 	}
 
 	ph.Clamp()
+}
+
+// updateSenses advances the kidneys, eyes, teeth and hearing by deltaTime
+// game days
+func (b *BiologicalSystems) updateSenses(deltaTime, airQuality, repair float64) {
+	ph, v, pre, care := b.Physiology, b.Vitals, b.Predispositions, b.DecayMultipliers
+	ph.EnsureSenses()
+
+	// Kidneys: age and inherited disease lower the reserve for good;
+	// severe dehydration harms them, and water lets them recover up to it
+	lost := kidneyAging * b.Senescence() * pre.KidneyAging
+	if b.Processes.Age >= AdultAge {
+		lost += kidneyDisease * pre.KidneyDisease
+	}
+	ph.KidneyReserve -= lost * deltaTime * rate(care.KidneyDecline)
+	switch {
+	case v.Hydration < 0.25:
+		ph.KidneyHealth -= kidneyDryDamage * (0.25 - v.Hydration) / 0.25 * deltaTime
+	case v.Hydration > 0.5:
+		ph.KidneyHealth += kidneyRecovery * repair * deltaTime
+	}
+
+	// Eyes: foul air and, for prone breeds, daily irritation; they heal
+	// more slowly in prone breeds
+	if airQuality < 0.5 {
+		ph.EyeHealth -= eyeAirDamage * (0.5 - airQuality) / 0.5 * deltaTime
+	}
+	ph.EyeHealth -= eyeIrritation * pre.Eyes * deltaTime * rate(care.EyeIrritation)
+	ph.EyeHealth += eyeRecovery * repair * (1 - 0.8*min(pre.Eyes, 1)) * deltaTime
+
+	// Teeth: plaque builds every day; brushing removes it
+	dental := pre.Dental
+	if dental <= 0 {
+		dental = 1
+	}
+	ph.DentalHealth -= plaque * dental * deltaTime * rate(care.DentalDecline)
+
+	// Hearing fades a little in old age
+	ph.Hearing -= hearingAging * b.Senescence() * deltaTime
+
+	// Sore eyes and a painful mouth are stressful
+	if ph.EyeHealth < 0.5 {
+		v.Stress += 0.02 * (0.5 - ph.EyeHealth) / 0.5 * deltaTime
+	}
+	if ph.DentalHealth < 0.5 {
+		v.Stress += 0.02 * (0.5 - ph.DentalHealth) / 0.5 * deltaTime
+	}
+	ph.Clamp()
+}
+
+// KidneyThirst is how much faster than normal the pet gets thirsty:
+// failing kidneys can't concentrate urine, so it drinks and pees more
+func (b *BiologicalSystems) KidneyThirst() float64 {
+	if b.Physiology == nil || !b.Physiology.SensesSet || b.Physiology.KidneyHealth >= 0.7 {
+		return 1
+	}
+	return 1 + (0.7 - b.Physiology.KidneyHealth)
 }
 
 // StressSensitivity is how much faster than normal stress builds: a worn

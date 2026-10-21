@@ -44,6 +44,8 @@ type Playmate struct {
 	Young    bool                     `json:"young"`
 	Look     string                   `json:"look"`   // One of core.SpriteStates
 	Outfit   map[string]core.Cosmetic `json:"outfit"` // What it wears, by slot
+	Breed    string                   `json:"breed"`  // Its breed ID; drawn in the breed's typical look
+	Typical  core.PetLook             `json:"typical"`
 	Position hub.Offset               `json:"position"`
 	Relation string                   `json:"relation"` // How your pet gets along with it, or ""
 }
@@ -103,8 +105,10 @@ func (s *Server) activeCard(look string) (hub.CardRequest, types.PetID, error) {
 		look = "idle"
 	}
 	card := pet.PlaymateCard()
+	breed, _ := pet.GetLook()
 	return hub.CardRequest{PetKey: hub.PetKey(string(card.ID)), Species: string(card.Species), Young: card.Young,
-		Sociability: card.Sociability, Unavailable: card.Unavailable, Look: look, Outfit: pet.OutfitIDs()}, card.ID, nil
+			Sociability: card.Sociability, Unavailable: card.Unavailable, Look: look, Outfit: pet.OutfitIDs(), Breed: breed},
+		card.ID, nil
 }
 
 // playmateCard turns a hub card into the game's
@@ -128,7 +132,7 @@ func (s *Server) playdateStatusLocked() PlaydateStatus {
 	for _, m := range pd.members {
 		mate := Playmate{Handle: m.Handle, Slot: m.Slot, You: m.Handle == pd.you, Name: m.Card.Name,
 			Species: m.Card.Species, Young: m.Card.Young, Look: m.Card.Look, Position: m.Position,
-			Outfit: map[string]core.Cosmetic{}}
+			Outfit: map[string]core.Cosmetic{}, Breed: m.Card.Breed, Typical: core.TypicalLook(m.Card.Breed)}
 		for slot, id := range m.Card.Outfit {
 			if c, ok := core.FindCosmetic(id); ok && c.Slot == slot && (c.Holiday == "" || core.HolidayOn(c.Holiday)) {
 				mate.Outfit[slot] = c

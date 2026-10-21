@@ -200,6 +200,15 @@ func (p *DigitalPet) checkGoalsLocked() {
 			p.completedGoals = append(p.completedGoals, *g)
 		}
 	}
+	// A day all of the goals were finished counts towards Daily Carer
+	all := len(p.Goals.Goals) > 0
+	for _, g := range p.Goals.Goals {
+		all = all && g.Done
+	}
+	if all && p.LastGoalDay != p.Goals.Day {
+		p.LastGoalDay = p.Goals.Day
+		p.GoalDays++
+	}
 }
 
 // DailyGoals returns today's goals and their difficulty level

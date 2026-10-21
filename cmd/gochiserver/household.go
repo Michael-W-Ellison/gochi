@@ -53,7 +53,7 @@ const (
 var achievementStars = map[string]int{
 	"first_trick": 10, "first_treasure": 10, "grown_up": 10,
 	"all_tricks": 25, "crystal": 25, "senior": 25, "long_life": 25, "best_friends": 25, "family": 25, "well_equipped": 25,
-	"explorer": 50, "devoted": 50,
+	"explorer": 50, "devoted": 50, "daily_carer": 25, "nurse": 25, "attentive": 50,
 }
 
 // ledgerEntry is one earning (positive) or spending (negative) of Home Stars
@@ -86,6 +86,11 @@ type householdData struct {
 	// it runs out
 	GameDays    float64 `json:"game_days"`
 	FilterUntil float64 `json:"filter_until"`
+
+	// The achievements any pet has earned, which unlock breeds, and
+	// whether the pets saved before they were recorded here were looked at
+	Achieved        []string `json:"achieved"`
+	AchievedScanned bool     `json:"achieved_scanned"`
 }
 
 // household is the player's household
@@ -415,12 +420,49 @@ func (h *household) merge(other householdData) bool {
 	if other.FilterUntil > h.data.FilterUntil {
 		h.data.FilterUntil, changed = other.FilterUntil, true
 	}
+	for _, id := range other.Achieved {
+		if !slices.Contains(h.data.Achieved, id) {
+			h.data.Achieved, changed = append(h.data.Achieved, id), true
+		}
+	}
 	h.clean()
 	h.apply()
 	if changed {
 		h.saveLocked()
 	}
 	return changed
+}
+
+// recordAchievements records achievements a pet has earned; it returns
+// whether a breed tier was unlocked by them
+func (h *household) recordAchievements(ids []string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	before, added := core.UnlockedTier(h.data.Achieved), false
+	for _, id := range ids {
+		if !slices.Contains(h.data.Achieved, id) {
+			h.data.Achieved, added = append(h.data.Achieved, id), true
+		}
+	}
+	if !added {
+		return false
+	}
+	h.saveLocked()
+	return core.UnlockedTier(h.data.Achieved) > before
+}
+
+// breedTier returns the highest breed tier unlocked
+func (h *household) breedTier() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return core.UnlockedTier(h.data.Achieved)
+}
+
+// achieved returns the achievements any pet has earned
+func (h *household) achieved() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.data.Achieved)
 }
 
 // snapshot returns a copy of the household's data
@@ -430,6 +472,7 @@ func (h *household) snapshot() householdData {
 	d := h.data
 	d.Ledger = slices.Clone(h.data.Ledger)
 	d.HolidaysOff = slices.Clone(h.data.HolidaysOff)
+	d.Achieved = slices.Clone(h.data.Achieved)
 	d.Look = make(map[string]string, len(h.data.Look))
 	for k, v := range h.data.Look {
 		d.Look[k] = v
@@ -578,7 +621,7 @@ func (s *Server) syncHousehold(ctx context.Context, client *hub.Client, remote *
 // sameHousehold reports whether two households hold the same ledger and
 // settings
 func sameHousehold(a, b householdData) bool {
-	if len(a.Ledger) != len(b.Ledger) || !a.SettingsTime.Equal(b.SettingsTime) || a.PaidDay != b.PaidDay ||
+	if len(a.Ledger) != len(b.Ledger) || len(a.Achieved) != len(b.Achieved) || !a.SettingsTime.Equal(b.SettingsTime) || a.PaidDay != b.PaidDay ||
 		a.GameDays != b.GameDays || a.FilterUntil != b.FilterUntil {
 		return false
 	}

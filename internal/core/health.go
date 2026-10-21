@@ -56,6 +56,8 @@ const (
 	IllnessParasites   = "parasites"   // Dogs: from feces left in the home
 	IllnessRespiratory = "respiratory" // From airways damaged by foul air
 	IllnessPoisoning   = "poisoning"   // From eating something toxic, such as chocolate for a dog
+	IllnessEye         = "eye"         // From sore, irritated eyes
+	IllnessDental      = "dental"      // From plaque left on the teeth
 )
 
 // Illness is an illness the pet has. It gets worse over time until treated
@@ -184,6 +186,9 @@ func (p *DigitalPet) catchIllnessLocked(deltaTime float64) {
 			kind, rate = IllnessRespiratory, r
 		}
 	}
+	if k, r := p.senseIllnessLocked(resistance); r > rate {
+		kind, rate = k, r
+	}
 	if kind == "" || !chance(rate*p.effectLocked(effIllness)*deltaTime) {
 		return
 	}
@@ -199,6 +204,8 @@ var illnessTopics = map[string]string{
 	IllnessParasites:   "bathroom",
 	IllnessRespiratory: "breathing",
 	IllnessPoisoning:   "feeding",
+	IllnessEye:         "eyes",
+	IllnessDental:      "teeth",
 }
 
 // progressIllnessLocked worsens an untreated illness, which costs the pet
@@ -223,6 +230,12 @@ func (p *DigitalPet) progressIllnessLocked(deltaTime float64) {
 	case IllnessPoisoning:
 		ph.CardiovascularHealth -= 0.05 * ill.Severity * deltaTime // A racing heart
 		ph.NervousHealth -= 0.03 * ill.Severity * deltaTime        // Restlessness and tremors
+	case IllnessEye:
+		ph.EyeHealth -= 0.05 * ill.Severity * deltaTime
+		v.Stress += 0.02 * ill.Severity * deltaTime
+	case IllnessDental:
+		ph.DentalHealth -= 0.03 * ill.Severity * deltaTime
+		v.Stress += 0.02 * ill.Severity * deltaTime
 	}
 	v.Clamp()
 	ph.Clamp()
@@ -247,10 +260,18 @@ func (p *DigitalPet) treatIllnessLocked() string {
 		return ""
 	}
 	kind := p.Illness.Kind
+	ph := p.Biology.Physiology
+	switch kind {
+	case IllnessDental: // A cleaning at the vet
+		ph.DentalHealth = max(ph.DentalHealth, 0.9)
+	case IllnessEye:
+		ph.EyeHealth = max(ph.EyeHealth, 0.7)
+	}
 	p.recordHealthEventLocked(illnessTopics[kind], "%s was treated for %s and is recovering.",
 		p.Name, strings.ToLower(p.illnessNameLocked()))
 	p.HealthEvents[len(p.HealthEvents)-1].Good = true
 	p.Illness = nil
+	p.IllnessesTreated++
 	return kind
 }
 
@@ -271,6 +292,10 @@ func (p *DigitalPet) BodySystems() []BodySystem {
 		{"Heart", ph.CardiovascularHealth},
 		{"Lungs", ph.RespiratoryHealth},
 		{"Nerves", ph.NervousHealth},
+		{"Kidneys", ph.KidneyHealth},
+		{"Eyes", ph.EyeHealth},
+		{"Teeth", ph.DentalHealth},
+		{"Hearing", ph.Hearing},
 	}
 }
 

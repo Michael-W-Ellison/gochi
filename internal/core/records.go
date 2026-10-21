@@ -78,6 +78,10 @@ type Achievement struct {
 	EarnedAt    time.Time `json:"earned_at,omitempty"`
 }
 
+// attentiveAge is the age (game days) from which a pet's care record is
+// long enough to count for Attentive Carer
+const attentiveAge = 300
+
 // achievements are the milestones and how to tell a pet has reached them.
 // Conditions run with p.mu held.
 var achievements = []struct {
@@ -131,6 +135,18 @@ var achievements = []struct {
 	{Achievement{ID: "devoted", Name: "Devoted", Icon: "💖", Rarity: "epic", Points: 50,
 		Description: "Earned 500 Friendship Points"},
 		func(p *DigitalPet) bool { return p.PointsEarned >= 500 }},
+	{Achievement{ID: "daily_carer", Name: "Daily Carer", Icon: "📅", Rarity: "rare", Points: 25,
+		Description: "Finished all of a day's goals on 3 different days"},
+		func(p *DigitalPet) bool { return p.GoalDays >= 3 }},
+	{Achievement{ID: "nurse", Name: "Nurse", Icon: "🩺", Rarity: "rare", Points: 25,
+		Description: "Nursed a pet through an illness with medical care"},
+		func(p *DigitalPet) bool { return p.IllnessesTreated > 0 }},
+	{Achievement{ID: "attentive", Name: "Attentive Carer", Icon: "🌟", Rarity: "epic", Points: 50,
+		Description: "Kept an adult pet's care record excellent (80% or more)"},
+		func(p *DigitalPet) bool {
+			return p.Biology.LifeStage() != biology.StageYoung && p.Biology.GetAgeInDays() >= attentiveAge &&
+				p.Biology.CareQuality >= 0.8
+		}},
 	{Achievement{ID: "well_equipped", Name: "Well Equipped", Icon: "🛍️", Rarity: "rare", Points: 25,
 		Description: "Owns five items from the shop"},
 		func(p *DigitalPet) bool { return len(p.Inventory) >= 5 }},

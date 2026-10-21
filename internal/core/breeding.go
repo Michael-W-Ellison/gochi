@@ -106,6 +106,11 @@ type breedingInfo struct {
 	species                            Species
 	seasonBreeding                     float64 // How the season changes the chance of a baby
 	babiesWith                         map[types.PetID]int
+	breed                              string
+	look                               PetLook
+	tendencies                         map[string]float64
+	lifespan                           float64
+	lineage                            *Lineage
 }
 
 // breedingInfo snapshots the pet for breeding, so two pets' locks are
@@ -114,6 +119,7 @@ func (p *DigitalPet) breedingInfo() breedingInfo {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.ensureGenomeLocked()
+	p.ensureBreedLocked()
 
 	traits := *p.Personality.Traits
 	personality := *p.Personality
@@ -135,6 +141,11 @@ func (p *DigitalPet) breedingInfo() breedingInfo {
 		species:            p.speciesLocked(),
 		seasonBreeding:     p.seasonalBreedingLocked(),
 		babiesWith:         maps.Clone(p.BabiesWith),
+		breed:              p.Breed,
+		look:               *p.Look,
+		tendencies:         maps.Clone(p.Tendencies),
+		lifespan:           p.BreedLifespan,
+		lineage:            cloneLineage(p.Lineage),
 	}
 }
 
@@ -252,6 +263,7 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 	child.Biology.Processes.ImmuneStrength = geneValue(child.Genome, genetics.TraitImmuneStrength)
 	child.HibernationEnabled = infoA.hibernationEnabled
 	child.Species = infoA.species
+	inheritBreed(child, infoA, infoB)
 	child.Relationships.AddRelationship(infoA.id, types.RelationshipParent)
 	child.Relationships.AddRelationship(infoB.id, types.RelationshipParent)
 	child.Parents = []types.PetID{infoA.id, infoB.id}

@@ -210,7 +210,16 @@ func (nm *NeedsManager) SatisfyNeed(needType types.NeedType, amount float64, gam
 	}
 }
 
-// GetNeed returns a specific need (thread-safe copy)
+// SetDecayRate sets how fast a need builds
+func (nm *NeedsManager) SetDecayRate(needType types.NeedType, rate float64) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	if need, exists := nm.Needs[needType]; exists {
+		need.DecayRate = rate
+	}
+}
+
+// GetNeed returns a copy of a need
 func (nm *NeedsManager) GetNeed(needType types.NeedType) *Need {
 	nm.mu.RLock()
 	defer nm.mu.RUnlock()

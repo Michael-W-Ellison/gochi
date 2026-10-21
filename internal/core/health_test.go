@@ -210,7 +210,7 @@ func TestEverySymptomTopicIsInTheGuide(t *testing.T) {
 	topics := map[Species]map[string]bool{}
 	for _, def := range SpeciesList() {
 		topics[def.ID] = map[string]bool{}
-		for _, topic := range def.CareGuide {
+		for _, topic := range CareGuide(def.ID) {
 			topics[def.ID][topic.ID] = true
 		}
 	}

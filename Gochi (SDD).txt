@@ -166,6 +166,17 @@ dirty living area, section 3.11) lowers respiratory health; fresh air restores i
 0.6 wears the nervous system, and a worn one makes stress build faster. An unfit heart or weak
 lungs make energy drain faster, and any organ system below 0.5 costs health.
 
+Kidneys, eyes, teeth and hearing (per game day): the kidneys' reserve falls by 0.00012 x senescence
+x kidney aging (1.0 for cats, 0.6 for dogs), plus 0.00005 for an adult with inherited kidney
+disease, scaled by care (a kidney-support diet halves it); kidney health is capped at the reserve,
+falls with hydration below 0.25 and recovers 0.01 when hydration is above 0.5. Below 0.7 it speeds
+thirst by 1 + (0.7 - kidney health). Eye health falls with foul air (air quality below 0.5) and by
+0.004 x the breed's eye predisposition (eye wipes halve it), and heals 0.01 x (1 - 0.8 x
+predisposition). Dental health falls 0.0015 x dental predisposition (1, or 1.5 for crowded teeth);
+brushing removes 0.1 of plaque and halves it for the day. Hearing is set at birth (section 3.12)
+and falls 0.0001 x senescence. Eyes or teeth below 0.5 add stress; kidneys and teeth below 0.5
+cost health like the organ systems. Inherited heart disease makes the heart's aging 20% faster.
+
 Death: a pet dies when health or hydration reaches 0.0, or nutrition and energy both do. The
 cause of death is recorded and shown to the player (for an untreated illness, its name). See
 section 3.10 for hibernation.
@@ -520,6 +531,15 @@ The season scales the chance of success by its breeding modifier (spring 1.3, su
 0.8, winter 0.5, blended over the first 5 days of a season), averaged over the two pets'
 environments; the chance is at most 1. Two pets can have at most 5 babies together; each parent
 counts its babies per mate, and either count reaching 5 stops the pair.
+Breeds (section 3.12): two parents of the same breed have a baby of that breed, with looks from its
+genome and a pattern from a parent; any other pairing has a mixed breed (a domestic shorthair or
+longhair cat by coat length, or a mixed breed dog) whose build, ears, muzzle, coat, legs, tail,
+colors, pattern and eyes each come from one parent, whose size is between theirs, whose lifespan
+factor is their average, and which has a tendency only if both parents have it, at the average of
+their strengths halved. Its lineage records both parents and their breeds (and grandparents'
+breeds for a mixed parent) and which parent each feature came from. Two merle parents have a
+double merle (1 in 4), merle (2 in 4) or the breed's other pattern; a double merle has the eye
+tendency and a 50% chance of deafness.
 3.6 Social System
 3.6.1 Multi-Pet Interactions
 cppclass SocialSystem {
@@ -774,7 +794,7 @@ Air pollution from the living area is max(waste - 0.3, 0) / 0.7 (section 3.1.2).
 empties the bowel and bladder outside and counts as exercise.
 3.11.2 Illness
 cppstruct Illness {
-    enum Kind { URINARY, PARASITES, RESPIRATORY };
+    enum Kind { URINARY, PARASITES, RESPIRATORY, POISONING, EYE, DENTAL };
     float severity;       // 0.1 at onset, +0.04 per game day, up to 1.0
 };
 
@@ -783,6 +803,10 @@ intestinal parasites) at 0.3 x (waste - 0.6) / 0.4 per game day, and respiratory
 can cause a respiratory infection, both scaled down by immune strength. An illness costs
 0.04 x severity health per game day and harms its system (urinary: frequent urination and stress;
 parasites: digestion; respiratory: lungs); at severity 0.3 the pet behaves sick and asks for care.
+Eye health below 0.35 can cause an eye infection, and dental health below 0.3 dental disease, at
+0.3 x the shortfall's share per game day (scaled by immune strength); treatment restores eye
+health to 0.7 and is a dental cleaning that restores dental health to 0.9. Medical care also gives
+fluids, bringing kidney health back up to its reserve.
 It worsens until treated with medical care, which cures it; it can come back if the cause remains.
 Untreated, it can kill the pet, or send it into hibernation in gentle mode.
 3.11.3 Teaching
@@ -800,6 +824,53 @@ both link to a care guide page on older cats or dogs. Growing up and becoming a 
 Daily checklist: a real owner's routine for the current calendar day (cat: two meals, water,
 scoop the litter box, play, brush; dog: two meals, water, three walks, play), counted from the care
 given. It follows the real day rather than game time, so it shows a real pet's routine.
+
+3.12 Breeds
+cppstruct Breed {
+    string id, name;          // e.g. "maine_coon", "Maine Coon"
+    Species species;
+    int tier;                 // 1 easy (from the start), 2 more care, 3 demanding care
+    Body body;                // build, ears, muzzle, coat, legs, tail, size range
+    vector<Color> colors;     // coat colors the genes pick from
+    vector<Pattern> patterns;
+    vector<Color> eyes;
+    map<Trait, float> temperament; // typical personality traits
+    vector<Tendency> tendencies;
+    float lifespan;           // relative to the species
+};
+
+21 cat breeds and 22 dog breeds. A new pet of a breed has personality traits drawn within 0.15 of
+the breed's typical temperament (other traits random), a genome matching its personality, and
+looks picked from the breed's by its size, color, pattern and eye genes. Its tendencies (each at
+strength 1) and lifespan factor are the breed's; the body's lifespan is the species' factor x the
+breed's. Breeds whose defining looks come from a condition that harms the animal (Scottish Fold,
+Munchkin, Dachshund, Corgi) are not included.
+
+Tendencies change existing simulation effects, applied after the limits on item effects so care
+can offset but not remove them: high energy (exercise and stimulation needs x1.3), low energy
+(exercise x0.75), grooming need (coat dirt x1.4), skin care (x1.3), short airways (weather stress
+x1.5 above 27 C, airway damage x1.3, tiredness x1.15), feels the cold (weather stress x1.5 below
+10 C), feels the heat (x1.3 above 27 C), joints (senior fitness loss x1.25, trip injury +2 points),
+heart, food-motivated (hunger x1.15, food-reward training x1.2), separation stress (alone stress
+x1.3), kidney disease, eyes and teeth (predispositions, section 3.1.2). Each has a care lesson.
+
+Congenital deafness: a white cat is deaf with probability 0.2, 0.4 or 0.7 for zero, one or two
+blue eyes, a white Boxer 0.18 and a double merle 0.5; half of these are deaf in one ear (hearing
+0.5), half in both (0). Words, clicker and scolding train at 0.25 + 0.75 x hearing; hand signals
+and reward (1.25, needs treats) don't depend on hearing.
+
+Unlocking: tier 2 needs the All Grown Up and Daily Carer (all of a day's goals on 3 days)
+achievements, and tier 3 also Nurse (an illness treated) and Attentive Carer (an adult with a
+care record of at least 0.8, from 300 game days old), earned by any of the player's pets. The
+household (section 4.2) records achievements, merged across devices; saved pets from before are
+scanned once. Pets from before breeds become the species' default breed (Domestic Shorthair or
+Mixed Breed) with looks from their genes, and their new body systems start healthy.
+
+Drawing: pets are drawn as SVG from their look (pet-art.js): body parts from the breed's features,
+the pattern clipped to the body, eye colors, a pose per state, and cosmetics placed on the head,
+eyes, neck, collar, tag and body. At playdates only a breed ID from the game's list is sent; the
+hub refuses unknown breeds or one of another species, and visiting pets are drawn in their
+breed's typical look.
 
 4. Data Management
 4.1 Persistence Layer

@@ -395,26 +395,6 @@ function showPopups(popups) {
     }]]);
 }
 
-// How the pet looks: what it wears drawn over it
-function renderOutfit(outfit) {
-    const layer = document.getElementById('petOutfit');
-    if (!layer) return;
-    layer.replaceChildren();
-    Object.entries(outfit || {}).forEach(([slot, c]) => {
-        const item = el('span', 'wear wear-' + slot + (c.color ? ' tinted' : ''));
-        item.title = c.name;
-        if (c.color) item.style.setProperty('--c', c.color);
-        const shape = slot === 'collar' || (slot === 'neck' && c.icon === '🔻') || (slot === 'body' && c.color);
-        if (shape) {
-            item.classList.add('shape');
-            if (slot === 'collar' && c.icon !== '⭕') item.append(el('span', 'wear-charm', c.icon));
-        } else {
-            item.textContent = c.icon;
-        }
-        layer.append(item);
-    });
-}
-
 // How the home looks: wallpaper, floor, window view and nameplate
 function pattern(style) {
     const [kind, a, b] = style.split(':');

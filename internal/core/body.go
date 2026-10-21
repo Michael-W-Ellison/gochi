@@ -81,7 +81,9 @@ func (p *DigitalPet) prepareBodyLocked() {
 	b.Inputs.Exercise = p.Needs.GetNeedLevel(types.NeedExercise)
 	b.Inputs.Company = (p.Needs.GetNeedLevel(types.NeedSocial) + p.Needs.GetNeedLevel(types.NeedAffection)) / 2
 
-	b.SpeciesLifespan = p.defLocked().LifespanFactor
+	p.ensureBreedLocked()
+	b.SpeciesLifespan = p.lifespanFactorLocked()
+	b.Predispositions = p.predispositionsLocked()
 	p.ensureGenomeLocked()
 	b.Longevity = geneValue(p.Genome, genetics.TraitLongevity)
 	b.OldAgeDeath = !p.HibernationEnabled
