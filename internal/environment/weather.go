@@ -357,9 +357,10 @@ func (ws *WeatherSystem) GetWeatherEffects() map[string]float64 {
 
 	// Energy drain (harsh weather drains more energy)
 	effects["energy_drain"] = 1.0
-	if ws.Current.Type == WeatherStormy || ws.Current.Type == WeatherCold {
+	switch ws.Current.Type {
+	case WeatherStormy, WeatherCold:
 		effects["energy_drain"] = 1.5
-	} else if ws.Current.Type == WeatherHot {
+	case WeatherHot:
 		effects["energy_drain"] = 1.3
 	}
 

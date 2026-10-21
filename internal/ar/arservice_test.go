@@ -464,7 +464,9 @@ func TestRemovePet(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	petID := types.PetID("pet-123")
-	service.PlacePet(petID, Vector3{}, "")
+	if _, err := service.PlacePet(petID, Vector3{}, ""); err != nil {
+		t.Fatalf("PlacePet failed: %v", err)
+	}
 
 	service.RemovePet(petID)
 
@@ -479,7 +481,9 @@ func TestMovePetTo(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	petID := types.PetID("pet-123")
-	service.PlacePet(petID, Vector3{X: 0, Y: 0, Z: 0}, "")
+	if _, err := service.PlacePet(petID, Vector3{X: 0, Y: 0, Z: 0}, ""); err != nil {
+		t.Fatalf("PlacePet failed: %v", err)
+	}
 
 	target := Vector3{X: 1, Y: 0, Z: 1}
 	err := service.MovePetTo(petID, target)
@@ -507,7 +511,9 @@ func TestSetPetAnimation(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	petID := types.PetID("pet-123")
-	service.PlacePet(petID, Vector3{}, "")
+	if _, err := service.PlacePet(petID, Vector3{}, ""); err != nil {
+		t.Fatalf("PlacePet failed: %v", err)
+	}
 
 	err := service.SetPetAnimation(petID, "happy")
 	if err != nil {
@@ -526,7 +532,9 @@ func TestSetPetBehavior(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 
 	petID := types.PetID("pet-123")
-	service.PlacePet(petID, Vector3{}, "")
+	if _, err := service.PlacePet(petID, Vector3{}, ""); err != nil {
+		t.Fatalf("PlacePet failed: %v", err)
+	}
 
 	err := service.SetPetBehavior(petID, "playing")
 	if err != nil {
@@ -673,7 +681,9 @@ func TestGetSnapshot(t *testing.T) {
 	})
 
 	petID := types.PetID("pet-123")
-	service.PlacePet(petID, Vector3{}, "")
+	if _, err := service.PlacePet(petID, Vector3{}, ""); err != nil {
+		t.Fatalf("PlacePet failed: %v", err)
+	}
 
 	snapshot := service.GetSnapshot()
 

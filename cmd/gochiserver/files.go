@@ -40,7 +40,7 @@ const tempFileAge = time.Hour
 // removeTempFiles removes temporary files (*.tmp and *.tmp-*) left in dir
 // and its folders by a crash or a full disk
 func removeTempFiles(dir string) {
-	filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return nil
 		}

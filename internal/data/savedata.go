@@ -361,7 +361,9 @@ func FromEncryptedJSON(data, key []byte) (*SaveData, error) {
 
 func generateSaveID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // The system's random source failed (Go 1.24 and later crash here themselves)
+	}
 	return fmt.Sprintf("save_%x", b)
 }
 

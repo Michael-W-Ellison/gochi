@@ -54,7 +54,7 @@ func (p *DigitalPet) Feed(foodID string) (InteractionResult, error) {
 	}
 	result := p.interactWithLocked(types.InteractionFeeding, careChoice{food: &s})
 	if result.Applied {
-		p.useSupplyLocked(foodID)
+		_ = p.useSupplyLocked(foodID) // Checked above, under the same lock
 	}
 	return result, nil
 }
@@ -70,7 +70,7 @@ func (p *DigitalPet) GiveTreat(treatID string) (InteractionResult, error) {
 	}
 	result := p.interactWithLocked(types.InteractionRewards, careChoice{food: &s})
 	if result.Applied {
-		p.useSupplyLocked(treatID)
+		_ = p.useSupplyLocked(treatID) // Checked above, under the same lock
 	}
 	return result, nil
 }

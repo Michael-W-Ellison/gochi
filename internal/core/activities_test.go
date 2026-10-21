@@ -144,7 +144,9 @@ func TestHideAndSeekFound(t *testing.T) {
 	}
 
 	// The bonus has a cooldown
-	pet.StartHideAndSeek()
+	if err := pet.StartHideAndSeek(); err != nil {
+		t.Fatal(err)
+	}
 	again, _ := pet.GuessHidingSpot(2)
 	if again.BonusPoints != 0 {
 		t.Error("The game bonus should not be earned again within the cooldown")
@@ -154,9 +156,13 @@ func TestHideAndSeekFound(t *testing.T) {
 func TestHideAndSeekOutOfGuesses(t *testing.T) {
 	useRandom(t, 3)
 	pet := NewDigitalPet("Biscuit", "user123")
-	pet.StartHideAndSeek()
+	if err := pet.StartHideAndSeek(); err != nil {
+		t.Fatal(err)
+	}
 
-	pet.GuessHidingSpot(0)
+	if _, err := pet.GuessHidingSpot(0); err != nil {
+		t.Fatal(err)
+	}
 	last, _ := pet.GuessHidingSpot(1)
 	if last.Found || !last.Over || last.Spot != "behind the curtain" || last.BonusPoints != 0 {
 		t.Errorf("After two misses the pet should reveal itself without a bonus: %+v", last)
@@ -223,7 +229,9 @@ func TestExploringNeedsCare(t *testing.T) {
 func TestExploringPausesWithTime(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 	setCalmHealthyState(pet)
-	pet.SendExploring()
+	if err := pet.SendExploring(); err != nil {
+		t.Fatal(err)
+	}
 	remaining := pet.ExploringRemaining()
 
 	// No updates (time paused): the trip does not progress
@@ -238,7 +246,9 @@ func TestLovingExploringMakesPetAdventurous(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		setCalmHealthyState(pet)
 		pet.RecentCare = nil // Trips spread out over time
-		pet.SendExploring()
+		if err := pet.SendExploring(); err != nil {
+			t.Fatal(err)
+		}
 		pet.Update(exploreDuration + 0.1)
 	}
 	setCalmHealthyState(pet)
@@ -255,8 +265,12 @@ func TestLovingExploringMakesPetAdventurous(t *testing.T) {
 func TestActivitiesSurviveSaveLoad(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 	setCalmHealthyState(pet)
-	pet.TrainTrick("sit")
-	pet.SendExploring()
+	if _, err := pet.TrainTrick("sit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pet.SendExploring(); err != nil {
+		t.Fatal(err)
+	}
 
 	data, err := pet.Save()
 	if err != nil {
@@ -350,7 +364,9 @@ func TestSevereInjuryHibernatesInsteadOfDying(t *testing.T) {
 	pet := NewDigitalPet("Biscuit", "user123")
 	pet.HibernationEnabled = true
 	setCalmHealthyState(pet)
-	pet.SendExploring()
+	if err := pet.SendExploring(); err != nil {
+		t.Fatal(err)
+	}
 	pet.Biology.Vitals.Health = 0.3
 
 	pet.Update(exploreDuration + 0.1)
@@ -394,7 +410,9 @@ func TestRecallFromExploringLosesGains(t *testing.T) {
 	}
 
 	setCalmHealthyState(pet)
-	pet.SendExploring()
+	if err := pet.SendExploring(); err != nil {
+		t.Fatal(err)
+	}
 	pet.Update(exploreDuration / 2)
 	points, interactions, affinity := pet.FriendshipPoints, pet.TotalInteractions,
 		pet.Memory.GetLearnedAffinity(types.InteractionEnvironmentalEnrichment)
@@ -426,8 +444,12 @@ func TestQuitHideAndSeekLosesGains(t *testing.T) {
 		t.Errorf("Quitting without a game: %v", err)
 	}
 
-	pet.StartHideAndSeek()
-	pet.GuessHidingSpot(0) // One wrong guess
+	if err := pet.StartHideAndSeek(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pet.GuessHidingSpot(0); err != nil { // One wrong guess
+		t.Fatal(err)
+	}
 	points, interactions := pet.FriendshipPoints, pet.TotalInteractions
 
 	text, err := pet.QuitHideAndSeek()
@@ -461,7 +483,9 @@ func TestSevereInjuryCanKillWithoutHibernation(t *testing.T) {
 	useRandom(t, 0) // Injury
 	pet := NewDigitalPet("Biscuit", "user123")
 	setCalmHealthyState(pet)
-	pet.SendExploring()
+	if err := pet.SendExploring(); err != nil {
+		t.Fatal(err)
+	}
 	pet.Biology.Vitals.Health = 0.2
 
 	pet.Update(exploreDuration + 0.1)

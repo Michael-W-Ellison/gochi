@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -28,14 +27,13 @@ func staticVersion(files fs.FS) (string, error) {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		io.WriteString(hash, path+"\x00")
-		f, err := files.Open(path)
+		data, err := fs.ReadFile(files, path)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		_, err = io.Copy(hash, f)
-		return err
+		hash.Write([]byte(path + "\x00")) // A hash's Write never fails
+		hash.Write(data)
+		return nil
 	})
 	if err != nil {
 		return "", err

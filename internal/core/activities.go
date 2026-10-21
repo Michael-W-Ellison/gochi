@@ -209,7 +209,7 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 	}
 	switch methodID {
 	case "treats", "clicker", "signals":
-		p.useSupplyLocked(p.defLocked().Treats)
+		_ = p.useSupplyLocked(p.defLocked().Treats) // Checked above, under the same lock
 		p.countLocked("reward_training", 1)
 	case "punishment":
 		p.countLocked("scolding", 1)

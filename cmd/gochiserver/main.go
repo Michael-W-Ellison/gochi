@@ -457,7 +457,9 @@ func main() {
 		log.Printf("Warning: HTTP shutdown: %v", err)
 	}
 	if hubHTTP != nil {
-		hubHTTP.Shutdown(shutdownCtx)
+		if err := hubHTTP.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Warning: hub shutdown: %v", err)
+		}
 	}
 
 	if err := server.saveOwner(); err != nil {
@@ -3193,7 +3195,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/help.js?v={{static}}"></script>
 </body>
 </html>`
-	w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion)))
+	_, _ = w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion))) // Fails only if the client has gone
 }
 
 // autosaveLoop saves the pet every interval until ctx is done
@@ -4032,7 +4034,7 @@ func (s *Server) getPetData() map[string]interface{} {
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data) // Fails only if the client has gone
 }
 
 // route is a page route: its pattern and handler

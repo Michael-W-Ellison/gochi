@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -178,7 +179,7 @@ func (h *household) saveLocked() error {
 	}
 	tmp := h.path + ".tmp"
 	if err := os.WriteFile(tmp, contents, 0o600); err != nil {
-		os.Remove(tmp) // Cut short (a full disk)
+		_ = os.Remove(tmp) // Cut short (a full disk); the write's error is the one to report
 		return err
 	}
 	return os.Rename(tmp, h.path)
@@ -191,10 +192,20 @@ func (h *household) save() error {
 	return h.saveLocked()
 }
 
+// saveOrLogLocked saves, logging a failure: the change stays in memory and
+// is written with the next save. Caller must hold h.mu.
+func (h *household) saveOrLogLocked() {
+	if err := h.saveLocked(); err != nil {
+		log.Printf("Could not save the household: %v", err)
+	}
+}
+
 // randomID returns a random ledger entry ID
 func randomID() string {
 	b := make([]byte, 12)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // The system's random source failed (Go 1.24 and later crash here themselves)
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -257,7 +268,7 @@ func (h *household) earn(stars int, what string, once bool) int {
 	if !h.earnLocked(stars, what, once) {
 		return 0
 	}
-	h.saveLocked()
+	h.saveOrLogLocked()
 	return stars
 }
 
@@ -425,7 +436,7 @@ func (h *household) tick(now time.Time, playing bool, gameDays float64) (int, st
 		h.earnLocked(starsStreak30, fmt.Sprintf("streak30:%s", day), true)
 		stars, note = stars+starsStreak30, fmt.Sprintf("%d days in a row", h.data.Streak)
 	}
-	h.saveLocked()
+	h.saveOrLogLocked()
 	return stars, note
 }
 
@@ -477,7 +488,7 @@ func (h *household) merge(other householdData) bool {
 	h.clean()
 	h.apply()
 	if changed {
-		h.saveLocked()
+		h.saveOrLogLocked()
 	}
 	return changed
 }
@@ -496,7 +507,7 @@ func (h *household) recordAchievements(ids []string) bool {
 	if !added {
 		return false
 	}
-	h.saveLocked()
+	h.saveOrLogLocked()
 	return core.UnlockedTier(h.data.Achieved) > before
 }
 

@@ -111,7 +111,9 @@ func (dm *DataManager) Save(saveData *SaveData, filename string) error {
 
 	// Create backup if enabled
 	if dm.AutoBackup {
-		dm.createBackupLocked(filename)
+		if err := dm.createBackupLocked(filename); err != nil {
+			dm.LastError = err // The save is still written; its backups are only older
+		}
 	}
 
 	// Serialize
@@ -151,25 +153,25 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	tmpPath := tmp.Name()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close() // The write's error is the one to report
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close() // The write's error is the one to report
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // The first error is the one to report
 		return err
 	}
 	if err := os.Chmod(tmpPath, perm); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // The first error is the one to report
 		return err
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // The first error is the one to report
 		return err
 	}
 	return nil
@@ -468,7 +470,7 @@ func (dm *DataManager) cleanupOldBackupsLocked(filename string) {
 
 	// Remove old backups
 	for i := dm.MaxBackups; i < len(backups); i++ {
-		os.Remove(filepath.Join(dm.BackupPath, backups[i].Name()))
+		_ = os.Remove(filepath.Join(dm.BackupPath, backups[i].Name())) // Left for the next save to try again
 	}
 }
 
@@ -587,11 +589,13 @@ func (dm *DataManager) ClearCache() error {
 		return fmt.Errorf("failed to read cache directory: %w", err)
 	}
 
+	var errs []error
 	for _, file := range files {
-		os.Remove(filepath.Join(dm.CachePath, file.Name()))
+		if err := os.Remove(filepath.Join(dm.CachePath, file.Name())); err != nil {
+			errs = append(errs, err)
+		}
 	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // GetStorageStats returns storage usage statistics

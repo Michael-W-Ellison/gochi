@@ -83,7 +83,9 @@ func TestFoodTypes(t *testing.T) {
 	if _, err := pet.Feed("cat_wet"); !errors.Is(err, ErrNoSupply) {
 		t.Errorf("Feeding food not in the pantry: %v", err)
 	}
-	pet.BuySupply("cat_wet")
+	if err := pet.BuySupply("cat_wet"); err != nil {
+		t.Fatal(err)
+	}
 
 	setCalmHealthyState(pet)
 	pet.Biology.Vitals.Nutrition, pet.Biology.Vitals.Hydration = 0.3, 0.5
@@ -110,7 +112,9 @@ func TestFoodTypes(t *testing.T) {
 func TestBadFoods(t *testing.T) {
 	useRandom(t, 999_999)
 	cat := richPet(SpeciesCat)
-	cat.BuySupply("milk")
+	if err := cat.BuySupply("milk"); err != nil {
+		t.Fatal(err)
+	}
 	digestion := cat.Biology.Physiology.DigestiveHealth
 	cat.Biology.Vitals.Nutrition = 0.3
 	r, _ := cat.Feed("milk")
@@ -125,7 +129,9 @@ func TestBadFoods(t *testing.T) {
 	if o, _ := offerOf(dog, "chocolate"); o.Warning == "" {
 		t.Error("Chocolate should carry a warning")
 	}
-	dog.BuySupply("chocolate")
+	if err := dog.BuySupply("chocolate"); err != nil {
+		t.Fatal(err)
+	}
 	dog.Biology.Vitals.Nutrition = 0.3
 	r, _ = dog.Feed("chocolate")
 	if dog.IllnessName() != "Chocolate poisoning" || !strings.Contains(r.Lesson, "theobromine") {
@@ -142,7 +148,9 @@ func TestToys(t *testing.T) {
 	if _, err := pet.PlayWith("wand_toy"); !errors.Is(err, ErrNoSupply) {
 		t.Errorf("Playing with a toy not owned: %v", err)
 	}
-	pet.BuySupply("wand_toy")
+	if err := pet.BuySupply("wand_toy"); err != nil {
+		t.Fatal(err)
+	}
 
 	setCalmHealthyState(pet)
 	plain := pet.reactionScoreFor(types.InteractionPlaying, careChoice{})
@@ -169,7 +177,9 @@ func TestToys(t *testing.T) {
 	}
 
 	// Catnip depends on the cat's genes
-	pet.BuySupply("catnip_mouse")
+	if err := pet.BuySupply("catnip_mouse"); err != nil {
+		t.Fatal(err)
+	}
 	setCalmHealthyState(pet)
 	r, _ = pet.PlayWith("catnip_mouse")
 	if !strings.Contains(strings.ToLower(r.Lesson), "catnip") {
@@ -210,15 +220,21 @@ func TestTrainingMethods(t *testing.T) {
 	if _, err := pet.TrainTrickWith("sit", "treats"); !errors.Is(err, ErrNoTreats) {
 		t.Errorf("Treat training without treats: %v", err)
 	}
-	pet.BuySupply("dog_treats")
+	if err := pet.BuySupply("dog_treats"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pet.TrainTrickWith("sit", "clicker"); !errors.Is(err, ErrNoClicker) {
 		t.Errorf("Clicker training without a clicker: %v", err)
 	}
 
 	gain := func(method string) float64 {
 		p := richPet(SpeciesDog)
-		p.BuySupply("dog_treats")
-		p.BuyItem("clicker")
+		if err := p.BuySupply("dog_treats"); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.BuyItem("clicker"); err != nil {
+			t.Fatal(err)
+		}
 		setCalmHealthyState(p)
 		r, err := p.TrainTrickWith("sit", method)
 		if err != nil {
@@ -276,7 +292,9 @@ func TestEnvironmentChanges(t *testing.T) {
 	nervous := withAttentionStyle(NewDigitalPet("Shy", "u"), 0.5, 0.5, 0.3, 0.9)
 	setCalmHealthyState(nervous)
 	nervous.Biology.Vitals.Stress = 0.6
-	nervous.ChangeEnvironment("box")
+	if _, err := nervous.ChangeEnvironment("box"); err != nil {
+		t.Fatal(err)
+	}
 	if nervous.Biology.Vitals.Stress >= 0.6 {
 		t.Error("A box should calm a nervous cat")
 	}
@@ -284,7 +302,9 @@ func TestEnvironmentChanges(t *testing.T) {
 
 func TestCareOptions(t *testing.T) {
 	pet := richPet(SpeciesDog)
-	pet.BuySupply("tennis_ball")
+	if err := pet.BuySupply("tennis_ball"); err != nil {
+		t.Fatal(err)
+	}
 	options := pet.GetCareOptions()
 	if len(options.Foods) == 0 || options.Foods[0].ID != "dog_kibble" || options.Foods[0].Quantity != -1 {
 		t.Errorf("Basic food should come first and never run out: %+v", options.Foods)

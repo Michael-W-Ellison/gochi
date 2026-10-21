@@ -91,11 +91,11 @@ lint: tools ## Run linter
 	@echo "Running linter..."
 	$(TOOLS_DIR)/golangci-lint run ./...
 
-check: tools ## List unformatted imports and unused code, and run staticcheck
+check: tools ## List unformatted imports and code nothing uses (tests included), and run staticcheck
 	@echo "Files whose imports need formatting (goimports):"
 	@$(TOOLS_DIR)/goimports -l $$($(GO) list -f '{{.Dir}}' ./...)
 	@echo "Unused code (deadcode):"
-	@$(TOOLS_DIR)/deadcode ./...
+	@$(TOOLS_DIR)/deadcode -test ./...
 	$(TOOLS_DIR)/staticcheck ./...
 
 fmt: ## Format code

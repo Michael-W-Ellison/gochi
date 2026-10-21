@@ -150,7 +150,7 @@ func TestValidPetName(t *testing.T) {
 			t.Errorf("%q should be valid", good)
 		}
 	}
-	for _, bad := range []string{"", "   ", strings.Repeat("a", MaxPetNameLength+1), "line\nbreak", "tab\there", "​zero"} {
+	for _, bad := range []string{"", "   ", strings.Repeat("a", MaxPetNameLength+1), "line\nbreak", "tab\there", "\u200bzero"} {
 		if ValidPetName(bad) {
 			t.Errorf("%q should be invalid", bad)
 		}

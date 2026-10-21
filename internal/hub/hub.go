@@ -485,7 +485,7 @@ func (h *Hub) DeletePet(id, key string, baseVersion int) (int, error) {
 	}
 	info.Version++
 	info.Deleted, info.Size = true, 0
-	os.Remove(filepath.Join(h.petDir(id), key+".prev"))
+	_ = os.Remove(filepath.Join(h.petDir(id), key+".prev")) // Usually there is none
 	if err := writeJSON(filepath.Join(h.petDir(id), key+".json"), storedPet{PetInfo: info}); err != nil {
 		return 0, err
 	}
@@ -587,7 +587,7 @@ func writeJSON(path string, v interface{}) error {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		os.Remove(tmp) // Cut short (a full disk)
+		_ = os.Remove(tmp) // Cut short (a full disk); the write's error is the one to report
 		return err
 	}
 	return os.Rename(tmp, path)

@@ -804,7 +804,7 @@ func congenitalHearing(l PetLook) float64 {
 			}
 		}
 		risk = []float64{0.2, 0.4, 0.7}[blue]
-		if l.Body.Ears == EarsButton { // A white Boxer
+		if l.Ears == EarsButton { // A white Boxer
 			risk = 0.18
 		}
 	case PatternDoubleMerl:

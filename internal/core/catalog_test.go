@@ -171,7 +171,9 @@ func TestUpkeep(t *testing.T) {
 	}
 	// A filter is only for a fountain
 	dog := wealthyPet(t, SpeciesDog)
-	dog.BuySupply("fountain_filter")
+	if err := dog.BuySupply("fountain_filter"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := dog.GiveCareSupply("fountain_filter"); !errors.Is(err, ErrNotNeeded) {
 		t.Errorf("A filter without a fountain: %v", err)
 	}
@@ -292,7 +294,9 @@ func TestCosmetics(t *testing.T) {
 		t.Errorf("Taking it off: %v %v", err, pet.Worn())
 	}
 	// Kept in the save
-	pet.Wear(SlotHead, "beret")
+	if err := pet.Wear(SlotHead, "beret"); err != nil {
+		t.Fatal(err)
+	}
 	data, _ := pet.Save()
 	loaded, _ := Load(data)
 	if loaded.Worn()[SlotHead].ID != "beret" {
@@ -324,12 +328,16 @@ func TestHouseUpgradesApplyToEveryPet(t *testing.T) {
 func TestShopEffectsChangeTheSimulation(t *testing.T) {
 	// A flea collar halves parasite exposure from trips
 	pet := wealthyPet(t, SpeciesDog)
-	pet.BuyItem("flea_collar")
+	if err := pet.BuyItem("flea_collar"); err != nil {
+		t.Fatal(err)
+	}
 	if got := pet.effectLocked(effParasites); got != 0.5 {
 		t.Errorf("Flea collar: %v", got)
 	}
 	// Freeze-dried treats make the next training count more, once
-	pet.BuySupply("freeze_dried_treats")
+	if err := pet.BuySupply("freeze_dried_treats"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pet.GiveCareSupply("freeze_dried_treats"); err != nil || !pet.TrainingBoost {
 		t.Fatalf("Freeze-dried treats: %v", err)
 	}

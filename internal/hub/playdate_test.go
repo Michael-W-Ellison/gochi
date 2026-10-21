@@ -202,7 +202,9 @@ func TestPlaydateLimits(t *testing.T) {
 	// Players who stop updating leave; their slot is given to the next
 	// player to join
 	clock = clock.Add(memberTimeout / 2)
-	h.UpdatePlaydate(ids[0], pd.Code, nil, Offset{}, 0)
+	if _, err := h.UpdatePlaydate(ids[0], pd.Code, nil, Offset{}, 0); err != nil {
+		t.Fatal(err)
+	}
 	clock = clock.Add(memberTimeout/2 + time.Second)
 	state, err = h.JoinPlaydate(ids[6], pd.Code, card("p6"))
 	if err != nil {
@@ -252,13 +254,17 @@ func TestPlaydateRateLimitIsPerPlayer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	resp, err := stranger.HTTP.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("An unknown key shouldn't escape the address limit: %d", resp.StatusCode)
 	}

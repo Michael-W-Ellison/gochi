@@ -61,7 +61,7 @@ func (s *Server) saveOwner() error {
 	}
 	tmp := s.ownerPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		os.Remove(tmp) // Cut short (a full disk)
+		_ = os.Remove(tmp) // Cut short (a full disk); the write's error is the one to report
 		return err
 	}
 	return os.Rename(tmp, s.ownerPath)

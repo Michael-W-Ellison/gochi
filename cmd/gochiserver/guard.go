@@ -109,7 +109,7 @@ func (d *devicePairing) saveLocked() error {
 	}
 	tmp := d.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		os.Remove(tmp) // Cut short (a full disk)
+		_ = os.Remove(tmp) // Cut short (a full disk); the write's error is the one to report
 		return err
 	}
 	return os.Rename(tmp, d.path)
@@ -292,7 +292,7 @@ const (
 func guardError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
-	fmt.Fprintln(w, message)
+	_, _ = fmt.Fprintln(w, message) // Fails only if the client has gone
 }
 
 // guard checks every request to the game (see the top of this file)
@@ -457,7 +457,7 @@ func servePairingPage(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusUnauthorized)
-	fmt.Fprint(w, pairingPage)
+	_, _ = fmt.Fprint(w, pairingPage) // Fails only if the client has gone
 }
 
 const pairingPage = `<!DOCTYPE html>

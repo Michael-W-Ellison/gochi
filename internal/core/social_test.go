@@ -79,7 +79,9 @@ func TestMeetingsBuildOnEachOther(t *testing.T) {
 		setCalmHealthyState(a)
 		setCalmHealthyState(b)
 		a.RecentCare = nil // Meetings spread out over time
-		Introduce(a, b)
+		if _, err := Introduce(a, b); err != nil {
+			t.Fatal(err)
+		}
 	}
 	setCalmHealthyState(a)
 	setCalmHealthyState(b)
@@ -121,7 +123,9 @@ func TestMeetingNeedsBothPetsAvailable(t *testing.T) {
 
 func TestRelationsSurviveSaveLoad(t *testing.T) {
 	a, b := sociablePet("Rex", SpeciesDog), sociablePet("Bella", SpeciesDog)
-	Introduce(a, b)
+	if _, err := Introduce(a, b); err != nil {
+		t.Fatal(err)
+	}
 	data, err := a.Save()
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +153,9 @@ func TestUnsureFirstMeetingIsNotFriendship(t *testing.T) {
 
 	// A great first meeting makes friends, but not best friends at once
 	a, b := sociablePet("A", SpeciesDog), sociablePet("B", SpeciesDog)
-	Introduce(a, b)
+	if _, err := Introduce(a, b); err != nil {
+		t.Fatal(err)
+	}
 	if relations := a.Relations(); relations[0].Kind != "friend" || relations[0].Description == "best friends" {
 		t.Errorf("One good meeting should make friends, not best friends: %+v", relations)
 	}

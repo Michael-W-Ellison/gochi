@@ -154,7 +154,7 @@ func (p *DigitalPet) GiveCareSupply(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p.useSupplyLocked(id)
+	_ = p.useSupplyLocked(id) // Checked above, under the same lock
 	if lesson := careLessons[id]; lesson != "" {
 		text += " " + lesson
 	}

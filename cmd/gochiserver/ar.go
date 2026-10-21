@@ -77,7 +77,7 @@ func (s *Server) syncARPetLocked(svc *ar.ARService, petID types.PetID, behavior 
 		}
 	}
 	if name, ok := arBehaviors[behavior]; ok && svc.GetPlacedPet(petID) != nil {
-		svc.SetPetBehavior(petID, name)
+		_ = svc.SetPetBehavior(petID, name) // Fails only if the pet isn't placed, checked above
 	}
 }
 

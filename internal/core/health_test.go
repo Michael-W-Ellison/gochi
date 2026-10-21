@@ -226,8 +226,8 @@ func TestEverySymptomTopicIsInTheGuide(t *testing.T) {
 	}
 	for kind, topic := range illnessTopics {
 		for species := range topics {
-			if !topics[species][topic] && !(kind == IllnessParasites && species == SpeciesCat) &&
-				!(kind == IllnessUrinary && species == SpeciesDog) {
+			if !topics[species][topic] && (kind != IllnessParasites || species != SpeciesCat) &&
+				(kind != IllnessUrinary || species != SpeciesDog) {
 				t.Errorf("Illness %s refers to topic %q, missing for %s", kind, topic, species)
 			}
 		}

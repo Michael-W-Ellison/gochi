@@ -429,7 +429,7 @@ func petFingerprint(petData []byte) (string, time.Time) {
 	var pet struct {
 		LastUpdateAt time.Time `json:"last_update_at"`
 	}
-	json.Unmarshal(petData, &pet)
+	_ = json.Unmarshal(petData, &pet) // An unreadable pet counts as never played
 	return hex.EncodeToString(sum[:]), pet.LastUpdateAt
 }
 
