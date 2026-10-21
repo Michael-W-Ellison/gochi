@@ -294,7 +294,7 @@ func (p *DigitalPet) recentCareLocked(interactionType types.InteractionType) flo
 	if recent == nil {
 		return 0
 	}
-	if elapsed := now().Sub(recent.At); elapsed > 0 {
+	if elapsed := p.playNowLocked().Sub(recent.At); elapsed > 0 {
 		return recent.Count * math.Pow(0.5, elapsed.Seconds()/repeatHalfLife.Seconds())
 	}
 	return recent.Count
@@ -308,7 +308,7 @@ func (p *DigitalPet) repeatWeightLocked(interactionType types.InteractionType) f
 	if p.RecentCare == nil {
 		p.RecentCare = make(map[types.InteractionType]*RecentCare)
 	}
-	p.RecentCare[interactionType] = &RecentCare{Count: count + 1, At: now()}
+	p.RecentCare[interactionType] = &RecentCare{Count: count + 1, At: p.playNowLocked()}
 	return 1 / (1 + count)
 }
 

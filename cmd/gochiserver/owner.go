@@ -61,6 +61,7 @@ func (s *Server) saveOwner() error {
 	}
 	tmp := s.ownerPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		os.Remove(tmp) // Cut short (a full disk)
 		return err
 	}
 	return os.Rename(tmp, s.ownerPath)
@@ -95,8 +96,12 @@ func (s *Server) forecastsLocked(now time.Time) []forecastStatus {
 // announceGoalsLocked records goals the active pet's owner has newly
 // completed as events. Caller must hold s.mu.
 func (s *Server) announceGoalsLocked() {
-	for _, g := range s.pet.TakeCompletedGoals() {
+	completed := s.pet.TakeCompletedGoals()
+	for _, g := range completed {
 		s.events.Emit(core.GameEvent{Type: core.EventGoal, PetID: s.pet.ID, Good: true,
 			Message: fmt.Sprintf("🎯 Goal reached: %s %s. +%d Friendship Points.", g.Icon, g.Text, g.Reward)})
+	}
+	if len(completed) > 0 {
+		s.starsForGoalsLocked()
 	}
 }

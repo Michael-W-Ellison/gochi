@@ -1,10 +1,13 @@
 package core
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -46,8 +49,10 @@ type DigitalPet struct {
 	Owner        types.UserID `json:"owner"`
 
 	// Statistics
-	TotalInteractions int     `json:"total_interactions"`
-	TotalPlayTime     float64 `json:"total_play_time"` // In hours
+	TotalInteractions int            `json:"total_interactions"`
+	TotalPlayTime     float64        `json:"total_play_time"` // In hours
+	CareCounts        map[string]int `json:"care_counts"`     // Interactions by kind, e.g. "Feeding" (records.go)
+	Hibernations      int            `json:"hibernations"`    // Times it has gone into hibernation
 
 	// HibernationEnabled is the owner's choice of whether the pet hibernates
 	// instead of dying when a vital stat reaches a critical level (off by
@@ -64,9 +69,39 @@ type DigitalPet struct {
 	PointsEarned     int                                 `json:"points_earned"` // Over its whole life, which unlocks rarer supplies
 	Supplies         *interaction.Inventory              `json:"supplies"`      // Pantry of food, treats and toys
 
+	// Upkeep: when (pet age, game days) each upkeep timer runs out, such as
+	// a fountain filter or flea collar (upkeep.go); first-aid kit uses left;
+	// the calendar day each once-a-day supply was last given; the day the
+	// living area was last cleaned; and whether freeze-dried treats are
+	// waiting to make the next training count more
+	Upkeep         map[string]float64 `json:"upkeep,omitempty"`
+	FirstAidUses   int                `json:"first_aid_uses,omitempty"`
+	DailyUse       map[string]string  `json:"daily_use,omitempty"`
+	LastCleanedDay string             `json:"last_cleaned_day,omitempty"`
+	TrainingBoost  bool               `json:"training_boost,omitempty"`
+
+	// How the pet looks: cosmetics owned, and what it wears in each slot
+	// (cosmetics.go)
+	Cosmetics []string          `json:"cosmetics,omitempty"`
+	Outfit    map[string]string `json:"outfit,omitempty"`
+
+	// Family (family.go): the pet's parents, Friendship Points given by a
+	// parent (spent like any, but not counted towards unlocking rarer
+	// items), the child its belongings were passed on to after it died,
+	// and whether the player was warned that it is about to grow up
+	Parents      []types.PetID `json:"parents,omitempty"`
+	GiftedPoints int           `json:"gifted_points,omitempty"`
+	PassedOnTo   types.PetID   `json:"passed_on_to,omitempty"`
+	AdultWarned  bool          `json:"adult_warned,omitempty"`
+
 	// Age (in days) at the last interaction, used to tell when the pet
 	// has been left alone
 	LastInteractionAge float64 `json:"last_interaction_age"`
+
+	// The play clock (playclock.go), and the reading it was last advanced
+	// from (not saved)
+	PlayClock time.Time `json:"play_clock"`
+	playRef   time.Time
 
 	// Activities: trick skills (0.0 to 1.0, learned at 1.0), an exploring
 	// trip that ends at ExploringUntilAge (0 when home), souvenirs found
@@ -118,7 +153,7 @@ type DigitalPet struct {
 // NewDigitalPet creates a new digital pet with default systems
 func NewDigitalPet(name string, owner types.UserID) *DigitalPet {
 	now := time.Now()
-	id := types.PetID(fmt.Sprintf("pet_%d_%s", now.Unix(), name))
+	id := newPetID()
 
 	pet := &DigitalPet{
 		ID:                id,
@@ -223,8 +258,10 @@ func (p *DigitalPet) Update(deltaTime float64) {
 	// Tricks the pet hasn't practiced in a while get rusty
 	p.decayTricksLocked(deltaTime)
 
-	// Grooming itself and running around do the pet some good
+	// Grooming itself and running around do the pet some good, and so do
+	// things to watch and play with on its own
 	p.selfCareLocked(deltaTime)
+	p.idleEnrichmentLocked(deltaTime)
 
 	// Needs build up over time, and the weather and season affect the pet
 	p.updateNeedsLocked(deltaTime)
@@ -283,6 +320,9 @@ func (p *DigitalPet) isCriticalLocked() bool {
 
 // hibernateLocked puts the pet into hibernation. Caller must hold p.mu.
 func (p *DigitalPet) hibernateLocked() {
+	if !p.Hibernating {
+		p.Hibernations++
+	}
 	p.Hibernating = true
 	p.CurrentBehavior = types.BehaviorHibernating
 	p.ExploringUntilAge = 0 // A trip ends early so the pet is home to be revived
@@ -331,6 +371,11 @@ func (p *DigitalPet) ProcessUserInteraction(interactionType types.InteractionTyp
 // interactLocked applies an interaction and awards Friendship Points.
 // Caller must hold p.mu.
 func (p *DigitalPet) interactLocked(interactionType types.InteractionType, intensity float64) InteractionResult {
+	// Care is given at an intensity from 0 to 1
+	if !(intensity >= 0) { // Also NaN
+		intensity = 0
+	}
+	intensity = min(intensity, 1)
 	// The living area can be cleaned while the pet is out exploring
 	away := p.isExploringLocked() && interactionType != types.InteractionCleaning
 	if !p.Biology.IsAlive || p.Hibernating || away {
@@ -349,6 +394,8 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	}
 
 	p.TotalInteractions++
+	p.countCareLocked(interactionType)
+	p.cleanedLocked(interactionType)
 	p.LastInteractionAge = p.Biology.GetAgeInDays()
 	treated := ""
 	if interactionType == types.InteractionMedicalCare {
@@ -373,13 +420,14 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	boost := result.ReactionMultiplier
 
 	// Belongings such as toys and brushes make care more effective
-	if item, ok := p.careBoostLocked(interactionType); ok {
-		boost *= item.Effect
-		result.BoostedBy = &item
+	if extra, item := p.careBoostLocked(interactionType); extra != 1 {
+		boost *= extra
+		result.BoostedBy = item
 	}
 
 	// Apply biological effects; the boost strengthens the benefits only
 	p.applyInteractionEffects(interactionType, intensity, boost)
+	p.careStimulationLocked(interactionType)
 	p.careHormonesLocked(interactionType, boost, unwanted)
 	choiceLesson := p.applyChoiceLocked(boost) // The variant chosen, such as the food or toy
 	intensity *= boost
@@ -662,20 +710,43 @@ func (p *DigitalPet) Save() ([]byte, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return json.MarshalIndent(p, "", "  ")
+	data, err := json.MarshalIndent(p, "", "  ")
+	var unsupported *json.UnsupportedValueError
+	if errors.As(err, &unsupported) {
+		// A value that isn't a number (from a damaged save the checks
+		// missed); the pet is saved with 0 in its place rather than not
+		// at all
+		replaceNonFinite(reflect.ValueOf(p).Elem())
+		data, err = json.MarshalIndent(p, "", "  ")
+	}
+	return data, err
 }
 
 // Load deserializes a pet from JSON
-func Load(data []byte) (*DigitalPet, error) {
+func Load(data []byte) (loaded *DigitalPet, err error) {
+	defer func() {
+		if r := recover(); r != nil { // A damaged save the checks missed
+			loaded, err = nil, fmt.Errorf("%w: %v", ErrDamagedSave, r)
+		}
+	}()
 	var pet DigitalPet
-	err := json.Unmarshal(data, &pet)
-	if err != nil {
+	if err := json.Unmarshal(data, &pet); err != nil {
 		return nil, err
 	}
-	if pet.Memory != nil {
-		pet.Memory.SetLongTermCapacity(maxLongTermMemories) // Older saves kept more
+	if err := pet.repair(); err != nil {
+		return nil, err
 	}
+	pet.Memory.SetLongTermCapacity(maxLongTermMemories) // Older saves kept more
 	return &pet, nil
+}
+
+// newPetID returns a random pet ID, which says nothing about the pet
+func newPetID() types.PetID {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		panic(err) // The system's random source failing is not recoverable
+	}
+	return types.PetID("pet_" + hex.EncodeToString(raw))
 }
 
 // maxLongTermMemories is how many long-term memories a pet keeps: the

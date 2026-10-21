@@ -105,3 +105,42 @@ func TestRESTAPIRateLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestRESTAPIChangesTheLivePet(t *testing.T) {
+	server := newTestServer(t)
+	if err := server.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
+		t.Fatal(err)
+	}
+	handler := server.apiHandler("secret", 0)
+	live, id := server.pet, string(server.pet.ID)
+
+	// Values out of range are refused and can't make the pet unsaveable
+	rec := apiRequest(t, handler, http.MethodPost, "/api/v1/pets/"+id+"/interactions", `{"type":"playing","intensity":1.7e308}`, "secret")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("A huge intensity: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = apiRequest(t, handler, http.MethodPost, "/api/v1/pets/"+id+"/interactions", `{"type":"petting","intensity":1}`, "secret")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Petting: %d %s", rec.Code, rec.Body.String())
+	}
+	if server.pet != live || live.TotalInteractions != 1 {
+		t.Error("The API should change the active pet itself, not replace it")
+	}
+	if saved, err := server.saveNow(); !saved || err != nil {
+		t.Errorf("The pet should still save: %v %v", saved, err)
+	}
+
+	// Renaming needs the parent PIN, which the API can't give
+	server.parental, _ = loadParentalControls(t.TempDir())
+	if err := server.parental.SetPIN("", "1234"); err != nil {
+		t.Fatal(err)
+	}
+	rec = apiRequest(t, handler, http.MethodPut, "/api/v1/pets/"+id, `{"name":"Hacked","location":"park"}`, "secret")
+	if rec.Code != http.StatusForbidden || live.Name != "Biscuit" || live.Location != "home" {
+		t.Errorf("Renaming with a PIN set: %d, name %q, location %q", rec.Code, live.Name, live.Location)
+	}
+	rec = apiRequest(t, handler, http.MethodPut, "/api/v1/pets/"+id, `{"location":"park"}`, "secret")
+	if rec.Code != http.StatusOK || live.Location != "park" {
+		t.Errorf("Moving the pet: %d %s", rec.Code, rec.Body.String())
+	}
+}

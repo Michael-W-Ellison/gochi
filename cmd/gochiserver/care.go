@@ -84,37 +84,7 @@ func (s *Server) handleBuySupply(w http.ResponseWriter, r *http.Request) {
 	if !decodePost(w, r, &req) {
 		return
 	}
-
-	s.mu.Lock()
-	if s.pet == nil {
-		s.mu.Unlock()
-		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
-		return
-	}
-	s.markActiveLocked(time.Now())
-	name := s.pet.Name
-	err := s.pet.BuySupply(req.ID)
-	data := s.suppliesDataLocked()
-	s.mu.Unlock()
-
-	switch {
-	case errors.Is(err, core.ErrUnknownSupply):
-		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Unknown supply"})
-	case errors.Is(err, core.ErrSupplyLocked):
-		writeJSON(w, http.StatusConflict, APIResponse{Success: false,
-			Error: name + " needs to earn more Friendship Points to unlock this"})
-	case errors.Is(err, core.ErrNotEnoughPoints):
-		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: "Not enough Friendship Points"})
-	case errors.Is(err, core.ErrPantryFull):
-		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: "The pantry is full"})
-	case err != nil:
-		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: name + " can't use supplies right now"})
-	default:
-		if _, err := s.saveNow(); err != nil {
-			log.Printf("Failed to save after buying supplies: %v", err)
-		}
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: data})
-	}
+	s.buyLocked(w, req.ID, func() error { return s.pet.BuySupply(req.ID) })
 }
 
 // handleEnrich handles POST /api/enrich with {"change": id} - changes
@@ -179,13 +149,10 @@ func (s *Server) handleIntroducePartners(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: []introductionPartner{}})
 		return
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.pet == nil {
-		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+	pet, slot, ok := s.activeCopy(w)
+	if !ok {
 		return
 	}
-
 	saved, err := s.store.List()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not list saved pets"})
@@ -193,7 +160,7 @@ func (s *Server) handleIntroducePartners(w http.ResponseWriter, r *http.Request)
 	}
 	partners := []introductionPartner{}
 	for _, entry := range saved {
-		if entry.Slot == s.slot || !entry.IsAlive {
+		if entry.Slot == slot || !entry.IsAlive {
 			continue
 		}
 		partner, _, _, err := s.store.Load(entry.Slot)
@@ -201,7 +168,7 @@ func (s *Server) handleIntroducePartners(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		partners = append(partners, introductionPartner{Slot: entry.Slot, Name: partner.Name,
-			Species: string(partner.GetSpecies()), Relationship: s.pet.RelationTo(partner.ID)})
+			Species: string(partner.GetSpecies()), Relationship: pet.RelationTo(partner.ID)})
 	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: partners})
 }
@@ -249,6 +216,7 @@ func (s *Server) handleIntroduce(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SavePet(req.PartnerSlot, partner); err != nil {
 		log.Printf("Failed to save %s after meeting: %v", partner.Name, err)
 	}
+	s.observePet(partner, false)
 	if err := s.saveActiveLocked(); err != nil {
 		log.Printf("Failed to save %s after meeting: %v", s.pet.Name, err)
 	}
@@ -324,6 +292,7 @@ func (s *Server) handleGroup(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.SavePet(req.PartnerSlots[i], partner); err != nil {
 			log.Printf("Failed to save %s after a group activity: %v", partner.Name, err)
 		}
+		s.observePet(partner, false)
 	}
 	if err := s.saveActiveLocked(); err != nil {
 		log.Printf("Failed to save %s after a group activity: %v", s.pet.Name, err)

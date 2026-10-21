@@ -130,20 +130,20 @@ func (b *BiologicalSystems) updatePhysiology(deltaTime, airQuality float64) {
 	// Organs heal faster with growth hormone
 	repair := 0.5 + b.Hormones.Growth
 	if ph.Stomach <= stomachCapacity*0.8 && ph.DigestiveHealth < 1 {
-		ph.DigestiveHealth += 0.02 * repair * deltaTime // The gut recovers when not overloaded
+		ph.DigestiveHealth += 0.02 * repair * deltaTime * rate(b.DecayMultipliers.DigestiveRecovery) // The gut recovers when not overloaded
 	}
 
 	// Fitness fades without exercise, faster in old age
 	if ph.CardiovascularHealth > minFitness {
-		loss := (fitnessLoss + 0.01*b.Senescence()) * deltaTime
+		loss := (fitnessLoss + 0.01*b.Senescence()) * deltaTime * rate(b.DecayMultipliers.FitnessLoss)
 		ph.CardiovascularHealth = max(ph.CardiovascularHealth-loss, minFitness)
 	}
 
 	// Foul air irritates the airways; fresh air lets them recover
 	if airQuality < 0.6 {
-		ph.RespiratoryHealth -= 0.05 * (0.6 - airQuality) / 0.6 * deltaTime
+		ph.RespiratoryHealth -= 0.05 * (0.6 - airQuality) / 0.6 * deltaTime * rate(b.DecayMultipliers.AirDamage)
 	} else {
-		ph.RespiratoryHealth += 0.02 * repair * deltaTime
+		ph.RespiratoryHealth += 0.02 * repair * deltaTime * rate(b.DecayMultipliers.AirRecovery)
 	}
 
 	// Long-term stress wears down the nervous system; calm restores it
@@ -230,6 +230,9 @@ func (b *BiologicalSystems) ProcessExercise(kind ExerciseType, duration float64)
 		return
 	}
 	gain := profile.fitness * duration * (0.7 + 0.6*b.Hormones.Growth) * b.agingFactor(0.4)
+	if kind == ExerciseWalk || kind == ExercisePlay {
+		gain *= rate(b.DecayMultipliers.FitnessGain)
+	}
 	b.Physiology.CardiovascularHealth += gain
 	b.Hormones.Pulse(HormoneSerotonin, profile.serotonin*duration)
 	b.Physiology.Clamp()

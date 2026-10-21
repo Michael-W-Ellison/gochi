@@ -23,7 +23,7 @@ var errOffline = errors.New("this feature needs the cloud service, which this se
 // must carry "Authorization: Bearer <token>". Each client may make
 // rateLimit requests a minute (0 for no limit).
 func (s *Server) apiHandler(token string, rateLimit int) http.Handler {
-	handler := api.NewHandler(apiPetStore{s}, nil, offlineSocial{s}, offlineSync{})
+	handler := api.NewHandler(apiPetStore{s})
 	config := api.DefaultServerConfig()
 	config.RateLimit = rateLimit
 	return api.NewServer(config, handler, tokenValidator(token)).SetupRoutes()
@@ -62,6 +62,13 @@ func (a apiPetStore) findLocked(id types.PetID) (*core.DigitalPet, string, error
 		pet, err := copyPet(s.pet)
 		return pet, s.slot, err
 	}
+	return a.findSaved(id, s.slot)
+}
+
+// findSaved loads the saved pet with the given ID, other than the one in
+// skip (the active pet's slot)
+func (a apiPetStore) findSaved(id types.PetID, skip string) (*core.DigitalPet, string, error) {
+	s := a.s
 	if s.store == nil {
 		return nil, "", os.ErrNotExist
 	}
@@ -70,36 +77,50 @@ func (a apiPetStore) findLocked(id types.PetID) (*core.DigitalPet, string, error
 		return nil, "", err
 	}
 	for _, entry := range saved {
-		if entry.Slot == s.slot {
-			continue
-		}
-		pet, _, _, err := s.store.Load(entry.Slot)
-		if err == nil && pet.ID == id {
-			return pet, entry.Slot, nil
+		if entry.Slot != skip && entry.ID == string(id) {
+			pet, _, _, err := s.store.Load(entry.Slot)
+			return pet, entry.Slot, err
 		}
 	}
 	return nil, "", os.ErrNotExist
 }
 
+// activeCopy returns a copy of the active pet (nil if there is none) and
+// its slot
+func (a apiPetStore) activeCopy() (*core.DigitalPet, string, error) {
+	s := a.s
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		return nil, "", nil
+	}
+	pet, err := copyPet(s.pet)
+	return pet, s.slot, err
+}
+
+// GetPet returns a copy of a pet. Saved pets are read without holding up
+// the game.
 func (a apiPetStore) GetPet(id types.PetID) (*core.DigitalPet, error) {
-	a.s.mu.RLock()
-	defer a.s.mu.RUnlock()
-	pet, _, err := a.findLocked(id)
+	active, slot, err := a.activeCopy()
+	if err != nil {
+		return nil, err
+	}
+	if active != nil && active.ID == id {
+		return active, nil
+	}
+	pet, _, err := a.findSaved(id, slot)
 	return pet, err
 }
 
 func (a apiPetStore) GetPetsByOwner(owner types.UserID) ([]*core.DigitalPet, error) {
 	s := a.s
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	active, slot, err := a.activeCopy()
+	if err != nil {
+		return nil, err
+	}
 	var pets []*core.DigitalPet
-	if s.pet != nil {
-		pet, err := copyPet(s.pet)
-		if err != nil {
-			return nil, err
-		}
-		pets = append(pets, pet)
+	if active != nil {
+		pets = append(pets, active)
 	}
 	if s.store != nil {
 		saved, err := s.store.List()
@@ -107,7 +128,7 @@ func (a apiPetStore) GetPetsByOwner(owner types.UserID) ([]*core.DigitalPet, err
 			return nil, err
 		}
 		for _, entry := range saved {
-			if entry.Slot == s.slot {
+			if entry.Slot == slot || entry.Unreadable {
 				continue
 			}
 			if pet, _, _, err := s.store.Load(entry.Slot); err == nil {
@@ -134,74 +155,61 @@ func (a apiPetStore) CreatePet(pet *core.DigitalPet) error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 
-	return s.store.SavePet(s.store.NewSlot(pet), pet)
+	if s.store.Full() {
+		return api.ErrTooManyPets
+	}
+	if err := s.store.SavePet(s.store.NewSlot(pet), pet); err != nil {
+		return err
+	}
+	s.observePet(pet, false)
+	return nil
 }
 
-func (a apiPetStore) UpdatePet(pet *core.DigitalPet) error {
+// ModifyPet changes a pet and saves it: the active pet itself, under the
+// game's lock, so nothing the game does meanwhile is lost, or a saved pet.
+// Renaming needs the parent PIN, which the API can't give, so it is
+// refused while a PIN is set.
+func (a apiPetStore) ModifyPet(id types.PetID, change func(*core.DigitalPet) error) (*core.DigitalPet, error) {
 	s := a.s
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.pet != nil && s.pet.ID == pet.ID {
-		s.pet = pet
-		s.markActiveLocked(time.Now())
-		return s.saveActiveLocked()
+	pet, slot, active := s.pet, s.slot, s.pet != nil && s.pet.ID == id
+	if !active {
+		var err error
+		if pet, slot, err = a.findLocked(id); errors.Is(err, os.ErrNotExist) {
+			return nil, api.ErrNotFound
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	name, location := pet.Name, pet.Location
+	if err := change(pet); err != nil {
+		return nil, err
+	}
+	if pet.Name != name && s.parental != nil && s.parental.Locked() {
+		pet.Name, pet.Location = name, location
+		return nil, api.ErrNotPermitted
 	}
 
-	_, slot, err := a.findLocked(pet.ID)
-	if err != nil {
-		return err
+	if active {
+		s.markActiveLocked(time.Now())
+		if err := s.saveActiveLocked(); err != nil {
+			return nil, err
+		}
+		return copyPet(pet)
 	}
-	return s.store.SavePet(slot, pet)
+	if err := s.store.SavePet(slot, pet); err != nil {
+		return nil, err
+	}
+	s.observePet(pet, false)
+	return pet, nil
 }
 
 // DeletePet is not allowed: deleting a pet needs the confirmations the
 // game asks for
 func (a apiPetStore) DeletePet(types.PetID) error {
 	return api.ErrNotPermitted
-}
-
-// offlineSocial answers the social routes without a cloud service: a
-// pet's friends come from its own relationships, and features that need
-// other players are unavailable
-type offlineSocial struct{ s *Server }
-
-func (o offlineSocial) GetNearbyPets(*api.Location, float64) ([]*api.NearbyPetResponse, error) {
-	return nil, errOffline
-}
-
-func (o offlineSocial) GetFriends(petID types.PetID) ([]*api.FriendResponse, error) {
-	pet, err := apiPetStore(o).GetPet(petID)
-	if err != nil {
-		return nil, err
-	}
-	friends := []*api.FriendResponse{}
-	for _, rel := range pet.Relationships.GetClosestFriends(pet.Relationships.GetRelationshipCount()) {
-		friends = append(friends, &api.FriendResponse{
-			PetID:           rel.PetID,
-			OwnerID:         string(localOwner),
-			BondStrength:    rel.BondStrength,
-			FriendsSince:    rel.FirstMet,
-			LastInteraction: rel.LastInteraction,
-		})
-	}
-	return friends, nil
-}
-
-func (o offlineSocial) SendFriendRequest(types.PetID, types.PetID, string) error { return errOffline }
-func (o offlineSocial) AcceptFriendRequest(string) error                         { return errOffline }
-func (o offlineSocial) DeclineFriendRequest(string) error                        { return errOffline }
-func (o offlineSocial) RemoveFriend(types.PetID, types.PetID) error              { return errOffline }
-
-// offlineSync answers the sync routes without a cloud service
-type offlineSync struct{}
-
-func (offlineSync) Sync(types.UserID, *api.SyncRequest) (*api.SyncResponse, error) {
-	return nil, errOffline
-}
-
-func (offlineSync) ResolveConflict(types.UserID, *api.ConflictResolutionRequest) error {
-	return errOffline
 }

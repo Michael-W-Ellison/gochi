@@ -44,12 +44,15 @@ type SeasonalCycle struct {
 	StartDate       time.Time       `json:"start_date"`
 }
 
+// defaultDaysPerSeason is how many game days a season lasts
+const defaultDaysPerSeason = 30
+
 // NewSeasonalCycle creates a new seasonal cycle
 func NewSeasonalCycle() *SeasonalCycle {
 	sc := &SeasonalCycle{
 		CurrentSeason:  SeasonSpring,
 		DayOfSeason:    1,
-		DaysPerSeason:  30, // 30 game days per season
+		DaysPerSeason:  defaultDaysPerSeason,
 		Year:           1,
 		SeasonProgress: 0.0,
 		StartDate:      time.Now(),
@@ -70,12 +73,25 @@ func NewSeasonalCycleWithConfig(daysPerSeason int, startSeason Season) *Seasonal
 
 // Update advances the seasonal cycle based on elapsed game days
 func (sc *SeasonalCycle) Update(gameDaysPassed float64) {
+	if math.IsNaN(gameDaysPassed) || math.IsInf(gameDaysPassed, 0) || gameDaysPassed < 0 {
+		gameDaysPassed = 0
+	}
+	if sc.DaysPerSeason < 1 {
+		sc.DaysPerSeason = defaultDaysPerSeason
+	}
+
 	// Accumulate days
 	totalDays := float64(sc.DayOfSeason) + gameDaysPassed
 
-	// Check for season change
-	for totalDays > float64(sc.DaysPerSeason) {
-		totalDays -= float64(sc.DaysPerSeason)
+	// Check for season change; whole years at once, so a long time passing
+	// doesn't take long
+	perSeason := float64(sc.DaysPerSeason)
+	if years := math.Floor((totalDays - 1) / (4 * perSeason)); years >= 1 {
+		sc.Year += int(min(years, math.MaxInt32))
+		totalDays -= years * 4 * perSeason
+	}
+	for totalDays > perSeason {
+		totalDays -= perSeason
 		sc.advanceSeason()
 	}
 

@@ -151,10 +151,17 @@ const (
 	// lifePotionDays is how many game days a potion adds to a pet's
 	// lifespan: about 25 hours of play at the default pace
 	lifePotionDays = 1500.0
+
+	// MaxLifePotions is how many potions can lengthen a pet's life; after
+	// that they no longer help, so every pet's life still ends
+	MaxLifePotions = 2
 )
 
-// ErrNoPotion is returned when giving a potion with none in the pantry
-var ErrNoPotion = errors.New("no life-extension potion in the pantry")
+// Potion errors
+var (
+	ErrNoPotion      = errors.New("no life-extension potion in the pantry")
+	ErrPotionsUsedUp = errors.New("potions can't lengthen this pet's life any more")
+)
 
 // LifeStatus describes the pet's age and how long it can expect to live
 type LifeStatus struct {
@@ -208,10 +215,13 @@ func (p *DigitalPet) GiveLifePotion() (string, error) {
 	if !p.Biology.IsAlive {
 		return "", ErrPetNotAvailable
 	}
+	if p.Biology.LifeExtension >= MaxLifePotions*lifePotionDays {
+		return "", ErrPotionsUsedUp // Kept in the pantry
+	}
 	if p.useSupplyLocked(LifePotionID) != nil {
 		return "", ErrNoPotion
 	}
-	p.Biology.LifeExtension += lifePotionDays
+	p.Biology.LifeExtension = min(p.Biology.LifeExtension+lifePotionDays, MaxLifePotions*lifePotionDays)
 	p.Biology.Hormones.Pulse(biology.HormoneGrowth, 0.3) // A burst of renewal
 	return fmt.Sprintf("%s drinks the potion and looks years younger. 🧪 It has about %.0f more game days to live.",
 		p.Name, p.Biology.CalculateLifespan()), nil
@@ -240,7 +250,8 @@ func (p *DigitalPet) selfExerciseScoreLocked() float64 {
 		return 0
 	}
 	p.ensureNeedsLocked()
-	return 0.5*(1-p.Needs.GetNeedLevel(types.NeedExercise)) + 0.5*p.Personality.Traits.EnergyLevel
+	return 0.5*(1-p.Needs.GetNeedLevel(types.NeedExercise)) + 0.5*p.Personality.Traits.EnergyLevel +
+		p.effectLocked(effSelfExercise)
 }
 
 // selfCareLocked applies what the pet does on its own over deltaTime game

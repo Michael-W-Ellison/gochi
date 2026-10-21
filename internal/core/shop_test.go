@@ -93,13 +93,13 @@ func TestBuyItem(t *testing.T) {
 	if err := pet.BuyItem("balloon"); err != nil {
 		t.Fatalf("BuyItem failed: %v", err)
 	}
-	if pet.FriendshipPoints != 70 || !pet.Owns("balloon") {
-		t.Errorf("After buying: %d points, owns=%v; want 70, true", pet.FriendshipPoints, pet.Owns("balloon"))
+	if pet.FriendshipPoints != 50 || !pet.Owns("balloon") {
+		t.Errorf("After buying: %d points, owns=%v; want 50, true", pet.FriendshipPoints, pet.Owns("balloon"))
 	}
 	if err := pet.BuyItem("balloon"); !errors.Is(err, ErrAlreadyOwned) {
 		t.Errorf("Buying twice: got %v", err)
 	}
-	if pet.FriendshipPoints != 70 {
+	if pet.FriendshipPoints != 50 {
 		t.Error("A failed purchase should not spend points")
 	}
 }
@@ -114,7 +114,7 @@ func hydrationDrop(pet *DigitalPet) float64 {
 func TestContainersSlowNeeds(t *testing.T) {
 	plain := NewDigitalPet("Plain", "user123")
 	equipped := NewDigitalPet("Equipped", "user123")
-	equipped.FriendshipPoints = 1000
+	equipped.FriendshipPoints, equipped.PointsEarned = 1000, 1000
 	if err := equipped.BuyItem("water_bowl"); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestContainersSlowNeeds(t *testing.T) {
 func TestBedSlowsTiredness(t *testing.T) {
 	plain := NewDigitalPet("Plain", "user123")
 	equipped := NewDigitalPet("Equipped", "user123")
-	equipped.FriendshipPoints = 1000
+	equipped.FriendshipPoints, equipped.PointsEarned = 1000, 1000
 	if err := equipped.BuyItem("cozy_bed"); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestToyMakesPlayMoreEffective(t *testing.T) {
 
 	plain := NewDigitalPet("Plain", "user123")
 	equipped := NewDigitalPet("Equipped", "user123")
-	equipped.FriendshipPoints = 1000
+	equipped.FriendshipPoints, equipped.PointsEarned = 1000, 1000
 	if err := equipped.BuyItem("puzzle_ball"); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestToyMakesPlayMoreEffective(t *testing.T) {
 func TestDecorationsAreCosmetic(t *testing.T) {
 	plain := NewDigitalPet("Plain", "user123")
 	decorated := NewDigitalPet("Decorated", "user123")
-	decorated.FriendshipPoints = 1000
+	decorated.FriendshipPoints, decorated.PointsEarned = 1000, 1000
 	if err := decorated.BuyItem("rainbow"); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,9 @@ func TestCatalogItemsAreValid(t *testing.T) {
 		if item.Name == "" || item.Icon == "" || item.Price <= 0 || item.Description == "" {
 			t.Errorf("Incomplete item: %+v", item)
 		}
-		if item.Category != CategoryDecoration && item.Effect == 0 {
+		// Everything but holiday decorations, the clicker (a training
+		// method) and the first-aid kit (used from the pantry) does something
+		if item.Category != CategoryHoliday && item.ID != "clicker" && item.ID != "first_aid_kit" && len(item.effects) == 0 {
 			t.Errorf("Item %q should have an effect", item.ID)
 		}
 	}
@@ -273,7 +275,7 @@ func TestHungerChangeIsReportedAsShown(t *testing.T) {
 
 func TestInteractionReportsBoostingItem(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
-	pet.FriendshipPoints = 1000
+	pet.FriendshipPoints, pet.PointsEarned = 1000, 1000
 	pet.BuyItem("squeaky_toy")
 	pet.BuyItem("puzzle_ball")
 	pet.Biology.Vitals.Happiness = 0.3
@@ -303,7 +305,7 @@ func TestActiveEffects(t *testing.T) {
 		t.Errorf("A new pet should have no active effects, got %+v", effects)
 	}
 
-	pet.FriendshipPoints = 1000
+	pet.FriendshipPoints, pet.PointsEarned = 1000, 1000
 	for _, id := range []string{"water_bowl", "water_fountain", "cozy_bed", "balloon"} {
 		if err := pet.BuyItem(id); err != nil {
 			t.Fatal(err)

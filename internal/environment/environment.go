@@ -1,6 +1,7 @@
 package environment
 
 import (
+	"math"
 	"time"
 )
 
@@ -77,17 +78,19 @@ func NewEnvironmentWithConfig(baseTemp float64, daysPerSeason int) *Environment 
 // Update advances all environmental systems
 func (e *Environment) Update(deltaTimeHours float64) {
 	// Update game time
-	e.GameTimeElapsed += deltaTimeHours
-	e.TimeOfDay += deltaTimeHours
-	for e.TimeOfDay >= 24.0 {
-		e.TimeOfDay -= 24.0
+	if math.IsNaN(deltaTimeHours) || math.IsInf(deltaTimeHours, 0) || deltaTimeHours < 0 {
+		deltaTimeHours = 0
 	}
+	e.GameTimeElapsed += deltaTimeHours
+	e.TimeOfDay = wrapHour(e.TimeOfDay + deltaTimeHours)
 
 	// Calculate game days passed (for seasonal update)
 	gameDaysPassed := deltaTimeHours / 24.0
 
-	// Update seasonal cycle
-	e.Seasons.Update(gameDaysPassed)
+	// Update seasonal cycle: from the real date, or with game time
+	if !e.Seasons.followCalendar() {
+		e.Seasons.Update(gameDaysPassed)
+	}
 
 	// Update weather
 	e.Weather.Update(deltaTimeHours, e.Seasons.GetSeason(), e.TimeOfDay)
@@ -224,14 +227,21 @@ func (e *Environment) GetTimeOfDay() float64 {
 
 // SetTimeOfDay sets the current time
 func (e *Environment) SetTimeOfDay(hour float64) {
-	e.TimeOfDay = hour
-	for e.TimeOfDay >= 24.0 {
-		e.TimeOfDay -= 24.0
-	}
-	for e.TimeOfDay < 0 {
-		e.TimeOfDay += 24.0
-	}
+	e.TimeOfDay = wrapHour(hour)
 	e.calculateCombinedEffects()
+}
+
+// wrapHour returns an hour in the range 0 to 24 (noon for a value that
+// isn't a number)
+func wrapHour(hour float64) float64 {
+	if math.IsNaN(hour) || math.IsInf(hour, 0) {
+		return 12
+	}
+	hour = math.Mod(hour, 24)
+	if hour < 0 {
+		hour += 24
+	}
+	return hour
 }
 
 // IsDaytime returns whether it's currently daytime

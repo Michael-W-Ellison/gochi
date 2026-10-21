@@ -42,6 +42,7 @@ type CircadianRhythm struct {
 
 	// Sleep debt and pressure
 	SleepDebt        float64 // Accumulated sleep debt (hours)
+	DebtRepay        float64 `json:"-"` // How much faster than normal deep sleep repays it (0 for normal)
 	SleepPressure    float64 // Drive to sleep (0.0-1.0)
 	HomeostaticDrive float64 // Biological sleep drive (0.0-1.0)
 
@@ -183,7 +184,7 @@ func (cr *CircadianRhythm) updateDeepSleepPhase(deltaTime float64) {
 	}
 
 	// Reduce sleep debt during deep sleep
-	cr.SleepDebt -= deltaTime * 0.2
+	cr.SleepDebt -= deltaTime * 0.2 * rate(cr.DebtRepay)
 	if cr.SleepDebt < 0 {
 		cr.SleepDebt = 0
 	}

@@ -31,6 +31,7 @@ type Config struct {
 	Hub struct {
 		Enabled  bool   `yaml:"enabled"`   // Also run as a cloud hub
 		JoinCode string `yaml:"join_code"` // Players need it to register; "" closes registration
+		Addr     string `yaml:"addr"`      // Where the hub listens, always over HTTPS
 	} `yaml:"hub"`
 
 	Simulation struct {
@@ -44,7 +45,8 @@ type Config struct {
 // nor a command-line option sets them
 func defaultConfig() Config {
 	var c Config
-	c.Server.Addr = ":8080"
+	c.Server.Addr = "127.0.0.1:8080" // This computer only
+	c.Hub.Addr = ":8443"
 	c.Server.APIRateLimit = 120
 	c.Simulation.TimeScale = "game"
 	c.Simulation.Autosave = time.Minute

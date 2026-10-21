@@ -841,7 +841,29 @@ type ExerciseTracker struct {
 	LastPosition   *Vector3
 	Positions      []Vector3
 	StepThreshold  float64
+	lastUpdate     time.Time // When LastPosition was recorded
+	now            func() time.Time
 	mu             sync.RWMutex
+}
+
+// Limits on what a walk can count: positions further out than maxWalkRange
+// (meters) are refused, a move faster than maxWalkSpeed (meters a second)
+// is the tracking jumping rather than the player walking, and only the
+// most recent maxWalkPositions are kept
+const (
+	maxWalkRange     = 10000.0
+	maxWalkSpeed     = 3.0
+	maxWalkPositions = 1000
+)
+
+// validPosition reports whether a position is finite and in range
+func validPosition(v Vector3) bool {
+	for _, x := range []float64{v.X, v.Y, v.Z} {
+		if !(x >= -maxWalkRange && x <= maxWalkRange) { // Also NaN
+			return false
+		}
+	}
+	return true
 }
 
 // NewExerciseTracker creates a new exercise tracker
@@ -849,6 +871,7 @@ func NewExerciseTracker() *ExerciseTracker {
 	return &ExerciseTracker{
 		Positions:     make([]Vector3, 0),
 		StepThreshold: 0.7, // 70cm per step
+		now:           time.Now,
 	}
 }
 
@@ -858,7 +881,7 @@ func (e *ExerciseTracker) StartTracking() {
 	defer e.mu.Unlock()
 
 	e.IsTracking = true
-	e.StartTime = time.Now()
+	e.StartTime = e.now()
 	e.TotalDistance = 0
 	e.TotalSteps = 0
 	e.CaloriesBurned = 0
@@ -873,12 +896,17 @@ func (e *ExerciseTracker) StopTracking() ExerciseResult {
 
 	e.IsTracking = false
 
+	duration := e.now().Sub(e.StartTime)
+	speed := 0.0
+	if duration > 0 {
+		speed = e.TotalDistance / duration.Seconds()
+	}
 	return ExerciseResult{
-		Duration:       time.Since(e.StartTime),
+		Duration:       duration,
 		TotalDistance:  e.TotalDistance,
 		TotalSteps:     e.TotalSteps,
 		CaloriesBurned: e.CaloriesBurned,
-		AverageSpeed:   e.TotalDistance / time.Since(e.StartTime).Seconds(),
+		AverageSpeed:   speed,
 	}
 }
 
@@ -887,17 +915,24 @@ func (e *ExerciseTracker) UpdatePosition(position Vector3) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if !e.IsTracking {
+	if !e.IsTracking || !validPosition(position) {
 		return
 	}
 
+	now := e.now()
 	if e.LastPosition != nil {
 		distance := position.Distance(*e.LastPosition)
+		elapsed := now.Sub(e.lastUpdate).Seconds()
 
-		// Filter out small movements (noise)
-		if distance > 0.1 { // 10cm threshold
+		// Filter out small movements (noise) and jumps faster than
+		// walking or running (the tracking relocating), which start
+		// again from the new position
+		if distance > 0.1 && distance <= maxWalkSpeed*max(elapsed, 0.5) {
 			e.TotalDistance += distance
 			e.Positions = append(e.Positions, position)
+			if over := len(e.Positions) - maxWalkPositions; over > 0 {
+				e.Positions = append(e.Positions[:0], e.Positions[over:]...)
+			}
 
 			// Estimate steps
 			if distance >= e.StepThreshold {
@@ -911,6 +946,7 @@ func (e *ExerciseTracker) UpdatePosition(position Vector3) {
 	}
 
 	e.LastPosition = &position
+	e.lastUpdate = now
 }
 
 // GetExerciseStats returns current exercise stats
@@ -920,7 +956,7 @@ func (e *ExerciseTracker) GetExerciseStats() ExerciseResult {
 
 	duration := time.Duration(0)
 	if e.IsTracking {
-		duration = time.Since(e.StartTime)
+		duration = e.now().Sub(e.StartTime)
 	}
 
 	avgSpeed := 0.0
@@ -958,6 +994,13 @@ func (s *ARService) StartExerciseTracking() {
 // StopExerciseTracking stops exercise tracking and returns results
 func (s *ARService) StopExerciseTracking() ExerciseResult {
 	return s.exerciseTracker.StopTracking()
+}
+
+// SetClock sets the clock walks are timed by (for tests)
+func (s *ARService) SetClock(now func() time.Time) {
+	s.exerciseTracker.mu.Lock()
+	defer s.exerciseTracker.mu.Unlock()
+	s.exerciseTracker.now = now
 }
 
 // UpdateExercisePosition records the player's position for exercise

@@ -79,6 +79,9 @@ const GochiARLink = (function() {
      * @param {function} opts.onMessage - (text, kind) shows a message
      * @param {function} opts.onCare - (result) shows the result of care
      * @param {function} opts.petSprite - returns the pet's current sprite
+     * @param {function} opts.petLook - returns which of its species' sprites the pet shows (idle, happy, ...)
+     * @param {function} opts.spriteFor - (species, look) returns the sprite another player's pet shows
+     * @param {function} opts.petOutfit - returns the icons of what the pet wears
      * @param {function} opts.statusText - returns what the pet is doing
      * @param {function} opts.onEnd - called when AR closes
      * @param {boolean} opts.playdate - AR for the playdate the player is at
@@ -196,7 +199,7 @@ const GochiARLink = (function() {
         }
         const result = await call('/api/playdate/update', {
             position,
-            sprite: options.petSprite ? options.petSprite() : ''
+            look: options.petLook ? options.petLook() : 'idle'
         });
         playdateBusy = false;
         if (!playdateTimer) return; // AR closed meanwhile
@@ -242,7 +245,7 @@ const GochiARLink = (function() {
         const code = document.createElement('span');
         code.className = 'ar-playdate-code';
         code.textContent = playdate.code;
-        title.append(code, ' · ' + playdate.members.map(m => m.pet.name + ' (' + m.owner + ')').join(', '));
+        title.append(code, ' · ' + playdate.members.map(m => m.name).join(', '));
         if (!playdateCenter) {
             line('Stand where you can all see the same spot, and tap that spot to mark the playdate\'s center.',
                 'ar-playdate-hint');
@@ -263,7 +266,7 @@ const GochiARLink = (function() {
         const others = playdate && playdateCenter ? playdate.members.filter(m => !m.you) : [];
         const shown = new Set();
         others.forEach(mate => {
-            const id = 'ar-playmate-' + mate.owner.toLowerCase();
+            const id = 'ar-playmate-' + mate.slot;
             shown.add(id);
             let el = document.getElementById(id);
             if (!el) {
@@ -275,13 +278,17 @@ const GochiARLink = (function() {
                 const name = document.createElement('div');
                 name.className = 'ar-playmate-name';
                 el.append(sprite, name);
-                el.addEventListener('click', () => playWith(mate.owner));
+                el.dataset.handle = mate.handle;
+                el.addEventListener('click', () => playWith(el.dataset.handle));
                 container.append(el);
             }
-            el.querySelector('.pet-sprite').textContent = mate.sprite || (mate.pet.species === 'dog' ? '🐶' : '🐱');
-            el.querySelector('.ar-playmate-name').textContent = mate.pet.name +
+            el.dataset.handle = mate.handle;
+            el.querySelector('.pet-sprite').textContent = options.spriteFor ? options.spriteFor(mate.species, mate.look) : '🐾';
+            // What it wears, from the game's list of cosmetics
+            const outfit = Object.values(mate.outfit || {}).map(c => c.icon).join('');
+            el.querySelector('.ar-playmate-name').textContent = mate.name + (outfit ? ' ' + outfit : '') +
                 (mate.relation ? ' · ' + mate.relation : '');
-            el.title = mate.pet.name + ' (' + mate.owner + ')';
+            el.title = mate.name;
             // Drawn like the AR module draws your pet
             const x = playdateCenter.x + mate.position.x;
             const z = playdateCenter.z + mate.position.z;
@@ -294,10 +301,10 @@ const GochiARLink = (function() {
 
     /**
      * Have the player's pet play with another player's pet
-     * @param {string} owner - The other player
+     * @param {string} handle - The other player, as the hub calls them
      */
-    async function playWith(owner) {
-        const result = await call('/api/playdate/play', { owner });
+    async function playWith(handle) {
+        const result = await call('/api/playdate/play', { handle });
         if (!result.success) {
             message(result.error || 'Something went wrong', 'warning');
             return;
@@ -425,6 +432,17 @@ const GochiARLink = (function() {
         const sprite = document.querySelector('#ar-pet .pet-sprite');
         if (sprite && options.petSprite) {
             sprite.textContent = options.petSprite();
+        }
+        // What the pet wears, shown under it
+        if (sprite && options.petOutfit) {
+            let outfit = document.querySelector('#ar-pet .ar-outfit');
+            if (!outfit) {
+                outfit = document.createElement('div');
+                outfit.className = 'ar-outfit';
+                outfit.style.cssText = 'text-align:center;font-size:18px;line-height:1;';
+                sprite.after(outfit);
+            }
+            outfit.textContent = options.petOutfit();
         }
         const status = document.querySelector('.ar-status-text');
         if (status && options.statusText) {

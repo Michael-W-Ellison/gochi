@@ -953,8 +953,27 @@ func (m *MemorySystem) UnmarshalJSON(data []byte) error {
 		m.Preferences = make(map[types.InteractionType]*InteractionPreference)
 	}
 	m.WorkingMemory = make([]*Memory, 0)
+	m.ShortTermMemories = withoutMissing(m.ShortTermMemories)
+	m.LongTermMemories = withoutMissing(m.LongTermMemories)
+	for kind, preference := range m.Preferences {
+		if preference == nil {
+			delete(m.Preferences, kind) // A damaged save
+		}
+	}
 	m.RebuildIndexes()
 	return nil
+}
+
+// withoutMissing returns memories without any that are missing (null in a
+// damaged save)
+func withoutMissing(memories []*Memory) []*Memory {
+	kept := memories[:0]
+	for _, memory := range memories {
+		if memory != nil {
+			kept = append(kept, memory)
+		}
+	}
+	return kept
 }
 
 // RebuildIndexes reconstructs the ID and tag indexes from stored memories

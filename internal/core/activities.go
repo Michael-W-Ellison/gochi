@@ -250,6 +250,11 @@ func (p *DigitalPet) TrainTrickWith(trickID, methodID string) (TrickResult, erro
 		p.TrickSkills = make(map[string]float64)
 	}
 	before := p.TrickSkills[t.ID]
+	speed *= p.effectLocked(effTraining)
+	if p.TrainingBoost { // A freeze-dried treat was waiting
+		speed *= 1.5
+		p.TrainingBoost = false
+	}
 	result.Skill = min(before+p.trainingProgressLocked(t, result.ReactionMultiplier)*speed, 1.0)
 	p.TrickSkills[t.ID] = result.Skill
 	p.practiceTrickLocked(t.ID)
@@ -408,7 +413,7 @@ func (p *DigitalPet) GuessHidingSpot(spot int) (GameResult, error) {
 			result.Text = fmt.Sprintf("You found %s %s, but it's too tired to play. %s", p.Name, hiding.Name, hiding.Icon)
 			return result, nil
 		}
-		if t := now(); t.Sub(p.LastGameReward) >= CareRewardCooldown {
+		if t := p.playNowLocked(); t.Sub(p.LastGameReward) >= CareRewardCooldown {
 			p.LastGameReward = t
 			p.FriendshipPoints += GameBonusPoints
 			p.PointsEarned += GameBonusPoints
@@ -475,6 +480,7 @@ type Adventure struct {
 	Changes      []StatChange  `json:"changes"`
 	ReturnedAge  float64       `json:"returned_age"` // Pet's age when it came home
 	Reaction     ReactionLevel `json:"reaction"`
+	Discovered   string        `json:"discovered,omitempty"` // A place the trip opened up
 }
 
 const (
@@ -585,7 +591,7 @@ func (p *DigitalPet) exploreOutcomeLocked() string {
 	// Wilder places are more dangerous and hold more, and a place others
 	// have picked over holds less
 	placeInjury, findFactor := p.placeOddsLocked()
-	injuryChance = max(injuryChance+placeInjury, 0)
+	injuryChance = max(injuryChance+placeInjury+int(p.effectLocked(effTripInjury)), 0)
 	treasureChance = min(int(float64(treasureChance)*findFactor), maxFindChance)
 
 	roll := randIntn(100)
@@ -633,7 +639,11 @@ func (p *DigitalPet) finishExploringLocked() {
 	if adventure.Outcome != OutcomeInjured {
 		adventure.Text += p.visitPlaceLocked()
 	}
-	adventure.Text += p.takeFromPlaceLocked(adventure.Outcome)
+	note := p.takeFromPlaceLocked(adventure.Outcome)
+	adventure.Text += note
+	if note != "" {
+		adventure.Discovered = p.lastDiscoveredLocked()
+	}
 
 	adventure.ReturnedAge = p.Biology.GetAgeInDays()
 	p.LastAdventure = adventure
@@ -647,7 +657,7 @@ func (p *DigitalPet) injureLocked() []StatChange {
 	before := *v
 	v.Health -= 0.25
 	v.Happiness -= 0.15
-	v.Stress += 0.2
+	v.Stress += 0.2 * p.effectLocked(effTripStress)
 	v.Energy -= 0.15
 	v.Clamp()
 

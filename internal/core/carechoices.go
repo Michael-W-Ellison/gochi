@@ -235,7 +235,7 @@ func (p *DigitalPet) methodAvailableLocked(m trainingMethod) error {
 // methodProgressLocked is how fast a method teaches. Caller must hold p.mu.
 func (p *DigitalPet) methodProgressLocked(m trainingMethod) float64 {
 	if m.ID == "clicker" {
-		return p.bestEffectLocked(CategoryTraining, false)
+		return clickerProgress
 	}
 	return m.progress
 }
@@ -366,7 +366,11 @@ func (p *DigitalPet) applyChoiceLocked(boost float64) string {
 		f := c.food.food
 		v.Hydration += f.hydration
 		if f.digestion != 0 {
-			ph.DigestiveHealth += f.digestion
+			upset := f.digestion
+			if upset < 0 {
+				upset *= p.effectLocked(effFoodUpset) // Less with a probiotic
+			}
+			ph.DigestiveHealth += upset
 			if f.digestion < 0 {
 				v.Happiness -= 0.05
 				p.recordHealthEventLocked("feeding", "%s has an upset stomach after the %s.", p.Name, lowerFirst(c.food.item.Name))
@@ -402,7 +406,10 @@ func (p *DigitalPet) applyChoiceLocked(boost float64) string {
 		return c.method.lesson
 
 	case c.change != nil:
-		ch, n := c.change, c.novelty
+		ch, n := c.change, c.novelty*p.effectLocked(effEnrichment)
+		if ch.ID == "perch" || ch.ID == "scratching_post" {
+			n *= p.effectLocked(effPerch)
+		}
 		p.Needs.SatisfyNeed(types.NeedMentalStimulation, ch.stimulation*n, age)
 		p.Needs.SatisfyNeed(types.NeedExploration, ch.exploration*n, age)
 		p.Needs.SatisfyNeed(types.NeedExercise, ch.exercise*n, age)

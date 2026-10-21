@@ -3,6 +3,7 @@ package core
 import (
 	"math"
 
+	"github.com/Michael-W-Ellison/gochi/internal/biology"
 	"github.com/Michael-W-Ellison/gochi/internal/environment"
 )
 
@@ -60,7 +61,19 @@ func (p *DigitalPet) updateEnvironmentLocked(deltaTime float64) {
 	effects := p.Environment.GetEffects()
 	v := p.Biology.Vitals
 	v.Happiness += (p.moodModifierLocked() - 1.0) * environmentMoodEffect * deltaTime
-	v.Stress += (effects.StressModifier - 1.0) * environmentMoodEffect * deltaTime
+	stress := (effects.StressModifier - 1.0) * environmentMoodEffect * deltaTime
+	if stress > 0 { // Shelter from the weather, and a night lamp, make it less
+		e := p.effectsLocked()
+		stress *= e[effWeatherStress]
+		if !p.Environment.IsDaytime() {
+			stress *= e[effNightStress]
+		}
+	}
+	v.Stress += stress
+	if mood := p.effectLocked(effDaylightMood); mood > 0 && p.Environment.IsDaytime() {
+		p.Biology.EnsureHormones()
+		p.Biology.Hormones.Pulse(biology.HormoneSerotonin, mood*deltaTime) // Sunlight lifts the mood
+	}
 	v.Clamp()
 }
 

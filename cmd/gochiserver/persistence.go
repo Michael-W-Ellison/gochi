@@ -46,6 +46,18 @@ type cachedSave struct {
 	summary  savedPet
 }
 
+// maxSavedPets is how many pets the player can have saved at once
+const maxSavedPets = 100
+
+// errTooManyPets is returned when making a pet with maxSavedPets saved
+var errTooManyPets = fmt.Errorf("you have %d pets, the most there can be; delete one to make room", maxSavedPets)
+
+// Full reports whether as many pets as there can be are saved
+func (ps *petStore) Full() bool {
+	files, err := ps.dm.ListSaves()
+	return err == nil && len(files) >= maxSavedPets
+}
+
 // savedPet summarizes a saved pet for the pet list
 type savedPet struct {
 	ID          string    `json:"-"`
@@ -56,6 +68,8 @@ type savedPet struct {
 	IsAlive     bool      `json:"is_alive"`
 	Hibernating bool      `json:"hibernating"`
 	SavedAt     time.Time `json:"saved_at"`
+	Unreadable  bool      `json:"unreadable,omitempty"` // Neither the save nor its backups can be read
+	Outfit      string    `json:"outfit,omitempty"`     // Icons of what it wears
 }
 
 // newPetStore creates a store that keeps saves and backups under dir
@@ -224,9 +238,13 @@ func (ps *petStore) List() ([]savedPet, error) {
 
 	pets := make([]savedPet, 0, len(files))
 	for _, file := range files {
-		pet, err := ps.readSummary(strings.TrimSuffix(file.Filename, ".json"), file.Path)
+		slot := strings.TrimSuffix(file.Filename, ".json")
+		pet, err := ps.readSummary(slot, file.Path)
 		if err != nil {
-			continue
+			// Listed so the player can see it and delete it; it is named
+			// by its slot, which deleting it asks for
+			pet = savedPet{Slot: slot, Name: slot, Species: string(core.SpeciesCat), SavedAt: file.ModifiedAt,
+				Unreadable: true}
 		}
 		pets = append(pets, pet)
 	}
@@ -261,10 +279,11 @@ func (ps *petStore) readSummary(slot, path string) (savedPet, error) {
 // data, not the whole pet
 func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error) {
 	var summary struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Species     string `json:"species"`
-		Hibernating bool   `json:"hibernating"`
+		ID          string            `json:"id"`
+		Name        string            `json:"name"`
+		Species     string            `json:"species"`
+		Hibernating bool              `json:"hibernating"`
+		Outfit      map[string]string `json:"outfit"`
 		Biology     struct {
 			IsAlive   bool
 			Processes struct {
@@ -289,6 +308,7 @@ func summarize(slot string, petData []byte, savedAt time.Time) (savedPet, error)
 		IsAlive:     summary.Biology.IsAlive,
 		Hibernating: summary.Hibernating,
 		SavedAt:     savedAt,
+		Outfit:      outfitIcons(summary.Outfit),
 	}, nil
 }
 
@@ -447,4 +467,15 @@ func (ps *petStore) NewSlotFor(id string) string {
 		slot = fmt.Sprintf("%s-%d", base, i)
 	}
 	return slot
+}
+
+// outfitIcons returns the icons of what a pet wears, head to body
+func outfitIcons(outfit map[string]string) string {
+	icons := ""
+	for _, slot := range core.CosmeticSlots {
+		if c, ok := core.FindCosmetic(outfit[slot]); ok && c.Slot == slot && (c.Holiday == "" || core.HolidayOn(c.Holiday)) {
+			icons += c.Icon
+		}
+	}
+	return icons
 }

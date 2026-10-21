@@ -254,6 +254,7 @@ func Breed(a, b *DigitalPet, childName string) (*DigitalPet, error) {
 	child.Species = infoA.species
 	child.Relationships.AddRelationship(infoA.id, types.RelationshipParent)
 	child.Relationships.AddRelationship(infoB.id, types.RelationshipParent)
+	child.Parents = []types.PetID{infoA.id, infoB.id}
 	child.rememberPetLocked(infoA.id, infoA.name)
 	child.rememberPetLocked(infoB.id, infoB.name)
 

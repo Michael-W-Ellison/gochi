@@ -1,14 +1,13 @@
 // Command gochihub runs a Gochi cloud hub on its own, without the game:
-// players' Gochi servers connect to it to back up and sync pets, see pets
-// nearby, share achievements and meet at AR playdates (see the hub
-// package). A Gochi server started with -hub serves the same hub alongside
-// the game; this program is for running the hub as a separate service.
+// players' Gochi servers connect to it to back up and sync pets, share
+// achievements and meet at AR playdates (see the hub package). It always
+// uses HTTPS, with its own certificate if it isn't given one. A Gochi
+// server started with -hub serves the same hub alongside the game; this
+// program is for running the hub as a separate service.
 package main
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -22,11 +21,11 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8090", "address to listen on")
+	addr := flag.String("addr", ":8443", "address to listen on (always HTTPS)")
 	dir := flag.String("dir", "", "directory for the hub's data (default ~/.gochi-hub)")
 	joinCode := flag.String("join-code", "", "the code players need to register; empty closes registration")
-	tlsCert := flag.String("tls-cert", "", "serve HTTPS with this certificate (PEM; needs -tls-key)")
-	tlsKey := flag.String("tls-key", "", "the HTTPS certificate's private key (PEM)")
+	tlsCert := flag.String("tls-cert", "", "certificate to serve (PEM; needs -tls-key); without one the hub makes its own")
+	tlsKey := flag.String("tls-key", "", "the certificate's private key (PEM)")
 	flag.Parse()
 
 	if err := run(*addr, *dir, *joinCode, *tlsCert, *tlsKey); err != nil {
@@ -43,39 +42,28 @@ func run(addr, dir, joinCode, tlsCert, tlsKey string) error {
 		}
 		dir = filepath.Join(home, ".gochi-hub")
 	}
-	if (tlsCert == "") != (tlsKey == "") {
-		return errors.New("HTTPS needs both -tls-cert and -tls-key")
-	}
 	h, err := hub.New(dir, joinCode)
+	if err != nil {
+		return err
+	}
+	certFile, keyFile, fingerprint, err := hub.ServerCertificate(dir, tlsCert, tlsKey)
 	if err != nil {
 		return err
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/hub/v1/", h.Handler())
-	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	server := &http.Server{Addr: addr, Handler: mux, TLSConfig: hub.TLSConfig()}
+	hub.SetTimeouts(server)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	serverErr := make(chan error, 1)
-	go func() {
-		if tlsCert != "" {
-			serverErr <- server.ListenAndServeTLS(tlsCert, tlsKey)
-		} else {
-			serverErr <- server.ListenAndServe()
-		}
-	}()
-	scheme := "http"
-	if tlsCert != "" {
-		scheme = "https"
-	}
-	log.Printf("Gochi hub at %s://localhost%s/hub/v1, keeping its data in %s", scheme, addr, dir)
+	go func() { serverErr <- server.ListenAndServeTLS(certFile, keyFile) }()
+	log.Printf("Gochi hub at https://<this computer>%s/hub/v1, keeping its data in %s", addr, dir)
+	log.Printf("Certificate fingerprint (players can compare it with the one their game shows): %s", fingerprint)
 	if !h.RegistrationOpen() {
 		log.Printf("Registration is closed (no -join-code); existing players can still connect")
-	}
-	if tlsCert == "" {
-		log.Printf("Serving plain HTTP: use -tls-cert and -tls-key, or a reverse proxy, before opening it to the internet")
 	}
 
 	select {

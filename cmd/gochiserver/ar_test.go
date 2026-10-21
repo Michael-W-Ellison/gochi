@@ -75,6 +75,13 @@ func TestARThroughServer(t *testing.T) {
 	if rec := post(t, server.handleARExercise, `{"action":"stop"}`); rec.Code != http.StatusConflict {
 		t.Errorf("Stopping with no walk: expected 409, got %d", rec.Code)
 	}
+	clock := time.Now()
+	server.arMu.Lock()
+	server.arServiceLocked().SetClock(func() time.Time {
+		clock = clock.Add(100 * time.Second) // Time to walk each stretch
+		return clock
+	})
+	server.arMu.Unlock()
 	post(t, server.handleARExercise, `{"action":"start"}`)
 	for _, x := range []string{"0", "100", "250"} {
 		post(t, server.handleARExercise, `{"action":"position","position":{"x":`+x+`,"y":0,"z":0}}`)

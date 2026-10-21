@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Michael-W-Ellison/gochi/internal/core"
@@ -13,10 +14,7 @@ import (
 
 // Handler provides HTTP handler methods for the API
 type Handler struct {
-	petStore      PetStore
-	userStore     UserStore
-	socialService SocialService
-	syncService   SyncService
+	petStore PetStore
 }
 
 // PetStore defines the interface for pet data storage
@@ -24,61 +22,25 @@ type PetStore interface {
 	GetPet(id types.PetID) (*core.DigitalPet, error)
 	GetPetsByOwner(ownerID types.UserID) ([]*core.DigitalPet, error)
 	CreatePet(pet *core.DigitalPet) error
-	UpdatePet(pet *core.DigitalPet) error
+	// ModifyPet applies change to the pet and saves it, unless change
+	// returns an error. It returns the pet as changed.
+	ModifyPet(id types.PetID, change func(pet *core.DigitalPet) error) (*core.DigitalPet, error)
 	DeletePet(id types.PetID) error
 }
+
+// ErrTooManyPets is returned by a PetStore that has as many pets as it can
+var ErrTooManyPets = errors.New("too many pets")
+
+// ErrNotFound is returned by a PetStore for a pet it doesn't have
+var ErrNotFound = errors.New("pet not found")
 
 // ErrNotPermitted is returned by a PetStore that does not allow an
 // operation through the API
 var ErrNotPermitted = errors.New("not permitted")
 
-// UserStore defines the interface for user data storage
-type UserStore interface {
-	GetUser(id types.UserID) (*User, error)
-	GetUserByEmail(email string) (*User, error)
-	CreateUser(user *User) error
-	UpdateUser(user *User) error
-	ValidateCredentials(email, password string) (*User, error)
-}
-
-// User represents a user in the system
-type User struct {
-	ID          types.UserID `json:"id"`
-	Email       string       `json:"email"`
-	DisplayName string       `json:"display_name"`
-	CreatedAt   time.Time    `json:"created_at"`
-}
-
-// SocialService defines the interface for social features
-type SocialService interface {
-	GetNearbyPets(location *Location, radiusMeters float64) ([]*NearbyPetResponse, error)
-	GetFriends(petID types.PetID) ([]*FriendResponse, error)
-	SendFriendRequest(fromPetID, toPetID types.PetID, message string) error
-	AcceptFriendRequest(requestID string) error
-	DeclineFriendRequest(requestID string) error
-	RemoveFriend(petID, friendID types.PetID) error
-}
-
-// Location represents a geographic location
-type Location struct {
-	Latitude  float64
-	Longitude float64
-}
-
-// SyncService defines the interface for cloud sync
-type SyncService interface {
-	Sync(userID types.UserID, request *SyncRequest) (*SyncResponse, error)
-	ResolveConflict(userID types.UserID, request *ConflictResolutionRequest) error
-}
-
 // NewHandler creates a new API handler
-func NewHandler(petStore PetStore, userStore UserStore, socialService SocialService, syncService SyncService) *Handler {
-	return &Handler{
-		petStore:      petStore,
-		userStore:     userStore,
-		socialService: socialService,
-		syncService:   syncService,
-	}
+func NewHandler(petStore PetStore) *Handler {
+	return &Handler{petStore: petStore}
 }
 
 // ============================================================================
@@ -182,6 +144,10 @@ func (h *Handler) HandleCreatePet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MISSING_NAME", "Pet name is required")
 		return
 	}
+	if !core.ValidPetName(req.Name) {
+		writeError(w, http.StatusBadRequest, "INVALID_NAME", core.PetNameRule)
+		return
+	}
 
 	userID := getUserIDFromContext(r)
 
@@ -199,7 +165,10 @@ func (h *Handler) HandleCreatePet(w http.ResponseWriter, r *http.Request) {
 	}
 	pet.Species = species
 
-	if err := h.petStore.CreatePet(pet); err != nil {
+	if err := h.petStore.CreatePet(pet); errors.Is(err, ErrTooManyPets) {
+		writeError(w, http.StatusConflict, "TOO_MANY_PETS", "There are as many pets as there can be; delete one in the game")
+		return
+	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "CREATE_FAILED", "Failed to create pet")
 		return
 	}
@@ -247,26 +216,99 @@ func (h *Handler) HandleUpdatePet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
-
-	pet, err := h.petStore.GetPet(petID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "PET_NOT_FOUND", "Pet not found")
+	if req.Name != "" && !core.ValidPetName(req.Name) {
+		writeError(w, http.StatusBadRequest, "INVALID_NAME", core.PetNameRule)
+		return
+	}
+	if req.Location != "" && !core.KnownPlace(req.Location) {
+		writeError(w, http.StatusBadRequest, "INVALID_LOCATION", "Unknown location")
 		return
 	}
 
-	if req.Name != "" {
-		pet.Name = req.Name
-	}
-	if req.Location != "" {
-		pet.Location = req.Location
-	}
-
-	if err := h.petStore.UpdatePet(pet); err != nil {
-		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to update pet")
+	pet, err := h.petStore.ModifyPet(petID, func(pet *core.DigitalPet) error {
+		if req.Name != "" {
+			pet.Name = strings.TrimSpace(req.Name)
+		}
+		if req.Location != "" {
+			pet.Location = req.Location
+		}
+		return nil
+	})
+	if err != nil {
+		writeModifyError(w, err, "Failed to update pet")
 		return
 	}
 
 	writeSuccess(w, convertPetToResponse(pet))
+}
+
+// writeModifyError reports why a pet could not be changed
+func writeModifyError(w http.ResponseWriter, err error, failed string) {
+	var refused refusal
+	switch {
+	case errors.As(err, &refused):
+		writeError(w, http.StatusConflict, "INTERACTION_REFUSED", refused.message)
+	case errors.Is(err, ErrNotFound):
+		writeError(w, http.StatusNotFound, "PET_NOT_FOUND", "Pet not found")
+	case errors.Is(err, ErrNotPermitted):
+		writeError(w, http.StatusForbidden, "NOT_PERMITTED", "A parent PIN is set; make this change in the game")
+	default:
+		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", failed)
+	}
+}
+
+// refusal is the pet turning down an interaction
+type refusal struct{ message string }
+
+func (r refusal) Error() string { return r.message }
+
+// validLevel reports whether an intensity is in the range 0 to 1
+func validLevel(x float64) bool {
+	return x >= 0 && x <= 1 // False for NaN
+}
+
+// interact applies an interaction to a pet through the store and writes
+// the response
+func (h *Handler) interact(w http.ResponseWriter, petID types.PetID, interactionType types.InteractionType,
+	intensity float64, fallback string) {
+	if !validLevel(intensity) {
+		writeError(w, http.StatusBadRequest, "INVALID_INTENSITY", "Intensity must be from 0.0 to 1.0")
+		return
+	}
+	var before core.InteractionResult
+	var health, energy, happiness, joy float64
+	pet, err := h.petStore.ModifyPet(petID, func(pet *core.DigitalPet) error {
+		health, energy = pet.Biology.Vitals.Health, pet.Biology.Vitals.Energy
+		happiness, joy = pet.Biology.Vitals.Happiness, pet.Emotions.Joy
+		before = pet.Interact(interactionType, intensity)
+		if !before.Applied {
+			message := before.Refusal
+			if message == "" {
+				message = pet.Name + " can't do that right now."
+			}
+			return refusal{message}
+		}
+		return nil
+	})
+	if err != nil {
+		writeModifyError(w, err, "Failed to save interaction")
+		return
+	}
+
+	writeSuccess(w, InteractionResponse{
+		Success:     true,
+		PetReaction: pet.CurrentBehavior.String(),
+		VitalChanges: map[string]float64{
+			"health":    pet.Biology.Vitals.Health - health,
+			"energy":    pet.Biology.Vitals.Energy - energy,
+			"happiness": pet.Biology.Vitals.Happiness - happiness,
+		},
+		EmotionChanges: map[string]float64{
+			"joy": pet.Emotions.Joy - joy,
+		},
+		MemoryCreated: true,
+		Message:       interactionMessage(before, fallback),
+	})
 }
 
 // HandleDeletePet handles DELETE /api/v1/pets/{petId}
@@ -316,309 +358,38 @@ func (h *Handler) HandleGetPetStatus(w http.ResponseWriter, r *http.Request) {
 
 // HandleInteraction handles POST /api/v1/pets/{petId}/interactions
 func (h *Handler) HandleInteraction(w http.ResponseWriter, r *http.Request) {
-	petID := types.PetID(getPathParam(r, "petId"))
-
 	var req InteractionRequest
 	if err := parseJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
-
-	pet, err := h.petStore.GetPet(petID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "PET_NOT_FOUND", "Pet not found")
-		return
-	}
-
-	// Map string type to InteractionType
 	interactionType := mapStringToInteractionType(req.Type)
 	if interactionType == -1 {
 		writeError(w, http.StatusBadRequest, "INVALID_TYPE", "Invalid interaction type")
 		return
 	}
-
-	// Store initial values for comparison
-	initialHealth := pet.Biology.Vitals.Health
-	initialEnergy := pet.Biology.Vitals.Energy
-	initialHappiness := pet.Biology.Vitals.Happiness
-	initialJoy := pet.Emotions.Joy
-
-	// Process the interaction
-	result := pet.Interact(interactionType, req.Intensity)
-	if !result.Applied {
-		writeRefusal(w, pet, result)
-		return
-	}
-
-	// Save updated pet
-	if err := h.petStore.UpdatePet(pet); err != nil {
-		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to save interaction")
-		return
-	}
-
-	writeSuccess(w, InteractionResponse{
-		Success:     true,
-		PetReaction: pet.CurrentBehavior.String(),
-		VitalChanges: map[string]float64{
-			"health":    pet.Biology.Vitals.Health - initialHealth,
-			"energy":    pet.Biology.Vitals.Energy - initialEnergy,
-			"happiness": pet.Biology.Vitals.Happiness - initialHappiness,
-		},
-		EmotionChanges: map[string]float64{
-			"joy": pet.Emotions.Joy - initialJoy,
-		},
-		MemoryCreated: true,
-		Message:       interactionMessage(result, "Interaction successful"),
-	})
+	h.interact(w, types.PetID(getPathParam(r, "petId")), interactionType, req.Intensity, "Interaction successful")
 }
 
 // HandleFeed handles POST /api/v1/pets/{petId}/interactions/feed
 func (h *Handler) HandleFeed(w http.ResponseWriter, r *http.Request) {
-	petID := types.PetID(getPathParam(r, "petId"))
-
 	var req FeedingRequest
 	if err := parseJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
-
-	pet, err := h.petStore.GetPet(petID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "PET_NOT_FOUND", "Pet not found")
-		return
-	}
-
-	// Process feeding interaction
-	result := pet.Interact(types.InteractionFeeding, req.Quantity)
-	if !result.Applied {
-		writeRefusal(w, pet, result)
-		return
-	}
-
-	if err := h.petStore.UpdatePet(pet); err != nil {
-		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to save")
-		return
-	}
-
-	writeSuccess(w, InteractionResponse{
-		Success:     true,
-		PetReaction: pet.CurrentBehavior.String(),
-		Message:     interactionMessage(result, "Pet has been fed"),
-	})
+	h.interact(w, types.PetID(getPathParam(r, "petId")), types.InteractionFeeding, req.Quantity, "Pet has been fed")
 }
 
 // HandlePlay handles POST /api/v1/pets/{petId}/interactions/play
 func (h *Handler) HandlePlay(w http.ResponseWriter, r *http.Request) {
-	petID := types.PetID(getPathParam(r, "petId"))
-
 	var req PlayRequest
 	if err := parseJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
 		return
 	}
-
-	pet, err := h.petStore.GetPet(petID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "PET_NOT_FOUND", "Pet not found")
-		return
-	}
-
-	// Process play interaction
-	result := pet.Interact(types.InteractionPlaying, req.Enthusiasm)
-	if !result.Applied {
-		writeRefusal(w, pet, result)
-		return
-	}
-
-	if err := h.petStore.UpdatePet(pet); err != nil {
-		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", "Failed to save")
-		return
-	}
-
-	writeSuccess(w, InteractionResponse{
-		Success:     true,
-		PetReaction: pet.CurrentBehavior.String(),
-		Message:     interactionMessage(result, "Played with pet"),
-	})
+	h.interact(w, types.PetID(getPathParam(r, "petId")), types.InteractionPlaying, req.Enthusiasm, "Played with pet")
 }
-
-// ============================================================================
-// Social Handlers
-// ============================================================================
-
-// HandleUpdateLocation handles PUT /api/v1/social/location
-func (h *Handler) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
-	var req LocationUpdateRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	// Validate coordinates
-	if req.Latitude < -90 || req.Latitude > 90 || req.Longitude < -180 || req.Longitude > 180 {
-		writeError(w, http.StatusBadRequest, "INVALID_COORDINATES", "Invalid latitude or longitude")
-		return
-	}
-
-	// Update location in social service (implementation depends on social service)
-	writeSuccess(w, map[string]interface{}{
-		"updated":   true,
-		"latitude":  req.Latitude,
-		"longitude": req.Longitude,
-	})
-}
-
-// HandleGetNearbyPets handles GET /api/v1/social/nearby
-func (h *Handler) HandleGetNearbyPets(w http.ResponseWriter, r *http.Request) {
-	lat := getQueryParamFloat(r, "latitude", 0)
-	lon := getQueryParamFloat(r, "longitude", 0)
-	radius := getQueryParamFloat(r, "radius", 1000) // Default 1km
-
-	if lat == 0 && lon == 0 {
-		writeError(w, http.StatusBadRequest, "MISSING_LOCATION", "Latitude and longitude are required")
-		return
-	}
-
-	location := &Location{Latitude: lat, Longitude: lon}
-	nearby, err := h.socialService.GetNearbyPets(location, radius)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "FETCH_FAILED", "Failed to fetch nearby pets")
-		return
-	}
-
-	if nearby == nil {
-		nearby = []*NearbyPetResponse{} // An empty list, not null
-	}
-	writeSuccess(w, nearby)
-}
-
-// HandleGetFriends handles GET /api/v1/social/friends
-func (h *Handler) HandleGetFriends(w http.ResponseWriter, r *http.Request) {
-	petID := types.PetID(getQueryParam(r, "pet_id", ""))
-	if petID == "" {
-		writeError(w, http.StatusBadRequest, "MISSING_PET_ID", "Pet ID is required")
-		return
-	}
-
-	friends, err := h.socialService.GetFriends(petID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "FETCH_FAILED", "Failed to fetch friends")
-		return
-	}
-
-	if friends == nil {
-		friends = []*FriendResponse{} // An empty list, not null
-	}
-	writeSuccess(w, friends)
-}
-
-// HandleSendFriendRequest handles POST /api/v1/social/friends/request
-func (h *Handler) HandleSendFriendRequest(w http.ResponseWriter, r *http.Request) {
-	var req FriendRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	// Get current user's pet ID from context
-	fromPetID := types.PetID(getQueryParam(r, "pet_id", ""))
-	if fromPetID == "" {
-		writeError(w, http.StatusBadRequest, "MISSING_PET_ID", "Source pet ID is required")
-		return
-	}
-
-	if err := h.socialService.SendFriendRequest(fromPetID, req.TargetPetID, req.Message); err != nil {
-		writeError(w, http.StatusInternalServerError, "REQUEST_FAILED", "Failed to send friend request")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"sent": true})
-}
-
-// HandleAcceptFriendRequest handles POST /api/v1/social/friends/requests/{requestId}/accept
-func (h *Handler) HandleAcceptFriendRequest(w http.ResponseWriter, r *http.Request) {
-	requestID := getPathParam(r, "requestId")
-
-	if err := h.socialService.AcceptFriendRequest(requestID); err != nil {
-		writeError(w, http.StatusInternalServerError, "ACCEPT_FAILED", "Failed to accept friend request")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"accepted": true})
-}
-
-// HandleDeclineFriendRequest handles POST /api/v1/social/friends/requests/{requestId}/decline
-func (h *Handler) HandleDeclineFriendRequest(w http.ResponseWriter, r *http.Request) {
-	requestID := getPathParam(r, "requestId")
-
-	if err := h.socialService.DeclineFriendRequest(requestID); err != nil {
-		writeError(w, http.StatusInternalServerError, "DECLINE_FAILED", "Failed to decline friend request")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"declined": true})
-}
-
-// HandleRemoveFriend handles DELETE /api/v1/social/friends/{petId}
-func (h *Handler) HandleRemoveFriend(w http.ResponseWriter, r *http.Request) {
-	friendPetID := types.PetID(getPathParam(r, "petId"))
-	myPetID := types.PetID(getQueryParam(r, "my_pet_id", ""))
-
-	if myPetID == "" {
-		writeError(w, http.StatusBadRequest, "MISSING_PET_ID", "Your pet ID is required")
-		return
-	}
-
-	if err := h.socialService.RemoveFriend(myPetID, friendPetID); err != nil {
-		writeError(w, http.StatusInternalServerError, "REMOVE_FAILED", "Failed to remove friend")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"removed": true})
-}
-
-// ============================================================================
-// Sync Handlers
-// ============================================================================
-
-// HandleSync handles POST /api/v1/sync
-func (h *Handler) HandleSync(w http.ResponseWriter, r *http.Request) {
-	var req SyncRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	userID := getUserIDFromContext(r)
-	response, err := h.syncService.Sync(userID, &req)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "SYNC_FAILED", "Failed to sync")
-		return
-	}
-
-	writeSuccess(w, response)
-}
-
-// HandleResolveConflict handles POST /api/v1/sync/resolve
-func (h *Handler) HandleResolveConflict(w http.ResponseWriter, r *http.Request) {
-	var req ConflictResolutionRequest
-	if err := parseJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
-		return
-	}
-
-	userID := getUserIDFromContext(r)
-	if err := h.syncService.ResolveConflict(userID, &req); err != nil {
-		writeError(w, http.StatusInternalServerError, "RESOLVE_FAILED", "Failed to resolve conflict")
-		return
-	}
-
-	writeSuccess(w, map[string]bool{"resolved": true})
-}
-
-// ============================================================================
-// Helper Converters
-// ============================================================================
 
 // convertPetToResponse converts a DigitalPet to a PetResponse
 func convertPetToResponse(pet *core.DigitalPet) *PetResponse {
@@ -679,16 +450,6 @@ func convertPetToResponse(pet *core.DigitalPet) *PetResponse {
 		CreatedAt:     pet.CreatedAt,
 		LastUpdatedAt: pet.LastUpdateAt,
 	}
-}
-
-// writeRefusal reports an interaction the pet turned down or could not
-// respond to
-func writeRefusal(w http.ResponseWriter, pet *core.DigitalPet, result core.InteractionResult) {
-	message := result.Refusal
-	if message == "" {
-		message = pet.Name + " can't do that right now."
-	}
-	writeError(w, http.StatusConflict, "INTERACTION_REFUSED", message)
 }
 
 // interactionMessage describes how the pet reacted, or returns fallback

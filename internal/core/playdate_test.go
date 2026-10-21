@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 	"testing"
 )
 
@@ -67,7 +68,7 @@ func TestPlaydateRefusals(t *testing.T) {
 		t.Errorf("A pet can't play with itself, got %v", err)
 	}
 	away := sociablePet("Rex", SpeciesDog).PlaymateCard()
-	away.Unavailable = "Rex is asleep"
+	away.Unavailable = UnavailableAsleep
 	var refused RefusedError
 	if _, _, err := mine.PlayWithPlaymate(away); !errors.As(err, &refused) || refused.Error() != "Rex is asleep." {
 		t.Errorf("An unavailable playmate should be refused, got %v", err)
@@ -81,5 +82,18 @@ func TestPlaydateRefusals(t *testing.T) {
 	mine.Biology.IsAlive = false
 	if got := mine.PlayedWithPlaymate(other.PlaymateCard(), 0.8, 0.5); got != "" || len(mine.Relations()) != 0 {
 		t.Errorf("A dead pet shouldn't record a playdate, got %q", got)
+	}
+}
+
+func TestPlaymateCardCarriesNoText(t *testing.T) {
+	pet := sociablePet("Biscuit", SpeciesDog)
+	pet.CurrentBehavior = types.BehaviorSleeping
+	if card := pet.PlaymateCard(); card.Unavailable != UnavailableAsleep {
+		t.Errorf("Why it can't play should be a code, got %q", card.Unavailable)
+	}
+	bad := sociablePet("Rex", SpeciesDog).PlaymateCard()
+	bad.Unavailable = "meet me at the park"
+	if bad.Valid() {
+		t.Error("A card with a reason that isn't a code should be invalid")
 	}
 }

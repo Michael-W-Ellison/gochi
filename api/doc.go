@@ -2,11 +2,10 @@
 //
 // This package provides:
 //   - RESTful endpoints for pet management (create, read, update, delete)
-//   - Interaction endpoints for feeding, playing, training, etc.
-//   - Social feature endpoints for friends, nearby pets, events
-//   - Cloud synchronization endpoints
-//   - WebSocket support for real-time updates
+//   - Interaction endpoints for feeding, playing and other care
 //
-// The API follows RESTful conventions with JSON request/response bodies.
-// Authentication is handled via Bearer tokens in the Authorization header.
+// There are no accounts, social or messaging endpoints: the API works only
+// on the player's own pets. It follows RESTful conventions with JSON
+// request/response bodies. Authentication is handled via a Bearer token in
+// the Authorization header.
 package api

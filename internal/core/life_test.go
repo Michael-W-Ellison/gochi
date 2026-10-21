@@ -284,3 +284,24 @@ func TestLearningSummaryAndPredictedRequests(t *testing.T) {
 		t.Error("A pet that enjoyed play should expect to enjoy it")
 	}
 }
+
+func TestPotionsAreLimited(t *testing.T) {
+	pet := NewDigitalPet("Biscuit", "user123")
+	pet.PointsEarned, pet.FriendshipPoints = 5000, 5000
+	for i := 0; i < MaxLifePotions+1; i++ {
+		if err := pet.BuySupply(LifePotionID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < MaxLifePotions; i++ {
+		if _, err := pet.GiveLifePotion(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pet.GiveLifePotion(); !errors.Is(err, ErrPotionsUsedUp) {
+		t.Errorf("Another potion shouldn't help: %v", err)
+	}
+	if life := pet.LifeStatus(); life.Potions != 1 || life.Extension != MaxLifePotions*lifePotionDays {
+		t.Errorf("The extra potion should stay in the pantry: %+v", life)
+	}
+}

@@ -125,7 +125,9 @@ func (p *DigitalPet) relieveLocked() {
 	if def := p.defLocked(); def.Toilet == ToiletOutside {
 		// Dogs relieve themselves outside on walks; held too long, they
 		// have an accident in the house
-		if ph.Bowel >= dogAccidentLevel || ph.Bladder >= dogAccidentLevel {
+		// A potty patch or pet door lets it hold on longer
+		level := dogAccidentLevel + (1-p.effectLocked(effAccidents))*0.3
+		if ph.Bowel >= level || ph.Bladder >= level {
 			p.LivingAreaWaste = min(p.LivingAreaWaste+ph.Bowel/dogAccidentLevel*stoolWaste+
 				ph.Bladder/dogAccidentLevel*urineWaste, 1)
 			ph.Bowel, ph.Bladder = 0, 0
@@ -148,14 +150,14 @@ func (p *DigitalPet) relieveLocked() {
 		}
 		*use.level = 0
 		if p.LivingAreaWaste >= catAvoidLevel {
-			p.Biology.Vitals.Stress += 0.15
+			p.Biology.Vitals.Stress += 0.15 * p.effectLocked(effDirtStress)
 			p.Biology.Vitals.Happiness -= 0.1
 			p.Biology.Vitals.Clamp()
 			p.evolveFromHardshipLocked(0.2)
 			p.recordHealthEventLocked("litter", "%s went outside the litter box because it was too dirty. "+
 				"%s avoid a dirty box.", p.Name, capitalize(p.defLocked().Plural))
 		}
-		p.LivingAreaWaste = min(p.LivingAreaWaste+use.waste, 1)
+		p.LivingAreaWaste = min(p.LivingAreaWaste+use.waste*p.effectLocked(effMess), 1)
 	}
 }
 
@@ -182,7 +184,7 @@ func (p *DigitalPet) catchIllnessLocked(deltaTime float64) {
 			kind, rate = IllnessRespiratory, r
 		}
 	}
-	if kind == "" || !chance(rate*deltaTime) {
+	if kind == "" || !chance(rate*p.effectLocked(effIllness)*deltaTime) {
 		return
 	}
 

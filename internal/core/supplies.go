@@ -32,6 +32,7 @@ type supply struct {
 	pack    int       // Units bought together for the price
 	food    *foodProfile
 	toy     *toyProfile
+	holiday string // Sold only around this holiday
 }
 
 // foodProfile is how a food feeds the pet and what it teaches. Amounts
@@ -107,10 +108,10 @@ var (
 )
 
 // pantryCapacity is how many kinds of supply the pantry holds
-const pantryCapacity = 30
+const pantryCapacity = 40
 
 // supplyKinds order the shop
-var supplyKinds = []string{SupplyFood, SupplyTreat, SupplyToy, SupplyHealth}
+var supplyKinds = []string{SupplyFood, SupplyTreat, SupplyToy, SupplyCare, SupplyHealth}
 
 // supplyCatalog lists every supply in shop order: by kind, each species'
 // own before the shared ones
@@ -120,6 +121,8 @@ func supplyCatalog() []supply {
 		all = append(all, def.Supplies...)
 	}
 	all = append(all, sharedSupplies...)
+	all = append(all, careSupplies...)
+	all = append(all, holidaySupplies...)
 	catalog := make([]supply, 0, len(all))
 	for _, kind := range supplyKinds {
 		for _, s := range all {
@@ -159,8 +162,9 @@ func (p *DigitalPet) ensureSuppliesLocked() {
 		p.Supplies = interaction.NewInventory(pantryCapacity)
 		p.Supplies.Currency = 0
 	}
-	if p.PointsEarned < p.FriendshipPoints {
-		p.PointsEarned = p.FriendshipPoints
+	p.Supplies.MaxCapacity = max(p.Supplies.MaxCapacity, pantryCapacity) // Pantries grew with more supplies
+	if earned := p.FriendshipPoints - p.GiftedPoints; p.PointsEarned < earned {
+		p.PointsEarned = earned
 	}
 }
 
@@ -172,7 +176,7 @@ func (p *DigitalPet) supplyShopLocked() *interaction.Shop {
 	catalog := &interaction.ItemCatalog{Items: make(map[string]*interaction.Item)}
 	var ids []string
 	for _, s := range supplyCatalog() {
-		if !s.forSpecies(p.speciesLocked()) {
+		if !s.forSpecies(p.speciesLocked()) || (s.holiday != "" && !HolidayOpen(s.holiday)) {
 			continue
 		}
 		item := s.item
@@ -221,6 +225,7 @@ type SupplyOffer struct {
 	UnlockAt    int    `json:"unlock_at"` // Lifetime points that unlock it
 	Owned       int    `json:"owned"`     // Units in the pantry
 	Warning     string `json:"warning,omitempty"`
+	Holiday     string `json:"holiday,omitempty"` // Sold only around this holiday
 }
 
 // SupplyOffers lists the supplies the pet's species can use, in shop order
@@ -240,6 +245,7 @@ func (p *DigitalPet) SupplyOffers() []SupplyOffer {
 			ID: item.ID, Name: item.Name, Icon: s.icon, Kind: s.kind, Description: item.Description,
 			Rarity: item.Rarity.String(), Price: price, FullPrice: item.Price, Discounted: price < item.Price,
 			Locked: !item.Unlocked, UnlockAt: rarityUnlocks[item.Rarity], Owned: p.Supplies.GetItemQuantity(item.ID),
+			Holiday: s.holiday,
 		}
 		if s.food != nil {
 			offer.Warning = s.food.warning

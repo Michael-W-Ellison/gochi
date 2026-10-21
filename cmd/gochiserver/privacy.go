@@ -31,14 +31,15 @@ var pinPattern = regexp.MustCompile(`^[0-9]{4,8}$`)
 const (
 	pinHashRounds = 100_000         // Iterations of the PIN hash
 	maxPINTries   = 5               // Wrong PINs before a wait
-	pinLockout    = 5 * time.Minute // The wait
+	pinLockout    = 5 * time.Minute // The first wait; each wait after it is twice as long
+	maxPINLockout = 24 * time.Hour  // The longest wait
 )
 
 // Parental control errors
 var (
 	errParentPIN    = errors.New("a parent's PIN is needed for this")
 	errWrongPIN     = errors.New("that PIN isn't right")
-	errPINLockedOut = fmt.Errorf("too many wrong PINs; try again in %d minutes", int(pinLockout.Minutes()))
+	errPINLockedOut = errors.New("too many wrong PINs; try again later")
 	errBadPIN       = errors.New("a PIN is 4 to 8 digits")
 )
 
@@ -46,6 +47,12 @@ var (
 type parentalSettings struct {
 	Salt []byte `json:"salt,omitempty"`
 	Hash []byte `json:"hash,omitempty"`
+
+	// Wrong PINs since the last right one, waits since then, and when the
+	// current wait ends; kept so restarting the game doesn't reset them
+	Failures int       `json:"failures,omitempty"`
+	Lockouts int       `json:"lockouts,omitempty"`
+	LockedTo time.Time `json:"locked_to"`
 }
 
 // parentalControls holds the parent PIN
@@ -53,8 +60,6 @@ type parentalControls struct {
 	mu       sync.Mutex
 	path     string // "" keeps it in memory only
 	settings parentalSettings
-	failures int
-	lockedTo time.Time
 	now      func() time.Time
 }
 
@@ -113,21 +118,51 @@ func (p *parentalControls) checkLocked(pin string) error {
 		return nil
 	}
 	now := p.now()
-	if now.Before(p.lockedTo) {
+	if now.Before(p.settings.LockedTo) {
 		return errPINLockedOut
 	}
 	if pin == "" {
 		return errParentPIN
 	}
 	if subtle.ConstantTimeCompare(hashPIN(pin, p.settings.Salt), p.settings.Hash) == 1 {
-		p.failures = 0
+		if p.settings.Failures != 0 || p.settings.Lockouts != 0 {
+			settings := p.settings
+			settings.Failures, settings.Lockouts, settings.LockedTo = 0, 0, time.Time{}
+			p.saveLocked(settings) // Best effort: a right PIN is right either way
+		}
 		return nil
 	}
-	p.failures++
-	if p.failures >= maxPINTries {
-		p.failures, p.lockedTo = 0, now.Add(pinLockout)
+	settings := p.settings
+	settings.Failures++
+	if settings.Failures >= maxPINTries {
+		wait := min(pinLockout<<min(settings.Lockouts, 10), maxPINLockout)
+		settings.Failures, settings.LockedTo = 0, now.Add(wait)
+		settings.Lockouts++
+	}
+	if err := p.saveLocked(settings); err != nil {
+		p.settings = settings // Count it even if it can't be saved
 	}
 	return errWrongPIN
+}
+
+// saveLocked writes parental.json and keeps settings. Caller must hold p.mu.
+func (p *parentalControls) saveLocked(settings parentalSettings) error {
+	if p.path != "" {
+		data, err := json.Marshal(settings)
+		if err != nil {
+			return err
+		}
+		tmp := p.path + ".tmp"
+		if err := os.WriteFile(tmp, data, 0o600); err != nil {
+			os.Remove(tmp)
+			return err
+		}
+		if err := os.Rename(tmp, p.path); err != nil {
+			return err
+		}
+	}
+	p.settings = settings
+	return nil
 }
 
 // SetPIN sets, changes or (with an empty newPIN) removes the PIN. The
@@ -149,21 +184,7 @@ func (p *parentalControls) SetPIN(current, newPIN string) error {
 		}
 		settings.Hash = hashPIN(newPIN, settings.Salt)
 	}
-	if p.path != "" {
-		data, err := json.Marshal(settings)
-		if err != nil {
-			return err
-		}
-		tmp := p.path + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o600); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, p.path); err != nil {
-			return err
-		}
-	}
-	p.settings = settings
-	return nil
+	return p.saveLocked(settings)
 }
 
 // parentAllows checks the parent PIN for a protected request, writing an
@@ -197,13 +218,18 @@ func capitalize(text string) string {
 
 // privacyStatus is what GET /api/privacy returns
 type privacyStatus struct {
-	LearnSchedule bool   `json:"learn_schedule"`
-	PlaySchedule  string `json:"play_schedule"` // What has been learned, or ""
-	ParentLock    bool   `json:"parent_lock"`   // A parent PIN is set
+	LearnSchedule  bool            `json:"learn_schedule"`
+	PlaySchedule   string          `json:"play_schedule"` // What has been learned, or ""
+	ParentLock     bool            `json:"parent_lock"`   // A parent PIN is set
+	Holidays       []holidayStatus `json:"holidays"`
+	AllHolidaysOff bool            `json:"all_holidays_off"`
 }
 
 func (s *Server) privacyStatus() privacyStatus {
-	status := privacyStatus{ParentLock: s.parental.Locked()}
+	status := privacyStatus{ParentLock: s.parental.Locked(), Holidays: holidaysStatus()}
+	if s.house != nil {
+		status.AllHolidaysOff = s.house.snapshot().AllHolidaysOff
+	}
 	if s.owner != nil {
 		status.LearnSchedule, status.PlaySchedule = s.owner.Learning(), s.owner.Summary()
 	}
@@ -220,13 +246,15 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		LearnSchedule *bool   `json:"learn_schedule"`
-		EraseSchedule bool    `json:"erase_schedule"`
-		NewPIN        *string `json:"new_pin"`
-		RemovePIN     bool    `json:"remove_pin"`
-		ParentPIN     string  `json:"parent_pin"`
+		LearnSchedule *bool    `json:"learn_schedule"`
+		EraseSchedule bool     `json:"erase_schedule"`
+		NewPIN        *string  `json:"new_pin"`
+		HolidaysOff   []string `json:"holidays_off"`     // Holidays to turn off; others are turned on
+		AllHolidays   *bool    `json:"all_holidays_off"` // Turn every holiday off (or back on)
+		RemovePIN     bool     `json:"remove_pin"`
+		ParentPIN     string   `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) {
+	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) {
 		return
 	}
 	if req.NewPIN != nil || req.RemovePIN {
@@ -244,6 +272,20 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if !s.parentAllows(w, req.ParentPIN) {
 		return
+	}
+	if (req.HolidaysOff != nil || req.AllHolidays != nil) && s.house != nil {
+		d := s.house.snapshot()
+		allOff, off := d.AllHolidaysOff, d.HolidaysOff
+		if req.AllHolidays != nil {
+			allOff = *req.AllHolidays
+		}
+		if req.HolidaysOff != nil {
+			off = req.HolidaysOff
+		}
+		if err := s.house.setHolidays(allOff, off); err != nil {
+			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the setting"})
+			return
+		}
 	}
 	if s.owner != nil {
 		if req.LearnSchedule != nil {

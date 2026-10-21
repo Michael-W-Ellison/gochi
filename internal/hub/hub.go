@@ -1,16 +1,20 @@
 // Package hub is the cloud service: a Gochi server can run as a hub that
 // other Gochi servers connect to. Players register with the hub's join
-// code and get an account token. The hub keeps a copy of each player's
-// pet saves, so they can be backed up and synced between devices; it
-// shows players whose pets are in the same area (nearby pets), when they
-// choose to share; it keeps a feed of achievements players share; and it
-// hosts AR playdates, where players bring their pets to the same place.
+// code and get an account key and a handle the hub chooses (see
+// handles.go). The hub keeps an encrypted copy of each player's pet saves,
+// so they can be backed up and synced between devices; it keeps a feed of
+// achievements players choose to share; and it hosts AR playdates, where
+// players bring their pets to the same place.
 //
-// The hub is self-hosted and stores everything as files in its directory.
-// Tokens are stored only as hashes.
+// Players can't send each other anything they write: no names, no
+// messages. Everything another player sees is either chosen from fixed
+// lists (species, achievements, how a pet looks) or written by the hub
+// itself. The hub is self-hosted, stores everything as files in its
+// directory, and stores account keys only as hashes.
 package hub
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -25,51 +29,53 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Michael-W-Ellison/gochi/internal/core"
 )
 
 // Limits
 const (
 	MaxPetsPerAccount = 50
-	MaxSaveBytes      = 8 << 20 // A pet's save file
-	maxFeed           = 200     // Achievements kept in the feed
-	maxAreaLength     = 60
+	MaxSaveBytes      = 4 << 20  // A pet's (encrypted) save
+	MaxAccountBytes   = 64 << 20 // All of an account's saves
+	MaxAccounts       = 10000
+	maxFeed           = 200 // Achievements kept in the feed
 )
 
 // Errors
 var (
 	ErrRegistrationClosed = errors.New("this hub has no join code, so it doesn't accept new players")
 	ErrWrongJoinCode      = errors.New("wrong join code")
-	ErrBadUsername        = errors.New("usernames are 2 to 24 letters, digits, '-' or '_'")
-	ErrUsernameTaken      = errors.New("that username is taken")
+	ErrHubFull            = errors.New("this hub has as many players as it can take")
 	ErrUnauthorized       = errors.New("unknown account token")
 	ErrBadKey             = errors.New("invalid pet key")
 	ErrNotFound           = errors.New("no such pet")
 	ErrVersionConflict    = errors.New("the hub has a different version of this pet")
 	ErrTooManyPets        = errors.New("too many pets for one account")
+	ErrAccountFull        = errors.New("this account's saves take up all the space the hub allows")
+	ErrUnknownAchievement = errors.New("unknown achievement")
 )
 
 var (
-	usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{2,24}$`)
-	keyPattern      = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	keyPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	idPattern  = regexp.MustCompile(`^[a-f0-9]{32}$`)
 )
 
-// PetKey returns the hub's key for a pet: a hash of its ID, so pet names
-// don't appear in file names
+// PetKey returns the hub's key for a pet: a hash of its ID, so nothing
+// about the pet appears on the hub
 func PetKey(petID string) string {
 	sum := sha256.Sum256([]byte(petID))
 	return hex.EncodeToString(sum[:16])
 }
 
-// PetInfo describes a pet stored on the hub
+// PetInfo describes a pet stored on the hub: only what syncing needs. The
+// pet itself, name and all, is in its encrypted save.
 type PetInfo struct {
 	Key     string    `json:"key"`
 	Version int       `json:"version"`
 	SavedAt time.Time `json:"saved_at"` // When the pet was last played (time last passed for it)
 	Deleted bool      `json:"deleted"`  // Deleted by the player; its save is gone
-	Name    string    `json:"name"`
-	Species string    `json:"species"`
-	Stage   string    `json:"stage"`
-	Alive   bool      `json:"alive"`
+	Size    int       `json:"size"`     // Bytes of its save, set by the hub
 }
 
 // storedPet is a pet's file on the hub
@@ -78,39 +84,31 @@ type storedPet struct {
 	Save json.RawMessage `json:"save,omitempty"`
 }
 
-// Profile is a player's social settings. Each kind of sharing is chosen
-// separately, and all are off for a new account.
+// Profile is a player's settings on the hub
 type Profile struct {
-	Username          string `json:"username"`
-	Area              string `json:"area"`               // Town or area, typed by the player
-	ShowNearby        bool   `json:"show_nearby"`        // Their pets appear to nearby players, and they see nearby pets
-	ShareAchievements bool   `json:"share_achievements"` // Their pets' achievements go to the feed
+	Handle            string `json:"handle"`             // Chosen by the hub
+	ShareAchievements bool   `json:"share_achievements"` // Their pets' achievements go to the feed; off for a new account
 }
 
 // account is a registered player
 type account struct {
-	Profile
+	ID        string    `json:"id"` // Random; names the account's files
+	Handle    string    `json:"handle"`
 	TokenHash string    `json:"token_hash"`
 	Created   time.Time `json:"created"`
+	Share     bool      `json:"share_achievements"`
 
-	// Sharing is the single sharing setting of older hubs, which turned
-	// on both kinds of sharing; it is read once and not saved again
-	Sharing bool `json:"sharing,omitempty"`
+	// Username is the name players chose on hubs before handles; accounts
+	// that have one are given an ID and a handle and it is dropped
+	Username string `json:"username,omitempty"`
 }
 
-// NearbyPet is another player's pet in the same area
-type NearbyPet struct {
-	Owner   string    `json:"owner"`
-	Name    string    `json:"name"`
-	Species string    `json:"species"`
-	Stage   string    `json:"stage"`
-	SavedAt time.Time `json:"saved_at"`
-}
-
-// SharedAchievement is an achievement a player shared
+// SharedAchievement is an achievement in the feed. The player sends only
+// the achievement's ID and their pet's species; the rest is the game's
+// own text.
 type SharedAchievement struct {
-	Owner       string    `json:"owner"`
-	PetName     string    `json:"pet_name"`
+	Handle      string    `json:"handle"`
+	Species     string    `json:"species"`
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Icon        string    `json:"icon"`
@@ -125,16 +123,63 @@ type Hub struct {
 	now      func() time.Time
 
 	mu       sync.Mutex
-	accounts map[string]*account // By lowercase username
-	byToken  map[string]string   // Token hash -> lowercase username
+	accounts map[string]*account // By ID
+	byToken  map[string]string   // Token hash -> ID
+	byHandle map[string]string   // Handle -> ID
 	feed     []SharedAchievement
 
 	playdates map[string]*playdate // By code; kept in memory only
 
-	// Indexes, so listing pets and finding nearby ones don't read saves:
-	// each account's pets' information, and the accounts in each area
-	pets   map[string]map[string]PetInfo // By lowercase username, then key
-	byArea map[string]map[string]bool    // By normalized area: lowercase usernames
+	// Each account's pets' information, so listing pets and checking
+	// versions don't read saves
+	pets map[string]map[string]PetInfo // By account ID, then key
+
+	// Uploads being read, so many at once can't use up the hub's memory:
+	// a place for each upload across the hub, and the number per account
+	uploads   chan struct{}
+	uploading map[string]int
+}
+
+// Uploads read at once
+const (
+	maxUploads        = 16 // Across the hub
+	maxAccountUploads = 2  // From one account
+	uploadWait        = 30 * time.Second
+)
+
+// ErrBusy is returned when the hub is reading too many uploads to take
+// another now
+var ErrBusy = errors.New("the hub is busy; try again shortly")
+
+// startUpload reserves a place for an upload from an account, waiting a
+// while for one. Call the returned function when the upload has been
+// handled.
+func (h *Hub) startUpload(ctx context.Context, id string) (func(), error) {
+	h.mu.Lock()
+	if h.uploading[id] >= maxAccountUploads {
+		h.mu.Unlock()
+		return nil, ErrBusy
+	}
+	h.uploading[id]++
+	h.mu.Unlock()
+	release := func() {
+		h.mu.Lock()
+		if h.uploading[id]--; h.uploading[id] <= 0 {
+			delete(h.uploading, id)
+		}
+		h.mu.Unlock()
+	}
+
+	timer := time.NewTimer(uploadWait)
+	defer timer.Stop()
+	select {
+	case h.uploads <- struct{}{}:
+		return func() { <-h.uploads; release() }, nil
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	release()
+	return nil, ErrBusy
 }
 
 // New opens (or creates) a hub keeping its files in dir. Players need
@@ -144,30 +189,85 @@ func New(dir, joinCode string) (*Hub, error) {
 		return nil, err
 	}
 	h := &Hub{dir: dir, joinCode: joinCode, now: time.Now,
-		accounts: make(map[string]*account), byToken: make(map[string]string),
+		accounts: make(map[string]*account), byToken: make(map[string]string), byHandle: make(map[string]string),
 		playdates: make(map[string]*playdate), pets: make(map[string]map[string]PetInfo),
-		byArea: make(map[string]map[string]bool)}
+		uploads: make(chan struct{}, maxUploads), uploading: make(map[string]int)}
 
 	var accounts []*account
 	if err := readJSON(filepath.Join(dir, "accounts.json"), &accounts); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
+	migrated := false
 	for _, a := range accounts {
-		if a.Sharing {
-			a.ShowNearby, a.ShareAchievements, a.Sharing = true, true, false
+		if a.ID == "" || a.Handle == "" || a.Username != "" {
+			if err := h.migrateLocked(a); err != nil {
+				return nil, err
+			}
+			migrated = true
 		}
-		lower := strings.ToLower(a.Username)
-		h.accounts[lower] = a
-		h.byToken[a.TokenHash] = lower
-		h.indexAreaLocked(lower, "", a.Area)
-		if err := h.loadPetIndexLocked(lower); err != nil {
+		h.addAccountLocked(a)
+		if err := h.loadPetIndexLocked(a.ID); err != nil {
 			return nil, err
 		}
 	}
-	if err := readJSON(filepath.Join(dir, "feed.json"), &h.feed); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if migrated {
+		if err := h.saveAccountsLocked(); err != nil {
+			return nil, err
+		}
+	}
+
+	// The feed keeps only entries in the current form (older ones held
+	// text players typed)
+	var feed []SharedAchievement
+	if err := readJSON(filepath.Join(dir, "feed.json"), &feed); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
+	for _, a := range feed {
+		if ValidHandle(a.Handle) && core.Species(a.Species).Known() {
+			if known, ok := core.FindAchievement(a.ID); ok {
+				a.Name, a.Icon, a.Description = known.Name, known.Icon, known.Description
+				h.feed = append(h.feed, a)
+			}
+		}
+	}
 	return h, nil
+}
+
+// migrateLocked gives an account from an older hub an ID and a handle,
+// moves its pets to the ID's directory, and forgets its chosen username.
+// Caller must hold h.mu.
+func (h *Hub) migrateLocked(a *account) error {
+	if a.ID == "" {
+		id, err := randomHex(16)
+		if err != nil {
+			return err
+		}
+		a.ID = id
+	}
+	if a.Handle == "" || !ValidHandle(a.Handle) {
+		handle, err := newHandle(func(s string) bool { _, ok := h.byHandle[s]; return ok })
+		if err != nil {
+			return err
+		}
+		a.Handle = handle
+	}
+	if a.Username != "" {
+		old := filepath.Join(h.dir, "pets", strings.ToLower(a.Username))
+		if _, err := os.Stat(old); err == nil {
+			if err := os.Rename(old, h.petDir(a.ID)); err != nil {
+				return err
+			}
+		}
+		a.Username = ""
+	}
+	return nil
+}
+
+// addAccountLocked adds an account to the indexes. Caller must hold h.mu.
+func (h *Hub) addAccountLocked(a *account) {
+	h.accounts[a.ID] = a
+	h.byToken[a.TokenHash] = a.ID
+	h.byHandle[a.Handle] = a.ID
 }
 
 // RegistrationOpen reports whether new players can register
@@ -181,69 +281,85 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Register creates an account and returns its token
-func (h *Hub) Register(username, joinCode string) (string, error) {
-	if h.joinCode == "" {
-		return "", ErrRegistrationClosed
-	}
-	if subtle.ConstantTimeCompare([]byte(joinCode), []byte(h.joinCode)) != 1 {
-		return "", ErrWrongJoinCode
-	}
-	if !usernamePattern.MatchString(username) {
-		return "", ErrBadUsername
-	}
-
-	raw := make([]byte, 32)
+// randomHex returns n random bytes in hex
+func randomHex(n int) (string, error) {
+	raw := make([]byte, n)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
-	token := hex.EncodeToString(raw)
+	return hex.EncodeToString(raw), nil
+}
+
+// Register creates an account, giving it a handle, and returns its token
+// and handle
+func (h *Hub) Register(joinCode string) (token, handle string, err error) {
+	if h.joinCode == "" {
+		return "", "", ErrRegistrationClosed
+	}
+	if subtle.ConstantTimeCompare([]byte(joinCode), []byte(h.joinCode)) != 1 {
+		return "", "", ErrWrongJoinCode
+	}
+	if token, err = randomHex(32); err != nil {
+		return "", "", err
+	}
+	id, err := randomHex(16)
+	if err != nil {
+		return "", "", err
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	lower := strings.ToLower(username)
-	if _, taken := h.accounts[lower]; taken {
-		return "", ErrUsernameTaken
+	if len(h.accounts) >= MaxAccounts {
+		return "", "", ErrHubFull
 	}
-	a := &account{Profile: Profile{Username: username}, TokenHash: hashToken(token), Created: h.now()}
-	h.accounts[lower] = a
-	h.byToken[a.TokenHash] = lower
+	handle, err = newHandle(func(s string) bool { _, ok := h.byHandle[s]; return ok })
+	if err != nil {
+		return "", "", err
+	}
+	a := &account{ID: id, Handle: handle, TokenHash: hashToken(token), Created: h.now()}
+	h.addAccountLocked(a)
 	if err := h.saveAccountsLocked(); err != nil {
-		delete(h.accounts, lower)
+		delete(h.accounts, id)
 		delete(h.byToken, a.TokenHash)
-		return "", err
+		delete(h.byHandle, handle)
+		return "", "", err
 	}
-	if err := os.MkdirAll(h.petDir(lower), 0o700); err != nil {
-		return "", err
+	if err := os.MkdirAll(h.petDir(id), 0o700); err != nil {
+		return "", "", err
 	}
-	return token, nil
+	return token, handle, nil
 }
 
-// Authenticate returns the username a token belongs to
+// Authenticate returns the ID of the account a token belongs to
 func (h *Hub) Authenticate(token string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if lower, ok := h.byToken[hashToken(token)]; ok && token != "" {
-		return h.accounts[lower].Username, nil
+	if id, ok := h.byToken[hashToken(token)]; ok && token != "" {
+		return id, nil
 	}
 	return "", ErrUnauthorized
 }
 
-// petDir is where an account's pets are stored
-func (h *Hub) petDir(lower string) string {
-	return filepath.Join(h.dir, "pets", lower)
+// accountLocked returns an account by ID. Caller must hold h.mu.
+func (h *Hub) accountLocked(id string) (*account, error) {
+	a, ok := h.accounts[id]
+	if !ok {
+		return nil, ErrUnauthorized
+	}
+	return a, nil
 }
 
-// ListPets returns the player's pets on the hub
-func (h *Hub) ListPets(username string) ([]PetInfo, error) {
+// petDir is where an account's pets are stored
+func (h *Hub) petDir(id string) string {
+	return filepath.Join(h.dir, "pets", id)
+}
+
+// ListPets returns the account's pets on the hub
+func (h *Hub) ListPets(id string) ([]PetInfo, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.listPetsLocked(strings.ToLower(username))
-}
-
-func (h *Hub) listPetsLocked(lower string) ([]PetInfo, error) {
-	pets := make([]PetInfo, 0, len(h.pets[lower]))
-	for _, info := range h.pets[lower] {
+	pets := make([]PetInfo, 0, len(h.pets[id]))
+	for _, info := range h.pets[id] {
 		pets = append(pets, info)
 	}
 	sort.Slice(pets, func(i, j int) bool { return pets[i].Key < pets[j].Key })
@@ -252,8 +368,8 @@ func (h *Hub) listPetsLocked(lower string) ([]PetInfo, error) {
 
 // loadPetIndexLocked reads an account's pets' information into the index.
 // Caller must hold h.mu.
-func (h *Hub) loadPetIndexLocked(lower string) error {
-	entries, err := os.ReadDir(h.petDir(lower))
+func (h *Hub) loadPetIndexLocked(id string) error {
+	entries, err := os.ReadDir(h.petDir(id))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -264,67 +380,55 @@ func (h *Hub) loadPetIndexLocked(lower string) error {
 			continue
 		}
 		var info PetInfo // Decoding only the information skips the save
-		if err := readJSON(filepath.Join(h.petDir(lower), e.Name()), &info); err != nil {
+		if err := readJSON(filepath.Join(h.petDir(id), e.Name()), &info); err != nil {
 			continue
 		}
-		index[key] = info
+		if stat, err := e.Info(); err == nil && info.Size == 0 && !info.Deleted {
+			info.Size = int(stat.Size())
+		}
+		index[key] = PetInfo{Key: key, Version: info.Version, SavedAt: info.SavedAt, Deleted: info.Deleted, Size: info.Size}
 	}
-	h.pets[lower] = index
+	h.pets[id] = index
 	return nil
 }
 
-// indexPetLocked records a pet's information in the index. Caller must
-// hold h.mu.
-func (h *Hub) indexPetLocked(lower string, info PetInfo) {
-	if h.pets[lower] == nil {
-		h.pets[lower] = make(map[string]PetInfo)
-	}
-	h.pets[lower][info.Key] = info
-}
-
-// indexAreaLocked moves an account between areas in the index. Caller
-// must hold h.mu.
-func (h *Hub) indexAreaLocked(lower, from, to string) {
-	if old := normalizeArea(from); old != "" {
-		delete(h.byArea[old], lower)
-		if len(h.byArea[old]) == 0 {
-			delete(h.byArea, old)
-		}
-	}
-	if area := normalizeArea(to); area != "" {
-		if h.byArea[area] == nil {
-			h.byArea[area] = make(map[string]bool)
-		}
-		h.byArea[area][lower] = true
-	}
-}
-
 // GetPet returns a pet's information and save
-func (h *Hub) GetPet(username, key string) (PetInfo, json.RawMessage, error) {
-	if !keyPattern.MatchString(key) {
+func (h *Hub) GetPet(id, key string) (PetInfo, json.RawMessage, error) {
+	if !keyPattern.MatchString(key) || !idPattern.MatchString(id) {
 		return PetInfo{}, nil, ErrBadKey
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	pet, err := h.readPetLocked(strings.ToLower(username), key)
-	return pet.PetInfo, pet.Save, err
+	info, ok := h.pets[id][key]
+	if !ok {
+		return PetInfo{}, nil, ErrNotFound
+	}
+	var pet storedPet
+	if err := readJSON(filepath.Join(h.petDir(id), key+".json"), &pet); err != nil {
+		return PetInfo{}, nil, err
+	}
+	return info, pet.Save, nil
 }
 
-func (h *Hub) readPetLocked(lower, key string) (storedPet, error) {
-	var pet storedPet
-	err := readJSON(filepath.Join(h.petDir(lower), key+".json"), &pet)
-	if errors.Is(err, os.ErrNotExist) {
-		return pet, ErrNotFound
+// accountBytesLocked returns the bytes of an account's saves, leaving out
+// one pet. Caller must hold h.mu.
+func (h *Hub) accountBytesLocked(id, except string) int {
+	total := 0
+	for key, info := range h.pets[id] {
+		if key != except {
+			total += info.Size
+		}
 	}
-	return pet, err
+	return total
 }
 
 // PutPet stores a new version of a pet. baseVersion is the version the
 // player's copy was based on (0 for a pet new to the hub); if the hub has
 // another version, nothing changes and ErrVersionConflict is returned with
-// the hub's version. The previous version is kept as a backup.
-func (h *Hub) PutPet(username string, info PetInfo, save json.RawMessage, baseVersion int) (int, error) {
-	if !keyPattern.MatchString(info.Key) {
+// the hub's version. The previous version is kept as a backup. Only the
+// key, the version and when it was last played are taken from info.
+func (h *Hub) PutPet(id string, info PetInfo, save json.RawMessage, baseVersion int) (int, error) {
+	if !keyPattern.MatchString(info.Key) || !idPattern.MatchString(id) {
 		return 0, ErrBadKey
 	}
 	if len(save) == 0 || len(save) > MaxSaveBytes || !json.Valid(save) {
@@ -333,40 +437,46 @@ func (h *Hub) PutPet(username string, info PetInfo, save json.RawMessage, baseVe
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	lower := strings.ToLower(username)
-	current, exists := h.pets[lower][info.Key]
-	if !exists && len(h.pets[lower]) >= MaxPetsPerAccount {
+	if _, err := h.accountLocked(id); err != nil {
+		return 0, err
+	}
+	current, exists := h.pets[id][info.Key]
+	if !exists && len(h.pets[id]) >= MaxPetsPerAccount {
 		return 0, ErrTooManyPets
+	}
+	if h.accountBytesLocked(id, info.Key)+len(save) > MaxAccountBytes {
+		return 0, ErrAccountFull
 	}
 	if current.Version != baseVersion {
 		return current.Version, ErrVersionConflict
 	}
 
-	path := filepath.Join(h.petDir(lower), info.Key+".json")
-	if current.Version > 0 {
-		if err := copyFile(path, filepath.Join(h.petDir(lower), info.Key+".prev")); err != nil {
+	path := filepath.Join(h.petDir(id), info.Key+".json")
+	if current.Version > 0 && !current.Deleted {
+		if err := copyFile(path, filepath.Join(h.petDir(id), info.Key+".prev")); err != nil {
 			return 0, err
 		}
 	}
-	info.Version = current.Version + 1
-	info.Deleted = false
-	if err := writeJSON(path, storedPet{PetInfo: info, Save: save}); err != nil {
+	stored := PetInfo{Key: info.Key, Version: current.Version + 1, SavedAt: info.SavedAt, Size: len(save)}
+	if err := writeJSON(path, storedPet{PetInfo: stored, Save: save}); err != nil {
 		return 0, err
 	}
-	h.indexPetLocked(lower, info)
-	return info.Version, nil
+	if h.pets[id] == nil {
+		h.pets[id] = make(map[string]PetInfo)
+	}
+	h.pets[id][info.Key] = stored
+	return stored.Version, nil
 }
 
 // DeletePet replaces a pet's save with a record that it was deleted, so
 // the player's other devices know not to upload it again
-func (h *Hub) DeletePet(username, key string, baseVersion int) (int, error) {
-	if !keyPattern.MatchString(key) {
+func (h *Hub) DeletePet(id, key string, baseVersion int) (int, error) {
+	if !keyPattern.MatchString(key) || !idPattern.MatchString(id) {
 		return 0, ErrBadKey
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	lower := strings.ToLower(username)
-	info, ok := h.pets[lower][key]
+	info, ok := h.pets[id][key]
 	if !ok {
 		return 0, ErrNotFound
 	}
@@ -374,103 +484,65 @@ func (h *Hub) DeletePet(username, key string, baseVersion int) (int, error) {
 		return info.Version, ErrVersionConflict
 	}
 	info.Version++
-	info.Deleted = true
-	os.Remove(filepath.Join(h.petDir(lower), key+".prev"))
-	if err := writeJSON(filepath.Join(h.petDir(lower), key+".json"), storedPet{PetInfo: info}); err != nil {
+	info.Deleted, info.Size = true, 0
+	os.Remove(filepath.Join(h.petDir(id), key+".prev"))
+	if err := writeJSON(filepath.Join(h.petDir(id), key+".json"), storedPet{PetInfo: info}); err != nil {
 		return 0, err
 	}
-	h.indexPetLocked(lower, info)
+	h.pets[id][key] = info
 	return info.Version, nil
 }
 
-// normalizeArea makes area names comparable: trimmed, single-spaced and
-// lowercase
-func normalizeArea(area string) string {
-	return strings.ToLower(strings.Join(strings.Fields(area), " "))
-}
-
-// GetProfile returns a player's social settings
-func (h *Hub) GetProfile(username string) (Profile, error) {
+// GetProfile returns a player's handle and settings
+func (h *Hub) GetProfile(id string) (Profile, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	a, ok := h.accounts[strings.ToLower(username)]
-	if !ok {
-		return Profile{}, ErrUnauthorized
-	}
-	return a.Profile, nil
-}
-
-// SetProfile changes a player's area and what they share
-func (h *Hub) SetProfile(username, area string, showNearby, shareAchievements bool) (Profile, error) {
-	area = strings.Join(strings.Fields(area), " ")
-	if len([]rune(area)) > maxAreaLength {
-		return Profile{}, fmt.Errorf("the area name can be at most %d characters", maxAreaLength)
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	a, ok := h.accounts[strings.ToLower(username)]
-	if !ok {
-		return Profile{}, ErrUnauthorized
-	}
-	before := a.Profile
-	a.Area, a.ShowNearby, a.ShareAchievements = area, showNearby, shareAchievements
-	if err := h.saveAccountsLocked(); err != nil {
-		a.Profile = before
+	a, err := h.accountLocked(id)
+	if err != nil {
 		return Profile{}, err
 	}
-	h.indexAreaLocked(strings.ToLower(username), before.Area, a.Area)
-	return a.Profile, nil
+	return Profile{Handle: a.Handle, ShareAchievements: a.Share}, nil
 }
 
-// Nearby returns living pets of other players in the player's area who
-// show their pets nearby. A player who doesn't show theirs sees no one.
-func (h *Hub) Nearby(username string) ([]NearbyPet, error) {
+// SetSharing changes whether a player's achievements go to the feed
+func (h *Hub) SetSharing(id string, shareAchievements bool) (Profile, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	me, ok := h.accounts[strings.ToLower(username)]
-	if !ok {
-		return nil, ErrUnauthorized
+	a, err := h.accountLocked(id)
+	if err != nil {
+		return Profile{}, err
 	}
-	nearby := []NearbyPet{}
-	area := normalizeArea(me.Area)
-	if !me.ShowNearby || area == "" {
-		return nearby, nil
+	before := a.Share
+	a.Share = shareAchievements
+	if err := h.saveAccountsLocked(); err != nil {
+		a.Share = before
+		return Profile{}, err
 	}
-	for lower := range h.byArea[area] {
-		other := h.accounts[lower]
-		if other == nil || other == me || !other.ShowNearby {
-			continue
-		}
-		pets, err := h.listPetsLocked(lower)
-		if err != nil {
-			return nil, err
-		}
-		for _, pet := range pets {
-			if pet.Alive && !pet.Deleted {
-				nearby = append(nearby, NearbyPet{Owner: other.Username, Name: pet.Name, Species: pet.Species,
-					Stage: pet.Stage, SavedAt: pet.SavedAt})
-			}
-		}
-	}
-	sort.Slice(nearby, func(i, j int) bool { return nearby[i].SavedAt.After(nearby[j].SavedAt) })
-	return nearby, nil
+	return Profile{Handle: a.Handle, ShareAchievements: a.Share}, nil
 }
 
-// ShareAchievement adds an achievement to the feed. Only players who
-// share achievements can post.
-func (h *Hub) ShareAchievement(username string, a SharedAchievement) error {
+// ShareAchievement adds an achievement, by its ID, to the feed, with the
+// species of the pet that earned it. Only players who share achievements
+// can post.
+func (h *Hub) ShareAchievement(id, achievementID, species string) error {
+	known, ok := core.FindAchievement(achievementID)
+	if !ok {
+		return ErrUnknownAchievement
+	}
+	if !core.Species(species).Known() {
+		return errors.New("unknown species")
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	me, ok := h.accounts[strings.ToLower(username)]
-	if !ok {
-		return ErrUnauthorized
+	me, err := h.accountLocked(id)
+	if err != nil {
+		return err
 	}
-	if !me.ShareAchievements {
+	if !me.Share {
 		return errors.New("turn on sharing achievements to share them")
 	}
-	a.Owner, a.SharedAt = me.Username, h.now()
-	a.PetName, a.Name, a.Icon, a.Description = clip(a.PetName, 40), clip(a.Name, 60), clip(a.Icon, 8), clip(a.Description, 200)
-	h.feed = append(h.feed, a)
+	h.feed = append(h.feed, SharedAchievement{Handle: me.Handle, Species: species, ID: known.ID, Name: known.Name,
+		Icon: known.Icon, Description: known.Description, SharedAt: h.now()})
 	if over := len(h.feed) - maxFeed; over > 0 {
 		h.feed = append(h.feed[:0:0], h.feed[over:]...)
 	}
@@ -489,20 +561,12 @@ func (h *Hub) Feed(limit int) []SharedAchievement {
 	return feed
 }
 
-// clip shortens text to at most n characters
-func clip(text string, n int) string {
-	if r := []rune(text); len(r) > n {
-		return string(r[:n])
-	}
-	return text
-}
-
 func (h *Hub) saveAccountsLocked() error {
 	accounts := make([]*account, 0, len(h.accounts))
 	for _, a := range h.accounts {
 		accounts = append(accounts, a)
 	}
-	sort.Slice(accounts, func(i, j int) bool { return accounts[i].Username < accounts[j].Username })
+	sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
 	return writeJSON(filepath.Join(h.dir, "accounts.json"), accounts)
 }
 
@@ -523,6 +587,7 @@ func writeJSON(path string, v interface{}) error {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		os.Remove(tmp) // Cut short (a full disk)
 		return err
 	}
 	return os.Rename(tmp, path)

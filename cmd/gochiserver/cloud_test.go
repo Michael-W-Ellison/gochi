@@ -46,7 +46,7 @@ func TestCloudSyncBetweenDevices(t *testing.T) {
 	if err := laptop.createPet("Biscuit", core.SpeciesCat, false, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := laptop.cloudConnect(ctx, hubURL, "alice", "code", ""); err != nil {
+	if err := laptop.cloudConnect(ctx, hubURL, "code", ""); err != nil {
 		t.Fatal(err)
 	}
 	report, err := laptop.cloudSync(ctx)
@@ -60,12 +60,15 @@ func TestCloudSyncBetweenDevices(t *testing.T) {
 	}
 
 	// The phone signs in with the account key and gets Biscuit
-	key := laptop.cloudStatus().AccountKey
-	if err := phone.cloudConnect(ctx, hubURL, "bob", "", key); err == nil {
-		t.Error("An account key only works with its own username")
+	key := accountKey(laptop)
+	if err := phone.cloudConnect(ctx, hubURL, "", "not-a-key"); err == nil {
+		t.Error("An unknown account key should be refused")
 	}
-	if err := phone.cloudConnect(ctx, hubURL, "Alice", "", key); err != nil {
+	if err := phone.cloudConnect(ctx, hubURL, "", key); err != nil {
 		t.Fatal(err)
+	}
+	if phone.cloudStatus().Handle != laptop.cloudStatus().Handle || !hub.ValidHandle(phone.cloudStatus().Handle) {
+		t.Errorf("Both devices should have the account's handle: %q %q", phone.cloudStatus().Handle, laptop.cloudStatus().Handle)
 	}
 	if report, err := phone.cloudSync(ctx); err != nil || len(report.Downloaded) != 1 {
 		t.Fatalf("The phone should download Biscuit: %+v %v", report, err)
@@ -124,9 +127,9 @@ func TestCloudDeletion(t *testing.T) {
 	hubURL := testHubURL(t)
 	laptop, phone := cloudServer(t), cloudServer(t)
 	laptop.createPet("Biscuit", core.SpeciesCat, false, false)
-	laptop.cloudConnect(ctx, hubURL, "alice", "code", "")
+	laptop.cloudConnect(ctx, hubURL, "code", "")
 	laptop.cloudSync(ctx)
-	phone.cloudConnect(ctx, hubURL, "alice", "", laptop.cloudStatus().AccountKey)
+	phone.cloudConnect(ctx, hubURL, "", accountKey(laptop))
 	phone.cloudSync(ctx)
 
 	// Deleting on the laptop marks it deleted on the hub
@@ -159,19 +162,19 @@ func TestCloudSocialThroughServer(t *testing.T) {
 		s    *Server
 		name string
 	}{{alice, "alice"}, {bob, "bob"}} {
-		body := `{"hub_url":"` + hubURL + `","username":"` + p.name + `","join_code":"code"}`
+		body := `{"hub_url":"` + hubURL + `","join_code":"code"}`
 		if rec := post(t, p.s.handleCloudConnect, body); rec.Code != http.StatusOK {
 			t.Fatalf("Connect %s: %d %s", p.name, rec.Code, rec.Body.String())
 		}
-		if rec := post(t, p.s.handleCloudProfile, `{"area":"Leeds","show_nearby":true,"share_achievements":true}`); rec.Code != http.StatusOK {
+		if rec := post(t, p.s.handleCloudProfile, `{"share_achievements":true}`); rec.Code != http.StatusOK {
 			t.Fatalf("Profile: %d %s", rec.Code, rec.Body.String())
 		}
 	}
-
+	// The status never holds the account key
 	rec := httptest.NewRecorder()
-	alice.handleCloudNearby(rec, httptest.NewRequest(http.MethodGet, "/api/cloud/nearby", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"Rex"`) {
-		t.Errorf("Alice should see Rex nearby: %d %s", rec.Code, rec.Body.String())
+	alice.handleCloud(rec, httptest.NewRequest(http.MethodGet, "/api/cloud", nil))
+	if strings.Contains(rec.Body.String(), accountKey(alice)) {
+		t.Errorf("The cloud status shouldn't hold the account key: %s", rec.Body.String())
 	}
 
 	// An achievement earned in the update loop is shared through the hub
@@ -186,7 +189,7 @@ func TestCloudSocialThroughServer(t *testing.T) {
 	for {
 		feed, err := alice.cloudFeed(ctx)
 		if err == nil && len(feed) > 0 {
-			if feed[0].Owner != "bob" || feed[0].PetName != "Rex" || feed[0].Name != "Treasure Hunter" {
+			if feed[0].Handle != bob.cloudStatus().Handle || feed[0].Species != "dog" || feed[0].Name != "Treasure Hunter" {
 				t.Errorf("Feed: %+v", feed)
 			}
 			break
@@ -240,5 +243,34 @@ func TestSaveFileRecordsHistory(t *testing.T) {
 	if saveData.Statistics.TotalInteractions != 1 || saveData.Preferences.TimeScale != "game" ||
 		saveData.Preferences.AutoSaveInterval != 60 {
 		t.Errorf("Statistics %+v, preferences %+v", saveData.Statistics, saveData.Preferences)
+	}
+}
+
+// accountKey returns a server's hub account key
+func accountKey(s *Server) string {
+	s.cloud.mu.Lock()
+	defer s.cloud.mu.Unlock()
+	return s.cloud.state.Token
+}
+
+func TestAccountKeyOnlyOnThisComputer(t *testing.T) {
+	s := cloudServer(t)
+	s.parental, _ = loadParentalControls("")
+	if err := s.cloudConnect(context.Background(), testHubURL(t), "code", ""); err != nil {
+		t.Fatal(err)
+	}
+	local := httptest.NewRequest(http.MethodPost, "/api/cloud/key", strings.NewReader(`{}`))
+	local.RemoteAddr = "127.0.0.1:5000"
+	rec := httptest.NewRecorder()
+	s.handleCloudKey(rec, local)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), accountKey(s)) {
+		t.Errorf("This computer should get the key: %d %s", rec.Code, rec.Body)
+	}
+	phone := httptest.NewRequest(http.MethodPost, "/api/cloud/key", strings.NewReader(`{}`))
+	phone.RemoteAddr = "192.168.1.20:5000"
+	rec = httptest.NewRecorder()
+	s.handleCloudKey(rec, phone)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("Another device shouldn't get the key: %d", rec.Code)
 	}
 }

@@ -400,11 +400,11 @@ func (p *DigitalPet) conflictLocked(scuffled, backedDown bool) {
 	v := p.Biology.Vitals
 	switch {
 	case scuffled:
-		v.Stress += 0.15
+		v.Stress += 0.15 * p.effectLocked(effConflictStress)
 		v.Happiness -= 0.1
 		p.evolveFromHardshipLocked(0.2)
 	case backedDown:
-		v.Stress += 0.05
+		v.Stress += 0.05 * p.effectLocked(effConflictStress)
 	}
 	v.Clamp()
 }

@@ -97,6 +97,11 @@ type SpeciesDef struct {
 	ConflictLesson      string
 }
 
+// SpriteStates are the states a species has a sprite for. Another
+// player's game is told only which of these its pet shows.
+var SpriteStates = []string{"idle", "happy", "eating", "playing", "sleeping", "sick", "exploring", "social",
+	"hibernating", "dead"}
+
 // Meetings between different species start this badly
 const crossSpeciesMeeting = -0.15
 

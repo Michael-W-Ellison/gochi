@@ -1,6 +1,7 @@
 package environment
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -656,5 +657,90 @@ func TestSeasonEffectsBlendFromPreviousSeason(t *testing.T) {
 	sc.Update(seasonTransitionDays)
 	if sc.Effects.BreedingModifier != 1.0 {
 		t.Errorf("Summer should take over after %v days, breeding %.2f", seasonTransitionDays, sc.Effects.BreedingModifier)
+	}
+}
+
+// Out-of-range values (from a damaged save) and long times passing finish
+// quickly and leave the clock and calendar in range
+func TestEnvironmentExtremeValues(t *testing.T) {
+	for _, hour := range []float64{1e15, 1e308, -1e308, -5, math.NaN(), math.Inf(1)} {
+		env := NewEnvironment()
+		env.TimeOfDay = hour
+		env.Update(1)
+		if env.TimeOfDay < 0 || env.TimeOfDay >= 24 {
+			t.Errorf("Time of day from %v = %v", hour, env.TimeOfDay)
+		}
+		env.SetTimeOfDay(hour)
+		if env.TimeOfDay < 0 || env.TimeOfDay >= 24 {
+			t.Errorf("SetTimeOfDay(%v) = %v", hour, env.TimeOfDay)
+		}
+	}
+	for _, days := range []int{0, -1} {
+		sc := NewSeasonalCycle()
+		sc.DaysPerSeason = days
+		sc.Update(5)
+		if sc.DaysPerSeason < 1 {
+			t.Errorf("Days per season %d should be reset", days)
+		}
+	}
+
+	// Many years at once end where advancing a season at a time does
+	for _, days := range []float64{7500, 119, 120, 121, 30, 31} {
+		jumped := NewSeasonalCycle()
+		jumped.Update(days)
+		want := NewSeasonalCycle()
+		total := float64(want.DayOfSeason) + days
+		for total > float64(want.DaysPerSeason) {
+			total -= float64(want.DaysPerSeason)
+			want.advanceSeason()
+		}
+		if jumped.Year != want.Year || jumped.CurrentSeason != want.CurrentSeason || jumped.DayOfSeason != int(total) {
+			t.Errorf("After %v days: %d %v %d, want %d %v %d", days, jumped.Year, jumped.CurrentSeason,
+				jumped.DayOfSeason, want.Year, want.CurrentSeason, int(total))
+		}
+	}
+	huge := NewSeasonalCycle()
+	huge.Update(1e15)
+	if huge.DayOfSeason < 1 || huge.DayOfSeason > huge.DaysPerSeason {
+		t.Errorf("Day of season after a very long time = %d", huge.DayOfSeason)
+	}
+}
+
+func TestSeasonsFollowTheCalendar(t *testing.T) {
+	for _, c := range []struct {
+		date              time.Time
+		north, south      Season
+		day, daysInSeason int
+	}{
+		{time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), SeasonSpring, SeasonFall, 1, 92},
+		{time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC), SeasonSummer, SeasonWinter, 45, 92},
+		{time.Date(2026, 11, 30, 9, 0, 0, 0, time.UTC), SeasonFall, SeasonSpring, 91, 91},
+		{time.Date(2027, 1, 10, 9, 0, 0, 0, time.UTC), SeasonWinter, SeasonSummer, 41, 90},
+		{time.Date(2028, 2, 29, 9, 0, 0, 0, time.UTC), SeasonWinter, SeasonSummer, 91, 91},
+	} {
+		if got := SeasonOn(c.date, Northern); got != c.north {
+			t.Errorf("%v north: %v", c.date, got)
+		}
+		if got := SeasonOn(c.date, Southern); got != c.south {
+			t.Errorf("%v south: %v", c.date, got)
+		}
+		sc := NewSeasonalCycle()
+		sc.FollowDate(c.date, Northern)
+		if sc.DayOfSeason != c.day || sc.DaysPerSeason != c.daysInSeason {
+			t.Errorf("%v: day %d of %d", c.date, sc.DayOfSeason, sc.DaysPerSeason)
+		}
+	}
+
+	// With the calendar in use, game time doesn't change the season
+	date := time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC)
+	UseCalendar(Southern, func() time.Time { return date })
+	defer StopCalendar()
+	env := NewEnvironment()
+	env.Update(24 * 400)
+	if env.GetSeason() != SeasonWinter {
+		t.Errorf("July in the Southern Hemisphere is winter: %v", env.GetSeason())
+	}
+	if season, h, ok := CalendarSeason(); !ok || season != SeasonWinter || h != Southern {
+		t.Errorf("CalendarSeason = %v %v %v", season, h, ok)
 	}
 }
