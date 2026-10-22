@@ -1,7 +1,9 @@
 package environment
 
 import (
+	"encoding/json"
 	"math"
+	randv2 "math/rand/v2"
 	"testing"
 	"time"
 )
@@ -749,4 +751,55 @@ func newSeasonalCycle(daysPerSeason int, startSeason Season) *SeasonalCycle {
 	sc.CurrentSeason = startSeason
 	sc.Effects = sc.calculateSeasonalEffects()
 	return sc
+}
+
+// Weather given the same source of chances turns out the same; the shared
+// generator would make each run differ
+func TestWeatherChancesFromSource(t *testing.T) {
+	source := func(at float64) *randv2.Rand { return randv2.New(randv2.NewPCG(7, uint64(int64(math.Round(at))))) }
+	start, err := json.Marshal(NewEnvironment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func() []WeatherConditions { // From the same start, as a forecast's copy of a pet
+		var e Environment
+		if err := json.Unmarshal(start, &e); err != nil {
+			t.Fatal(err)
+		}
+		e.Weather.UseChances(source)
+		var seen []WeatherConditions
+		for i := 0; i < 120; i++ { // 30 days, a quarter of a day at a time
+			e.Update(6)
+			seen = append(seen, e.Weather.Current)
+		}
+		return seen
+	}
+	first, second := run(), run()
+	changes := 0
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("At step %d the weather differs: %+v and %+v", i, first[i], second[i])
+		}
+		if i > 0 && first[i].Type != first[i-1].Type {
+			changes++
+		}
+	}
+	if changes == 0 {
+		t.Error("The weather should change in 30 days")
+	}
+}
+
+// Picking the next weather doesn't depend on the order a map is read in
+func TestSelectNextWeatherIsFixedForARoll(t *testing.T) {
+	for _, season := range []Season{SeasonSpring, SeasonSummer, SeasonFall, SeasonWinter} {
+		picks := map[WeatherType]bool{}
+		for i := 0; i < 50; i++ {
+			ws := NewWeatherSystem()
+			ws.draws = randv2.New(randv2.NewPCG(1, 2))
+			picks[ws.selectNextWeather(season)] = true
+		}
+		if len(picks) != 1 {
+			t.Errorf("%v: the same roll picked %d kinds of weather", season, len(picks))
+		}
+	}
 }

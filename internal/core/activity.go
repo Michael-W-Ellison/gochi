@@ -158,51 +158,75 @@ const (
 	lonelyAfter = 3.0
 )
 
-// CurrentRequest returns what the pet is asking for, most urgent first, or
-// nil if it is content
+// CurrentRequest returns what the pet is asking for (its most urgent
+// request), or nil if it is content
 func (p *DigitalPet) CurrentRequest() *PetRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if requests := p.requestsLocked(true); len(requests) > 0 {
+		return &requests[0]
+	}
+	return nil
+}
+
+// currentNeeds returns everything the pet would ask for, most urgent first:
+// its request, and those it would make once that one is met
+func (p *DigitalPet) currentNeeds() []PetRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.requestsLocked(false)
+}
+
+// requestsLocked returns what the pet would ask for, most urgent first; with
+// first, only the most urgent. Caller must hold p.mu.
+func (p *DigitalPet) requestsLocked(first bool) []PetRequest {
+	var requests []PetRequest
+	add := func(action, icon, message string) bool { // Reports whether to stop
+		requests = append(requests, PetRequest{action, icon, message})
+		return first
+	}
 
 	if !p.Biology.IsAlive {
 		return nil
 	}
 	if p.Hibernating {
-		return &PetRequest{"revive", "💤", p.Name + " is hibernating and needs you to revive it."}
+		add("revive", "💤", p.Name+" is hibernating and needs you to revive it.")
+		return requests
 	}
 	if p.isExploringLocked() {
 		return nil
 	}
-	if p.Injured {
-		return &PetRequest{"medic", "🩹", p.Name + " is hurt and needs to be healed."}
+	if p.Injured && add("medic", "🩹", p.Name+" is hurt and needs to be healed.") {
+		return requests
 	}
-	if p.Illness != nil {
-		return &PetRequest{"medic", "🤒", p.Name + " is ill and needs medical care."}
+	if p.Illness != nil && !p.Injured && add("medic", "🤒", p.Name+" is ill and needs medical care.") {
+		return requests
 	}
 	p.Biology.EnsurePhysiology()
-	if ph := p.Biology.Physiology; p.defLocked().Toilet == ToiletOutside && max(ph.Bowel, ph.Bladder) >= 0.5 {
-		return &PetRequest{"walk", "🦮", p.Name + " is waiting by the door and needs to go outside!"}
+	if ph := p.Biology.Physiology; p.defLocked().Toilet == ToiletOutside && max(ph.Bowel, ph.Bladder) >= 0.5 &&
+		add("walk", "🦮", p.Name+" is waiting by the door and needs to go outside!") {
+		return requests
 	}
 
 	v := p.Biology.Vitals
-	switch {
-	case v.Hydration < needRequestLevel:
-		return &PetRequest{"drink", "💧", p.Name + " is thirsty!"}
-	case v.Nutrition < needRequestLevel:
-		return &PetRequest{"feed", "🍖", p.Name + " is hungry!"}
+	if v.Hydration < needRequestLevel && add("drink", "💧", p.Name+" is thirsty!") {
+		return requests
+	}
+	if v.Nutrition < needRequestLevel && add("feed", "🍖", p.Name+" is hungry!") {
+		return requests
 	}
 
-	if p.LivingAreaWaste >= 0.5 {
-		return &PetRequest{"clean", "🧹", withName(p.defLocked().MessRequest, p.Name)}
+	if p.LivingAreaWaste >= 0.5 && add("clean", "🧹", withName(p.defLocked().MessRequest, p.Name)) {
+		return requests
 	}
 
 	// A sleeping pet only wakes for food and water
 	if p.CurrentBehavior == types.BehaviorSleeping {
-		return nil
+		return requests
 	}
 
-	if v.Cleanliness < needRequestLevel {
-		return &PetRequest{"groom", "🧼", p.Name + " feels messy and wants to be groomed."}
+	if v.Cleanliness < needRequestLevel && add("groom", "🧼", p.Name+" feels messy and wants to be groomed.") {
+		return requests
 	}
 
 	alone := p.Biology.GetAgeInDays()-p.LastInteractionAge > lonelyAfter
@@ -211,26 +235,32 @@ func (p *DigitalPet) CurrentRequest() *PetRequest {
 		// Ask for whichever kind of attention the pet expects to enjoy more
 		// in its current mood
 		if v.Energy > 0.4 && p.expectedEnjoymentLocked(types.InteractionPlaying) > p.expectedEnjoymentLocked(types.InteractionPetting) {
-			return &PetRequest{"play", "🎾", p.Name + " misses you and wants to play!"}
+			if add("play", "🎾", p.Name+" misses you and wants to play!") {
+				return requests
+			}
+		} else if add("pet", "💕", p.Name+" misses you and wants to be petted.") {
+			return requests
 		}
-		return &PetRequest{"pet", "💕", p.Name + " misses you and wants to be petted."}
 	}
 
 	// Needs the pet's stats do not show
-	if p.needWarningLocked(types.NeedExercise) && v.Energy > 0.4 {
-		return &PetRequest{"play", "🎾", p.Name + " has energy to burn and wants to play!"}
+	if p.needWarningLocked(types.NeedExercise) && v.Energy > 0.4 &&
+		add("play", "🎾", p.Name+" has energy to burn and wants to play!") {
+		return requests
 	}
-	if p.needWarningLocked(types.NeedMentalStimulation) && v.Energy > minTrainingEnergy {
-		return &PetRequest{"train", "🎓", p.Name + " is bored and wants to learn something new."}
+	if p.needWarningLocked(types.NeedMentalStimulation) && v.Energy > minTrainingEnergy &&
+		add("train", "🎓", p.Name+" is bored and wants to learn something new.") {
+		return requests
 	}
 	// Pets ask to go exploring only when it's good to be outdoors
 	if p.needWarningLocked(types.NeedExploration) && !p.Injured && p.outdoorSuitabilityLocked() >= goodOutdoorLevel &&
-		v.Energy >= minExploreLevel && v.Hydration >= minExploreLevel && v.Nutrition >= minExploreLevel {
-		return &PetRequest{"explore", "🧭", p.Name + " is curious about the world and wants to go exploring!"}
+		v.Energy >= minExploreLevel && v.Hydration >= minExploreLevel && v.Nutrition >= minExploreLevel &&
+		add("explore", "🧭", p.Name+" is curious about the world and wants to go exploring!") {
+		return requests
 	}
 
 	if v.Happiness < 0.45 && v.Energy > 0.5 {
-		return &PetRequest{"play", "🎾", p.Name + " is bored and wants to play!"}
+		add("play", "🎾", p.Name+" is bored and wants to play!")
 	}
-	return nil
+	return requests
 }

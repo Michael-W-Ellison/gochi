@@ -84,6 +84,18 @@ async function closePanels(page) {
 async function playEverything(page, name) {
     // Care
     await clickAll(page, '.actions .action-btn');
+    // Buttons with choices (▾) show them in a panel above the buttons: it must
+    // come into view even with the buttons at the top of the window
+    for (const kind of ['feed', 'pet', 'play']) {
+        await page.$eval('.action-btn.' + kind, b => { b.scrollIntoView({block: 'start'}); b.click(); });
+        await page.waitForTimeout(1200); // The choices load, then the page scrolls
+        const seen = await page.$eval('#activityPanel', p => {
+            const r = p.getBoundingClientRect();
+            return !p.classList.contains('hidden') && r.top > -1 && r.bottom < innerHeight + 1;
+        });
+        if (!seen) problems.push('the ' + kind + ' choices opened out of view');
+        await closePanels(page);
+    }
     // Every activity, and every button along the bottom, but not the camera or ones that leave the pet
     await clickAll(page, '.activities .activity-btn:not(.ar)', async () => closePanels(page));
     await clickAll(page, '.save-row button:not([onclick*="Chooser"]):not([onclick*="AR"])', async label => {

@@ -3,6 +3,8 @@ package environment
 import (
 	"math"
 	"math/rand"
+	randv2 "math/rand/v2"
+	"sort"
 	"time"
 )
 
@@ -56,6 +58,27 @@ type WeatherSystem struct {
 
 	// History
 	History []WeatherConditions `json:"history"`
+
+	// Where the weather's chances come from (see UseChances); not saved
+	chances func(at float64) *randv2.Rand
+	draws   *randv2.Rand // The current check's, while it is made
+	at      float64      // Game hours elapsed, as of this update (set by Environment.Update)
+}
+
+// UseChances makes each chance for the weather to change come from
+// source(at), a generator for the check made at game hour at, instead of
+// the shared generator: given the same source, a check at a game hour
+// always turns out the same. nil restores the shared generator.
+func (ws *WeatherSystem) UseChances(source func(at float64) *randv2.Rand) {
+	ws.chances = source
+}
+
+// chance returns a number in [0, 1) for the weather's chances
+func (ws *WeatherSystem) chance() float64 {
+	if ws.draws != nil {
+		return ws.draws.Float64()
+	}
+	return rand.Float64()
 }
 
 // NewWeatherSystem creates a new weather system with default settings
@@ -79,9 +102,13 @@ func (ws *WeatherSystem) Update(deltaTime float64, season Season, timeOfDay floa
 	// so weather changes at the game's pace rather than the real clock's
 	ws.HoursSinceCheck += deltaTime
 	if ws.TransitionTarget == nil && ws.HoursSinceCheck >= ws.ChangeFrequency {
-		if rand.Float64() < 0.3 { // 30% chance to change weather
+		if ws.chances != nil {
+			ws.draws = ws.chances(ws.at)
+		}
+		if ws.chance() < 0.3 { // 30% chance to change weather
 			ws.startWeatherTransition(season)
 		}
+		ws.draws = nil
 		ws.HoursSinceCheck = 0
 		ws.LastUpdate = time.Now()
 	}
@@ -109,74 +136,74 @@ func (ws *WeatherSystem) generateWeather(weatherType WeatherType) WeatherConditi
 
 	switch weatherType {
 	case WeatherClear:
-		conditions.Temperature = ws.BaseTemperature + (rand.Float64()-0.5)*ws.TemperatureRange*0.5
-		conditions.Humidity = 0.3 + rand.Float64()*0.2
-		conditions.WindSpeed = rand.Float64() * 10
-		conditions.Visibility = 0.9 + rand.Float64()*0.1
-		conditions.UVIndex = 5 + rand.Float64()*4
+		conditions.Temperature = ws.BaseTemperature + (ws.chance()-0.5)*ws.TemperatureRange*0.5
+		conditions.Humidity = 0.3 + ws.chance()*0.2
+		conditions.WindSpeed = ws.chance() * 10
+		conditions.Visibility = 0.9 + ws.chance()*0.1
+		conditions.UVIndex = 5 + ws.chance()*4
 
 	case WeatherPartlyCloudy:
-		conditions.Temperature = ws.BaseTemperature + (rand.Float64()-0.5)*ws.TemperatureRange*0.4
-		conditions.Humidity = 0.4 + rand.Float64()*0.2
-		conditions.WindSpeed = 5 + rand.Float64()*15
-		conditions.Visibility = 0.8 + rand.Float64()*0.15
-		conditions.UVIndex = 3 + rand.Float64()*4
+		conditions.Temperature = ws.BaseTemperature + (ws.chance()-0.5)*ws.TemperatureRange*0.4
+		conditions.Humidity = 0.4 + ws.chance()*0.2
+		conditions.WindSpeed = 5 + ws.chance()*15
+		conditions.Visibility = 0.8 + ws.chance()*0.15
+		conditions.UVIndex = 3 + ws.chance()*4
 
 	case WeatherCloudy:
-		conditions.Temperature = ws.BaseTemperature + (rand.Float64()-0.5)*ws.TemperatureRange*0.3
-		conditions.Humidity = 0.5 + rand.Float64()*0.3
-		conditions.WindSpeed = 5 + rand.Float64()*20
-		conditions.Visibility = 0.6 + rand.Float64()*0.2
-		conditions.UVIndex = 1 + rand.Float64()*3
+		conditions.Temperature = ws.BaseTemperature + (ws.chance()-0.5)*ws.TemperatureRange*0.3
+		conditions.Humidity = 0.5 + ws.chance()*0.3
+		conditions.WindSpeed = 5 + ws.chance()*20
+		conditions.Visibility = 0.6 + ws.chance()*0.2
+		conditions.UVIndex = 1 + ws.chance()*3
 
 	case WeatherRainy:
-		conditions.Temperature = ws.BaseTemperature - 5 + (rand.Float64()-0.5)*ws.TemperatureRange*0.3
-		conditions.Humidity = 0.7 + rand.Float64()*0.3
-		conditions.WindSpeed = 10 + rand.Float64()*25
-		conditions.Visibility = 0.3 + rand.Float64()*0.3
-		conditions.UVIndex = rand.Float64() * 2
+		conditions.Temperature = ws.BaseTemperature - 5 + (ws.chance()-0.5)*ws.TemperatureRange*0.3
+		conditions.Humidity = 0.7 + ws.chance()*0.3
+		conditions.WindSpeed = 10 + ws.chance()*25
+		conditions.Visibility = 0.3 + ws.chance()*0.3
+		conditions.UVIndex = ws.chance() * 2
 
 	case WeatherStormy:
-		conditions.Temperature = ws.BaseTemperature - 8 + (rand.Float64()-0.5)*ws.TemperatureRange*0.2
-		conditions.Humidity = 0.8 + rand.Float64()*0.2
-		conditions.WindSpeed = 30 + rand.Float64()*50
-		conditions.Visibility = 0.1 + rand.Float64()*0.2
-		conditions.UVIndex = rand.Float64()
+		conditions.Temperature = ws.BaseTemperature - 8 + (ws.chance()-0.5)*ws.TemperatureRange*0.2
+		conditions.Humidity = 0.8 + ws.chance()*0.2
+		conditions.WindSpeed = 30 + ws.chance()*50
+		conditions.Visibility = 0.1 + ws.chance()*0.2
+		conditions.UVIndex = ws.chance()
 
 	case WeatherSnowy:
-		conditions.Temperature = -5 + (rand.Float64()-0.5)*10
-		conditions.Humidity = 0.6 + rand.Float64()*0.3
-		conditions.WindSpeed = 5 + rand.Float64()*20
-		conditions.Visibility = 0.2 + rand.Float64()*0.4
-		conditions.UVIndex = 1 + rand.Float64()*2
+		conditions.Temperature = -5 + (ws.chance()-0.5)*10
+		conditions.Humidity = 0.6 + ws.chance()*0.3
+		conditions.WindSpeed = 5 + ws.chance()*20
+		conditions.Visibility = 0.2 + ws.chance()*0.4
+		conditions.UVIndex = 1 + ws.chance()*2
 
 	case WeatherFoggy:
-		conditions.Temperature = ws.BaseTemperature - 3 + (rand.Float64()-0.5)*5
-		conditions.Humidity = 0.9 + rand.Float64()*0.1
-		conditions.WindSpeed = rand.Float64() * 5
-		conditions.Visibility = 0.05 + rand.Float64()*0.15
-		conditions.UVIndex = rand.Float64() * 2
+		conditions.Temperature = ws.BaseTemperature - 3 + (ws.chance()-0.5)*5
+		conditions.Humidity = 0.9 + ws.chance()*0.1
+		conditions.WindSpeed = ws.chance() * 5
+		conditions.Visibility = 0.05 + ws.chance()*0.15
+		conditions.UVIndex = ws.chance() * 2
 
 	case WeatherWindy:
-		conditions.Temperature = ws.BaseTemperature + (rand.Float64()-0.5)*ws.TemperatureRange*0.4
-		conditions.Humidity = 0.3 + rand.Float64()*0.3
-		conditions.WindSpeed = 40 + rand.Float64()*40
-		conditions.Visibility = 0.7 + rand.Float64()*0.2
-		conditions.UVIndex = 3 + rand.Float64()*5
+		conditions.Temperature = ws.BaseTemperature + (ws.chance()-0.5)*ws.TemperatureRange*0.4
+		conditions.Humidity = 0.3 + ws.chance()*0.3
+		conditions.WindSpeed = 40 + ws.chance()*40
+		conditions.Visibility = 0.7 + ws.chance()*0.2
+		conditions.UVIndex = 3 + ws.chance()*5
 
 	case WeatherHot:
-		conditions.Temperature = ws.BaseTemperature + 15 + rand.Float64()*10
-		conditions.Humidity = 0.2 + rand.Float64()*0.4
-		conditions.WindSpeed = rand.Float64() * 15
-		conditions.Visibility = 0.85 + rand.Float64()*0.1
-		conditions.UVIndex = 8 + rand.Float64()*4
+		conditions.Temperature = ws.BaseTemperature + 15 + ws.chance()*10
+		conditions.Humidity = 0.2 + ws.chance()*0.4
+		conditions.WindSpeed = ws.chance() * 15
+		conditions.Visibility = 0.85 + ws.chance()*0.1
+		conditions.UVIndex = 8 + ws.chance()*4
 
 	case WeatherCold:
-		conditions.Temperature = ws.BaseTemperature - 20 - rand.Float64()*10
-		conditions.Humidity = 0.4 + rand.Float64()*0.3
-		conditions.WindSpeed = 10 + rand.Float64()*30
-		conditions.Visibility = 0.7 + rand.Float64()*0.2
-		conditions.UVIndex = 1 + rand.Float64()*2
+		conditions.Temperature = ws.BaseTemperature - 20 - ws.chance()*10
+		conditions.Humidity = 0.4 + ws.chance()*0.3
+		conditions.WindSpeed = 10 + ws.chance()*30
+		conditions.Visibility = 0.7 + ws.chance()*0.2
+		conditions.UVIndex = 1 + ws.chance()*2
 	}
 
 	return conditions
@@ -234,11 +261,16 @@ func (ws *WeatherSystem) selectNextWeather(season Season) WeatherType {
 	}
 
 	// Select based on probabilities
-	roll := rand.Float64()
+	roll := ws.chance()
 	cumulative := 0.0
 
-	for weatherType, prob := range probabilities {
-		cumulative += prob
+	types := make([]WeatherType, 0, len(probabilities))
+	for weatherType := range probabilities {
+		types = append(types, weatherType)
+	}
+	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] }) // A fixed order, so a roll always picks the same
+	for _, weatherType := range types {
+		cumulative += probabilities[weatherType]
 		if roll < cumulative {
 			return weatherType
 		}

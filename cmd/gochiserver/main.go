@@ -2231,9 +2231,16 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         const choiceTitles = {feed: 'What to feed', play: 'How to play', pet: 'Where to pet', enrich: 'Change something at home'};
-        function openChoices(kind) {
+        // openChoices shows the choices for Feed, Pet, Play or Enrich. The
+        // panel sits above the buttons, so a button scrolls the page to it;
+        // refreshing the choices after one is made leaves the page where it is.
+        function openChoices(kind, refresh) {
             panelMode = 'choice';
-            loadCareOptions().then(options => { if (options) renderChoices(kind, options); }).catch(console.error);
+            loadCareOptions().then(options => {
+                if (!options) return;
+                renderChoices(kind, options);
+                if (!refresh) panel().scrollIntoView({behavior: 'smooth', block: 'nearest'});
+            }).catch(console.error);
         }
 
         function renderChoices(kind, options) {
@@ -2280,7 +2287,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if (data.success) {
                 showResult(data.data, data.data.text);
                 setTimeout(fetchStatus, 500);
-                if (panelMode === 'choice') openChoices(kind); // Quantities and uses change
+                if (panelMode === 'choice') openChoices(kind, true); // Quantities and uses change
             } else {
                 showPointsToast(data.error || 'Something went wrong');
             }
