@@ -2,7 +2,10 @@ package core
 
 import (
 	"math"
+	"reflect"
 	"testing"
+
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 func TestForecastSeesNeedsComing(t *testing.T) {
@@ -118,5 +121,32 @@ func TestForecastStep(t *testing.T) {
 		if c.horizon/forecastStep(c.horizon) < minForecastSteps {
 			t.Errorf("A forecast over %v days takes fewer than %d steps", c.horizon, minForecastSteps)
 		}
+	}
+}
+
+// Forecasts of the same pet agree: the copy's weather, which decides when
+// the pet wants to explore, once came from the shared generator, so after
+// care made exploring one of the first needs, each forecast placed it on a
+// different day
+func TestForecastIsTheSameEachTime(t *testing.T) {
+	explorers := 0
+	for i := 0; i < 10; i++ {
+		pet := NewPetOfBreed("Mochi", "user123", SpeciesCat, "")
+		pet.Update(0.1)
+		pet.Interact(types.InteractionPlaying, 0.8)
+		first := pet.Forecast(30)
+		for _, f := range first {
+			if f.Action == "explore" {
+				explorers++
+			}
+		}
+		for j := 0; j < 10; j++ {
+			if again := pet.Forecast(30); !reflect.DeepEqual(again, first) {
+				t.Fatalf("Pet %d, forecast %d differs: %+v, then %+v", i+1, j+2, first, again)
+			}
+		}
+	}
+	if explorers == 0 {
+		t.Error("Some of the pets should want to explore within 30 days")
 	}
 }

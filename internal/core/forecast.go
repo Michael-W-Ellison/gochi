@@ -1,8 +1,12 @@
 package core
 
 import (
+	"hash/fnv"
 	"math"
+	"math/rand/v2"
 	"sort"
+
+	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
 // Predictive care: the game runs a copy of the pet forward in time to see
@@ -39,6 +43,21 @@ func forecastStep(horizon float64) float64 {
 	return step
 }
 
+// forecastWeather returns the source of the forecast copy's weather
+// chances for the pet with id: one generator for each weather check,
+// seeded from the pet and the game hour of the check. Every forecast of
+// the pet then sees the same weather at a given hour (the pet's own
+// weather is left to chance), so needs that wait for good weather, such as
+// exploring, keep their place from one forecast to the next.
+func forecastWeather(id types.PetID) func(at float64) *rand.Rand {
+	h := fnv.New64a()
+	h.Write([]byte(id)) // A hash's Write never fails
+	seed := h.Sum64()
+	return func(at float64) *rand.Rand {
+		return rand.New(rand.NewPCG(seed, uint64(int64(math.Round(at)))))
+	}
+}
+
 // Forecast returns what the pet will ask for within horizon game days if
 // nothing changes, soonest first: the needs a copy of the pet comes to
 // have as time passes, other than any it has now. Every need counts, not
@@ -46,8 +65,9 @@ func forecastStep(horizon float64) float64 {
 // still seen.
 //
 // The copy is looked at on a fixed grid of the pet's age (see
-// forecastStep), so forecasts made a moment apart look at the same moments
-// of the pet's future and agree; a forecast is accurate to one step.
+// forecastStep), and its weather follows forecastWeather, so forecasts
+// made a moment apart look at the same moments of the same future and
+// agree; a forecast is accurate to one step.
 func (p *DigitalPet) Forecast(horizon float64) []NeedForecast {
 	forecasts := []NeedForecast{}
 	if horizon <= 0 || !p.IsAlive() || p.IsHibernating() || p.IsExploring() {
@@ -62,27 +82,30 @@ func (p *DigitalPet) Forecast(horizon float64) []NeedForecast {
 		return forecasts
 	}
 
+	sim.ensureEnvironmentLocked() // Only this goroutine has the copy
+	sim.Environment.Weather.UseChances(forecastWeather(p.ID))
+
 	seen := make(map[string]bool)
 	for _, need := range p.currentNeeds() {
 		seen[need.Action] = true
 	}
+	// The first grid point after now, then a step at a time (counted from
+	// now, so a damaged age can't stop the loop ending)
 	step := forecastStep(horizon)
-	now := sim.Biology.GetAgeInDays()
-	simAge := now
-	for n := math.Floor(now/step) + 1; ; n++ { // The grid points after now
-		at := n * step
-		if at-now > horizon {
-			break
-		}
-		sim.Update(at - simAge)
-		simAge = at
+	age := sim.Biology.GetAgeInDays()
+	first := (math.Floor(age/step)+1)*step - age
+	if !(first > 0 && first <= step) { // An age too large, or not a number
+		first = step
+	}
+	for in, by := first, first; in <= horizon; in, by = in+step, step {
+		sim.Update(by) // Whole steps after the first, so the copy's own clocks (such as the weather's checks) count them exactly
 		if !sim.IsAlive() || sim.IsHibernating() {
 			break
 		}
 		for _, r := range sim.currentNeeds() {
 			if !seen[r.Action] && r.Action != "revive" {
 				seen[r.Action] = true
-				forecasts = append(forecasts, NeedForecast{Action: r.Action, Icon: r.Icon, Message: r.Message, InDays: at - now})
+				forecasts = append(forecasts, NeedForecast{Action: r.Action, Icon: r.Icon, Message: r.Message, InDays: in})
 			}
 		}
 		if len(forecasts) >= maxForecasts {
