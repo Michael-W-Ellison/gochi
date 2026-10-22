@@ -21,9 +21,11 @@ const forecastSteps = 60
 const maxForecasts = 3
 
 // Forecast returns what the pet will ask for within horizon game days if
-// nothing changes, soonest first: the requests a copy of the pet makes as
-// time passes, other than any it is making now. The copy is simulated in
-// up to 60 steps, so a forecast is accurate to about 1/60 of the horizon.
+// nothing changes, soonest first: the needs a copy of the pet comes to
+// have as time passes, other than any it has now. Every need counts, not
+// only the most urgent, so one starting while a more urgent one waits is
+// still seen. The copy is simulated in up to 60 steps, so a forecast is
+// accurate to about 1/60 of the horizon.
 func (p *DigitalPet) Forecast(horizon float64) []NeedForecast {
 	forecasts := []NeedForecast{}
 	if horizon <= 0 || !p.IsAlive() || p.IsHibernating() || p.IsExploring() {
@@ -39,8 +41,8 @@ func (p *DigitalPet) Forecast(horizon float64) []NeedForecast {
 	}
 
 	seen := make(map[string]bool)
-	if now := p.CurrentRequest(); now != nil {
-		seen[now.Action] = true
+	for _, need := range p.currentNeeds() {
+		seen[need.Action] = true
 	}
 	step := horizon / forecastSteps
 	for elapsed := step; elapsed <= horizon+step/2; elapsed += step {
@@ -48,14 +50,19 @@ func (p *DigitalPet) Forecast(horizon float64) []NeedForecast {
 		if !sim.IsAlive() || sim.IsHibernating() {
 			break
 		}
-		if r := sim.CurrentRequest(); r != nil && !seen[r.Action] && r.Action != "revive" {
-			seen[r.Action] = true
-			forecasts = append(forecasts, NeedForecast{Action: r.Action, Icon: r.Icon, Message: r.Message, InDays: elapsed})
-			if len(forecasts) >= maxForecasts {
-				break
+		for _, r := range sim.currentNeeds() {
+			if !seen[r.Action] && r.Action != "revive" {
+				seen[r.Action] = true
+				forecasts = append(forecasts, NeedForecast{Action: r.Action, Icon: r.Icon, Message: r.Message, InDays: elapsed})
 			}
+		}
+		if len(forecasts) >= maxForecasts {
+			break
 		}
 	}
 	sort.SliceStable(forecasts, func(i, j int) bool { return forecasts[i].InDays < forecasts[j].InDays })
+	if len(forecasts) > maxForecasts { // Needs starting at the same step, the most urgent first
+		forecasts = forecasts[:maxForecasts]
+	}
 	return forecasts
 }

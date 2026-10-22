@@ -56,3 +56,25 @@ func TestForecastNothingForDeadPet(t *testing.T) {
 		t.Errorf("A zero horizon should have no forecasts, got %+v", f)
 	}
 }
+
+// A need that starts while a more urgent one is waiting is still coming:
+// the forecast once saw only the most urgent need at each step, so hunger
+// starting just after thirst was never listed
+func TestForecastSeesNeedsBehindMoreUrgentOnes(t *testing.T) {
+	pet := NewDigitalPet("Mochi", "user123")
+	setCalmHealthyState(pet)
+	pet.Biology.Vitals.Hydration = needRequestLevel + 0.03
+	pet.Biology.Vitals.Nutrition = needRequestLevel + 0.06
+	found := map[string]float64{}
+	for _, f := range pet.Forecast(3) {
+		found[f.Action] = f.InDays
+	}
+	drink, thirsty := found["drink"]
+	feed, hungry := found["feed"]
+	if !thirsty || !hungry {
+		t.Fatalf("Both thirst and hunger should be forecast, got %+v", pet.Forecast(3))
+	}
+	if feed < drink {
+		t.Errorf("Hunger (in %v days) should come after thirst (in %v days) here", feed, drink)
+	}
+}
