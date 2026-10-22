@@ -62,7 +62,7 @@ func rawPost(t *testing.T, method, url, token, body string) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // Nothing to report once the body is read
 	var out strings.Builder
 	buf := make([]byte, 4096)
 	n, _ := resp.Body.Read(buf)
@@ -123,14 +123,22 @@ func TestValidHandle(t *testing.T) {
 
 func TestOldAccountsAreMigrated(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "pets", "sam_smith"), 0o700)
+	if err := os.MkdirAll(filepath.Join(dir, "pets", "sam_smith"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	key := PetKey("pet_1")
-	os.WriteFile(filepath.Join(dir, "pets", "sam_smith", key+".json"),
-		[]byte(`{"key":"`+key+`","version":3,"name":"Biscuit","species":"cat","save":{"x":1}}`), 0o600)
-	os.WriteFile(filepath.Join(dir, "accounts.json"), []byte(`[{"username":"Sam_Smith","area":"Leeds",
-		"show_nearby":true,"token_hash":"`+hashToken("old-token")+`"}]`), 0o600)
-	os.WriteFile(filepath.Join(dir, "feed.json"), []byte(`[{"owner":"Sam_Smith","pet_name":"Biscuit",
-		"id":"first_trick","name":"call me","description":"555 0100"}]`), 0o600)
+	if err := os.WriteFile(filepath.Join(dir, "pets", "sam_smith", key+".json"),
+		[]byte(`{"key":"`+key+`","version":3,"name":"Biscuit","species":"cat","save":{"x":1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "accounts.json"), []byte(`[{"username":"Sam_Smith","area":"Leeds",
+		"show_nearby":true,"token_hash":"`+hashToken("old-token")+`"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "feed.json"), []byte(`[{"owner":"Sam_Smith","pet_name":"Biscuit",
+		"id":"first_trick","name":"call me","description":"555 0100"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	h, err := New(dir, "secret")
 	if err != nil {

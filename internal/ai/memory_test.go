@@ -556,8 +556,12 @@ func TestGetLinkedMemories(t *testing.T) {
 	mem2 := ms.RecordMemory(MemoryEvent, "Event 2", 100.0, 0.5, "neutral", nil)
 	mem3 := ms.RecordMemory(MemoryEvent, "Event 3", 100.0, 0.5, "neutral", nil)
 
-	ms.LinkMemories(mem1.ID, mem2.ID, "related", 0.8)
-	ms.LinkMemories(mem1.ID, mem3.ID, "related", 0.5)
+	if err := ms.LinkMemories(mem1.ID, mem2.ID, "related", 0.8); err != nil {
+		t.Fatalf("LinkMemories failed: %v", err)
+	}
+	if err := ms.LinkMemories(mem1.ID, mem3.ID, "related", 0.5); err != nil {
+		t.Fatalf("LinkMemories failed: %v", err)
+	}
 
 	linked := ms.GetLinkedMemories(mem1.ID)
 
@@ -959,7 +963,9 @@ func TestMemorySystemCopy(t *testing.T) {
 	mem1 := ms.RecordMemoryFull(MemoryEvent, "Event 1", 100.0, 0.8, "happy", nil, 0.5, 0.5, ImportanceModerate, []string{"test"})
 	mem2 := ms.RecordMemory(MemoryEvent, "Event 2", 100.0, 0.5, "neutral", nil)
 	ms.ConsolidateMemories()
-	ms.LinkMemories(mem1.ID, mem2.ID, "related", 0.7)
+	if err := ms.LinkMemories(mem1.ID, mem2.ID, "related", 0.7); err != nil {
+		t.Fatalf("LinkMemories failed: %v", err)
+	}
 
 	// Copy
 	copied := ms.Copy()

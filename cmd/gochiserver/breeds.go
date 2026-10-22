@@ -179,7 +179,7 @@ func (s *Server) scanAchievements() {
 	}
 	s.house.mu.Lock()
 	s.house.data.AchievedScanned, s.house.data.CollectedScanned = true, true
-	s.house.saveLocked()
+	s.house.saveOrLogLocked()
 	s.house.mu.Unlock()
 }
 

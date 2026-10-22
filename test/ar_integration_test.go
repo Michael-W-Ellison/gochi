@@ -57,7 +57,9 @@ func TestARSessionLifecycle(t *testing.T) {
 // TestARPlaneDetection tests plane detection in AR
 func TestARPlaneDetection(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -80,7 +82,7 @@ func TestARPlaneDetection(t *testing.T) {
 	// Get largest horizontal plane
 	largest := service.GetLargestHorizontalPlane()
 	if largest == nil {
-		t.Error("Should find largest horizontal plane")
+		t.Fatal("Should find largest horizontal plane")
 	}
 
 	if largest.ID != "plane_1" {
@@ -91,7 +93,9 @@ func TestARPlaneDetection(t *testing.T) {
 // TestARPetPlacement tests placing a pet in AR
 func TestARPetPlacement(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -120,7 +124,9 @@ func TestARPetPlacement(t *testing.T) {
 // TestARPetMovement tests moving a pet in AR space
 func TestARPetMovement(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -129,7 +135,9 @@ func TestARPetMovement(t *testing.T) {
 
 	// Place pet
 	initialPos := ar.Vector3{X: 0, Y: 0, Z: -1}
-	service.PlacePet(petID, initialPos, "")
+	if _, err := service.PlacePet(petID, initialPos, ""); err != nil {
+		t.Fatalf("Failed to place pet: %v", err)
+	}
 
 	// Move pet
 	newPos := ar.Vector3{X: 1, Y: 0, Z: -2}
@@ -148,7 +156,9 @@ func TestARPetMovement(t *testing.T) {
 // TestARPetAnimation tests setting pet animations
 func TestARPetAnimation(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -156,7 +166,9 @@ func TestARPetAnimation(t *testing.T) {
 	petID := types.PetID("animation_pet")
 
 	// Place pet
-	service.PlacePet(petID, ar.Vector3{X: 0, Y: 0, Z: -1}, "")
+	if _, err := service.PlacePet(petID, ar.Vector3{X: 0, Y: 0, Z: -1}, ""); err != nil {
+		t.Fatalf("Failed to place pet: %v", err)
+	}
 
 	// Set animation
 	err := service.SetPetAnimation(petID, "playing")
@@ -314,7 +326,9 @@ func TestARTransform(t *testing.T) {
 // TestARLightEstimation tests light estimation
 func TestARLightEstimation(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -344,7 +358,9 @@ func TestARLightEstimation(t *testing.T) {
 // TestARCameraTracking tests camera transform updates
 func TestARCameraTracking(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -367,7 +383,9 @@ func TestARCameraTracking(t *testing.T) {
 // TestARSnapshot tests AR state snapshot
 func TestARSnapshot(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -380,7 +398,9 @@ func TestARSnapshot(t *testing.T) {
 		Extent: ar.Vector3{X: 1, Y: 0, Z: 1},
 	})
 
-	service.PlacePet(types.PetID("snapshot_pet"), ar.Vector3{X: 0, Y: 0, Z: -1}, "")
+	if _, err := service.PlacePet(types.PetID("snapshot_pet"), ar.Vector3{X: 0, Y: 0, Z: -1}, ""); err != nil {
+		t.Fatalf("Failed to place pet: %v", err)
+	}
 
 	// Get snapshot
 	snapshot := service.GetSnapshot()
@@ -415,7 +435,9 @@ func TestARCallbacks(t *testing.T) {
 	}
 
 	// Trigger callbacks
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -440,7 +462,9 @@ func TestARCallbacks(t *testing.T) {
 // TestARMultiplePets tests placing multiple pets in AR
 func TestARMultiplePets(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -498,7 +522,9 @@ func TestARConfigOptions(t *testing.T) {
 // TestARPlaneFiltering tests filtering planes by type
 func TestARPlaneFiltering(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -536,13 +562,17 @@ func TestARPlaneFiltering(t *testing.T) {
 // TestARPetBehavior tests setting pet behavior in AR
 func TestARPetBehavior(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
 
 	petID := types.PetID("behavior_pet")
-	service.PlacePet(petID, ar.Vector3{X: 0, Y: 0, Z: -1}, "")
+	if _, err := service.PlacePet(petID, ar.Vector3{X: 0, Y: 0, Z: -1}, ""); err != nil {
+		t.Fatalf("Failed to place pet: %v", err)
+	}
 
 	// Set behavior
 	err := service.SetPetBehavior(petID, "playing")
@@ -559,7 +589,9 @@ func TestARPetBehavior(t *testing.T) {
 // TestARServiceExerciseIntegration tests exercise tracking via AR service
 func TestARServiceExerciseIntegration(t *testing.T) {
 	service := ar.NewARService(nil)
-	service.StartSession()
+	if err := service.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer service.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -594,7 +626,9 @@ func TestARIntegrationWithPetSystem(t *testing.T) {
 
 	// Create AR service
 	arService := ar.NewARService(nil)
-	arService.StartSession()
+	if err := arService.StartSession(); err != nil {
+		t.Fatalf("Failed to start session: %v", err)
+	}
 	defer arService.StopSession()
 
 	time.Sleep(600 * time.Millisecond)
@@ -610,7 +644,9 @@ func TestARIntegrationWithPetSystem(t *testing.T) {
 	pet.ProcessUserInteraction(types.InteractionPlaying, 1.0)
 
 	// Sync behavior to AR
-	arService.SetPetBehavior(pet.ID, pet.CurrentBehavior.String())
+	if err := arService.SetPetBehavior(pet.ID, pet.CurrentBehavior.String()); err != nil {
+		t.Fatalf("Failed to set behavior: %v", err)
+	}
 
 	arPet := arService.PlacedPets[pet.ID]
 	t.Logf("Pet behavior in core: %v, in AR: %v",

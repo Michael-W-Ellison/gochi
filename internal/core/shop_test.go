@@ -276,8 +276,12 @@ func TestHungerChangeIsReportedAsShown(t *testing.T) {
 func TestInteractionReportsBoostingItem(t *testing.T) {
 	pet := NewDigitalPet("TestPet", "user123")
 	pet.FriendshipPoints, pet.PointsEarned = 1000, 1000
-	pet.BuyItem("squeaky_toy")
-	pet.BuyItem("puzzle_ball")
+	if err := pet.BuyItem("squeaky_toy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pet.BuyItem("puzzle_ball"); err != nil {
+		t.Fatal(err)
+	}
 	pet.Biology.Vitals.Happiness = 0.3
 
 	r := pet.Interact(types.InteractionPlaying, 1.0)

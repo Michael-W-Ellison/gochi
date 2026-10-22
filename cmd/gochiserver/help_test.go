@@ -34,7 +34,9 @@ func TestTipsAndSoundSetting(t *testing.T) {
 		t.Error("Sound should be off")
 	}
 	other := newTestHousehold(t, "")
-	other.seeTip("shop")
+	if err := other.seeTip("shop"); err != nil {
+		t.Fatal(err)
+	}
 	server.house.merge(other.snapshot())
 	if d := server.house.snapshot(); !d.SoundOff || !slices.Equal(d.TipsSeen, []string{"tour", "shop"}) {
 		t.Errorf("After a merge: sound off %v, tips %v", d.SoundOff, d.TipsSeen)

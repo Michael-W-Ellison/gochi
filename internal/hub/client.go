@@ -83,7 +83,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out interfac
 	if err != nil {
 		return fmt.Errorf("could not reach the hub: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // Read in full below; nothing is lost if closing fails
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxSaveBytes+1<<20))
 	if err != nil {
 		return err
@@ -91,7 +91,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out interfac
 
 	if resp.StatusCode >= 300 {
 		var e errorReply
-		json.Unmarshal(data, &e)
+		_ = json.Unmarshal(data, &e) // A reply that isn't JSON is reported by its status
 		switch {
 		case resp.StatusCode == http.StatusConflict && e.Version > 0:
 			return ConflictError{Version: e.Version}

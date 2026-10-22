@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -24,15 +25,16 @@ import (
 	"github.com/Michael-W-Ellison/gochi/internal/hub"
 	"github.com/Michael-W-Ellison/gochi/internal/simulation"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
+	"github.com/Michael-W-Ellison/gochi/web"
 )
 
 // Server holds the server state
 type Server struct {
 	saveMu sync.Mutex // Orders saves and pet switches; acquire before mu
 	mu     sync.RWMutex
-	pet    *core.DigitalPet // The active pet; only its time passes
-	slot   string           // Save slot of the active pet
-	webDir string
+	pet    *core.DigitalPet        // The active pet; only its time passes
+	slot   string                  // Save slot of the active pet
+	static fs.FS                   // The page's static files
 	clock  *simulation.TimeManager // Game clock; its scale sets the game's speed
 	store  *petStore               // nil disables saving
 	cloud  *cloud                  // Connection to a cloud hub; nil disables cloud features
@@ -201,7 +203,7 @@ type PetStatus struct {
 
 func main() {
 	defaults := defaultConfig()
-	configPath := flag.String("config", "", "settings file (default configs/config.yaml in the project directory, if present)")
+	configPath := flag.String("config", "", "settings file (default configs/config.yaml in the current folder or beside the game, if present)")
 	dataDir := flag.String("data-dir", defaults.Server.DataDir, "directory for saves and backups (default ~/.gochi)")
 	autosaveInterval := flag.Duration("autosave", defaults.Simulation.Autosave, "how often to save the pet automatically (0 disables)")
 	awayTimeout := flag.Duration("away-pause", defaults.Simulation.AwayPause, "pause time when the player has been away this long (0 disables)")
@@ -213,19 +215,20 @@ func main() {
 	hubAddr := flag.String("hub-addr", defaults.Hub.Addr, "address the hub listens on (always HTTPS)")
 	tlsCert := flag.String("tls-cert", defaults.Server.TLSCert, "serve HTTPS with this certificate (PEM; needs -tls-key)")
 	tlsKey := flag.String("tls-key", defaults.Server.TLSKey, "the HTTPS certificate's private key (PEM)")
+	webDir := flag.String("web-dir", "", "serve the page's static files from this folder instead of the built-in ones (for working on the page)")
 	flag.Parse()
 
-	// Find web directory
-	webDir := findWebDir()
-	if webDir == "" {
-		log.Fatal("Could not find web directory")
+	// The page's static files: built in, or from a folder
+	static, builtIn := web.Static(), true
+	if *webDir != "" {
+		static, builtIn = os.DirFS(*webDir), false
+		log.Printf("Serving static files from: %s", *webDir)
 	}
-	log.Printf("Serving web content from: %s", webDir)
 
 	// Settings: defaults, then the config file, then command-line options
 	config := defaults
 	if *configPath == "" {
-		*configPath = defaultConfigPath(webDir)
+		*configPath = defaultConfigPath()
 	}
 	if *configPath != "" {
 		var err error
@@ -302,7 +305,7 @@ func main() {
 
 	// Create server
 	server := &Server{
-		webDir:       webDir,
+		static:       static,
 		clock:        simulation.NewTimeManager(timeScale),
 		store:        store,
 		lastActivity: time.Now(),
@@ -408,10 +411,10 @@ func main() {
 	}
 
 	// Static files, cacheable by browsers and proxies (see staticHandler)
-	if server.staticVersion, err = staticVersion(filepath.Join(webDir, "static")); err != nil {
+	if server.staticVersion, err = staticVersion(static); err != nil {
 		log.Printf("Warning: could not read the static files: %v", err)
 	}
-	mux.Handle("/static/", server.staticHandler(filepath.Join(webDir, "static")))
+	mux.Handle("/static/", server.staticHandler(static, builtIn))
 
 	// Templates/pages
 	mux.HandleFunc("/", server.handleIndex)
@@ -454,7 +457,9 @@ func main() {
 		log.Printf("Warning: HTTP shutdown: %v", err)
 	}
 	if hubHTTP != nil {
-		hubHTTP.Shutdown(shutdownCtx)
+		if err := hubHTTP.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Warning: hub shutdown: %v", err)
+		}
 	}
 
 	if err := server.saveOwner(); err != nil {
@@ -484,43 +489,6 @@ func main() {
 		}
 		cancel()
 	}
-}
-
-func findWebDir() string {
-	// Try various locations
-	paths := []string{
-		"web",
-		"../web",
-		"../../web",
-		filepath.Join(os.Getenv("GOPATH"), "src/github.com/Michael-W-Ellison/gochi/web"),
-	}
-
-	// Also try relative to executable
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		paths = append(paths,
-			filepath.Join(exeDir, "web"),
-			filepath.Join(exeDir, "..", "web"),
-			filepath.Join(exeDir, "..", "..", "web"),
-		)
-	}
-
-	// Try current working directory paths
-	if cwd, err := os.Getwd(); err == nil {
-		paths = append(paths,
-			filepath.Join(cwd, "web"),
-			filepath.Join(cwd, "..", "web"),
-		)
-	}
-
-	for _, p := range paths {
-		if info, err := os.Stat(p); err == nil && info.IsDir() {
-			absPath, _ := filepath.Abs(p)
-			return absPath
-		}
-	}
-
-	return ""
 }
 
 func (s *Server) updateLoop() {
@@ -3227,7 +3195,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
     <script src="/static/js/help.js?v={{static}}"></script>
 </body>
 </html>`
-	w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion)))
+	_, _ = w.Write([]byte(strings.ReplaceAll(html, "{{static}}", s.staticVersion))) // Fails only if the client has gone
 }
 
 // autosaveLoop saves the pet every interval until ctx is done
@@ -4066,7 +4034,7 @@ func (s *Server) getPetData() map[string]interface{} {
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data) // Fails only if the client has gone
 }
 
 // route is a page route: its pattern and handler

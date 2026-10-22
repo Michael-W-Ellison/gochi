@@ -98,7 +98,9 @@ func TestSaveAndLoad(t *testing.T) {
 	pet.TotalInteractions = 42
 
 	saveData := data.NewSaveData("user_load", "LoadUser")
-	saveData.SetPetData(pet)
+	if err := saveData.SetPetData(pet); err != nil {
+		t.Fatalf("Failed to set pet data: %v", err)
+	}
 
 	// Save
 	filename := "test_save.json"
@@ -230,7 +232,9 @@ func TestSaveDataIntegrity(t *testing.T) {
 
 	// Create save data
 	saveData := data.NewSaveData("user_integrity", "IntegrityUser")
-	saveData.SetPetData(pet)
+	if err := saveData.SetPetData(pet); err != nil {
+		t.Fatalf("Failed to set pet data: %v", err)
+	}
 
 	filename := "integrity_test.json"
 
@@ -284,7 +288,9 @@ func TestListSaves(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		saveData := data.NewSaveData("user_list", "ListUser")
 		pet := core.NewDigitalPet("ListPet", "user_list")
-		saveData.SetPetData(pet)
+		if err := saveData.SetPetData(pet); err != nil {
+			t.Fatalf("Failed to set pet data: %v", err)
+		}
 
 		filename := "save_%d.json"
 		err = manager.Save(saveData, filename)
@@ -320,7 +326,9 @@ func TestDeleteSave(t *testing.T) {
 	// Create and save
 	saveData := data.NewSaveData("user_delete", "DeleteUser")
 	pet := core.NewDigitalPet("DeleteTest", "user_delete")
-	saveData.SetPetData(pet)
+	if err := saveData.SetPetData(pet); err != nil {
+		t.Fatalf("Failed to set pet data: %v", err)
+	}
 
 	filename := "delete_test.json"
 	err = manager.Save(saveData, filename)
@@ -361,7 +369,9 @@ func TestBackupCreation(t *testing.T) {
 	// Create save
 	saveData := data.NewSaveData("user_backup", "BackupUser")
 	pet := core.NewDigitalPet("BackupTest", "user_backup")
-	saveData.SetPetData(pet)
+	if err := saveData.SetPetData(pet); err != nil {
+		t.Fatalf("Failed to set pet data: %v", err)
+	}
 
 	filename := "backup_test.json"
 	err = manager.Save(saveData, filename)
@@ -580,7 +590,9 @@ func TestSaveDataStatistics(t *testing.T) {
 func TestSaveDataJSON(t *testing.T) {
 	saveData := data.NewSaveData("user_json", "JSONUser")
 	pet := core.NewDigitalPet("JSONPet", "user_json")
-	saveData.SetPetData(pet)
+	if err := saveData.SetPetData(pet); err != nil {
+		t.Fatalf("Failed to set pet data: %v", err)
+	}
 
 	// Serialize to JSON
 	jsonBytes, err := saveData.ToJSON()

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -128,7 +129,9 @@ func (p *parentalControls) checkLocked(pin string) error {
 		if p.settings.Failures != 0 || p.settings.Lockouts != 0 {
 			settings := p.settings
 			settings.Failures, settings.Lockouts, settings.LockedTo = 0, 0, time.Time{}
-			p.saveLocked(settings) // Best effort: a right PIN is right either way
+			if err := p.saveLocked(settings); err != nil { // A right PIN is right either way
+				log.Printf("Could not save the parental controls: %v", err)
+			}
 		}
 		return nil
 	}
@@ -154,7 +157,7 @@ func (p *parentalControls) saveLocked(settings parentalSettings) error {
 		}
 		tmp := p.path + ".tmp"
 		if err := os.WriteFile(tmp, data, 0o600); err != nil {
-			os.Remove(tmp)
+			_ = os.Remove(tmp) // Cut short; the write's error is the one to report
 			return err
 		}
 		if err := os.Rename(tmp, p.path); err != nil {

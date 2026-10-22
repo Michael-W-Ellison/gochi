@@ -139,7 +139,9 @@ func TestPetStoreLoadMostRecentPicksNewestPet(t *testing.T) {
 	savePet(t, store, "older", core.NewDigitalPet("Older", "web_user"))
 	// Make the first save clearly older
 	old := time.Now().Add(-time.Hour)
-	os.Chtimes(store.SavePath("older"), old, old)
+	if err := os.Chtimes(store.SavePath("older"), old, old); err != nil {
+		t.Fatal(err)
+	}
 	savePet(t, store, "newer", core.NewDigitalPet("Newer", "web_user"))
 
 	pet, slot, _, _, err := store.LoadMostRecent()
@@ -496,7 +498,9 @@ func TestHibernationThroughServer(t *testing.T) {
 	}
 
 	// The saved list shows hibernation after a save
-	server.saveNow()
+	if _, err := server.saveNow(); err != nil {
+		t.Fatal(err)
+	}
 	if pets, _ := server.store.List(); len(pets) != 1 || !pets[0].Hibernating {
 		t.Errorf("Saved list should show hibernation: %+v", pets)
 	}
@@ -743,7 +747,9 @@ func TestPetStoreCachesSaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	future := time.Now().Add(time.Hour) // In case both writes share a timestamp
-	os.Chtimes(store.SavePath("mochi"), future, future)
+	if err := os.Chtimes(store.SavePath("mochi"), future, future); err != nil {
+		t.Fatal(err)
+	}
 	if pet, _, _, err := store.Load("mochi"); err != nil || pet.Name != "Pepper" {
 		t.Errorf("Load should read the changed file: %v, %v", pet, err)
 	}

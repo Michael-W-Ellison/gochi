@@ -43,7 +43,7 @@ func TestParentPIN(t *testing.T) {
 	lockOut := func() {
 		t.Helper()
 		for i := 0; i < maxPINTries; i++ {
-			p.Check("0000")
+			_ = p.Check("0000") // Wrong on purpose; only the lockout after is checked
 		}
 		if err := p.Check("2468"); err != errPINLockedOut {
 			t.Errorf("After %d wrong PINs even the right one waits: %v", maxPINTries, err)

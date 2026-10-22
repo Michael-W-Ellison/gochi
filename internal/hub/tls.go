@@ -178,7 +178,7 @@ func ProbeCertificate(ctx context.Context, baseURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not reach the hub: %w", err)
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck // Only the certificate is read
 	state := conn.(*tls.Conn).ConnectionState()
 	if len(state.PeerCertificates) == 0 {
 		return "", errors.New("the hub sent no certificate")

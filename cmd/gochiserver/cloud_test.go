@@ -109,8 +109,12 @@ func TestCloudSyncBetweenDevices(t *testing.T) {
 	pet, _, _, _ = phone.store.Load(saved[0].Slot)
 	pet.FriendshipPoints = 2
 	pet.LastUpdateAt = time.Now().Add(2 * time.Minute)
-	phone.store.SavePet(saved[0].Slot, pet)
-	phone.cloudSync(ctx)
+	if err := phone.store.SavePet(saved[0].Slot, pet); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := phone.cloudSync(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if report, _ := laptop.cloudSync(ctx); len(report.Conflicts) != 1 {
 		t.Fatalf("Both changed: expected a conflict, got %s", report.summary())
 	}
@@ -126,18 +130,30 @@ func TestCloudDeletion(t *testing.T) {
 	ctx := context.Background()
 	hubURL := testHubURL(t)
 	laptop, phone := cloudServer(t), cloudServer(t)
-	laptop.createPet("Biscuit", core.SpeciesCat, "", false, false)
-	laptop.cloudConnect(ctx, hubURL, "code", "")
-	laptop.cloudSync(ctx)
-	phone.cloudConnect(ctx, hubURL, "", accountKey(laptop))
-	phone.cloudSync(ctx)
+	if err := laptop.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := laptop.cloudConnect(ctx, hubURL, "code", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := laptop.cloudSync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := phone.cloudConnect(ctx, hubURL, "", accountKey(laptop)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := phone.cloudSync(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	// Deleting on the laptop marks it deleted on the hub
 	slot := laptop.slot
 	laptop.mu.RLock()
 	id := string(laptop.pet.ID)
 	laptop.mu.RUnlock()
-	laptop.store.Delete(slot)
+	if err := laptop.store.Delete(slot); err != nil {
+		t.Fatal(err)
+	}
 	laptop.cloudForget(ctx, id)
 
 	report, err := phone.cloudSync(ctx)
@@ -156,8 +172,12 @@ func TestCloudSocialThroughServer(t *testing.T) {
 	ctx := context.Background()
 	hubURL := testHubURL(t)
 	alice, bob := cloudServer(t), cloudServer(t)
-	alice.createPet("Biscuit", core.SpeciesCat, "", false, false)
-	bob.createPet("Rex", core.SpeciesDog, "", false, false)
+	if err := alice.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := bob.createPet("Rex", core.SpeciesDog, "", false, false); err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range []struct {
 		s    *Server
 		name string

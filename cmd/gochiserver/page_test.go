@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -40,8 +41,8 @@ func pageAndScripts(t *testing.T) (string, []pageScript) {
 			scripts = append(scripts, pageScript{"inline", m[2]})
 			continue
 		}
-		path := filepath.Join(h.server.webDir, strings.TrimPrefix(m[1], "/"))
-		data, err := os.ReadFile(path)
+		path := strings.TrimPrefix(m[1], "/static/")
+		data, err := fs.ReadFile(h.server.static, path)
 		if err != nil {
 			t.Fatalf("The page loads %s, which can't be read: %v", m[1], err)
 		}

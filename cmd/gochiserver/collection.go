@@ -92,7 +92,7 @@ func (h *household) collect(ids []string) collectionNews {
 		}
 	}
 	news.AllSets = len(after) == len(core.SouvenirSets()) && len(before) < len(after)
-	h.saveLocked()
+	h.saveOrLogLocked()
 	return news
 }
 

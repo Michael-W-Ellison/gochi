@@ -170,7 +170,7 @@ func TestStatsIncludeEarlierPets(t *testing.T) {
 }
 
 func TestStatsStayOnThisComputer(t *testing.T) {
-	s, h := guarded(t)
+	s, _ := guarded(t)
 	stats, err := loadPlayerStats(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestStatsStayOnThisComputer(t *testing.T) {
 	s.stats = stats
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/stats", s.handleStats)
-	h = s.guard(mux)
+	h := s.guard(mux)
 
 	if rec := request(h, http.MethodGet, "/api/stats", local, "", nil); rec.Code != http.StatusOK {
 		t.Errorf("The player's page should read their statistics: %d", rec.Code)
@@ -246,7 +246,7 @@ func TestBreedingChecksTheBabyName(t *testing.T) {
 	}
 	partner := core.NewDigitalPet("Bean", localOwner)
 	savePet(t, s.store, "bean", partner)
-	rec := post(t, s.handleBreed, `{"partner_slot":"bean","name":"`+strings.Repeat("x", 50)+`‮"}`)
+	rec := post(t, s.handleBreed, `{"partner_slot":"bean","name":"`+strings.Repeat("x", 50)+"\u202e\"}")
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "A pet's name is") {
 		t.Errorf("A long name with control characters: %d %s", rec.Code, rec.Body.String())
 	}

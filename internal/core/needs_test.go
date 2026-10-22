@@ -168,7 +168,9 @@ func TestBedImprovesSleep(t *testing.T) {
 		pet := NewDigitalPet("Biscuit", "user123")
 		if withBed {
 			pet.FriendshipPoints = 1000
-			pet.BuyItem("cozy_bed")
+			if err := pet.BuyItem("cozy_bed"); err != nil {
+				t.Fatal(err)
+			}
 		}
 		pet.CurrentBehavior = types.BehaviorSleeping
 		pet.Biology.Vitals.Fatigue = 0.9

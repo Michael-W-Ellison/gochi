@@ -73,12 +73,22 @@ func ids(list interface{}) []string {
 	return out
 }
 
+// decode reads a route's JSON reply into v
+func (h *harness) decode(path string, v interface{}) {
+	h.t.Helper()
+	body := h.do(http.MethodGet, path, "").Body.Bytes()
+	if err := json.Unmarshal(body, v); err != nil {
+		h.t.Fatalf("GET %s: %v: %s", path, err, body)
+	}
+}
+
 // get returns a route's data as a map ({} if it isn't one)
 func (h *harness) get(path string) map[string]interface{} {
+	h.t.Helper()
 	var resp struct {
 		Data interface{} `json:"data"`
 	}
-	json.Unmarshal(h.do(http.MethodGet, path, "").Body.Bytes(), &resp)
+	h.decode(path, &resp)
 	m, _ := resp.Data.(map[string]interface{})
 	if m == nil {
 		m = map[string]interface{}{}
@@ -131,7 +141,7 @@ func (h *harness) readOptions() options {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	json.Unmarshal(h.do(http.MethodGet, "/api/books", "").Body.Bytes(), &books)
+	h.decode("/api/books", &books)
 	for _, b := range books.Data {
 		o.books = append(o.books, b.ID)
 	}
@@ -149,7 +159,7 @@ func (h *harness) readOptions() options {
 			Places []core.Place `json:"places"`
 		} `json:"data"`
 	}
-	json.Unmarshal(h.do(http.MethodGet, "/api/explore/places", "").Body.Bytes(), &places)
+	h.decode("/api/explore/places", &places)
 	for _, p := range places.Data.Places {
 		o.places = append(o.places, p.ID)
 		if p.Discovered && p.Unavailable == "" {
@@ -159,7 +169,7 @@ func (h *harness) readOptions() options {
 	var games struct {
 		Data []core.MiniGame `json:"data"`
 	}
-	json.Unmarshal(h.do(http.MethodGet, "/api/games", "").Body.Bytes(), &games)
+	h.decode("/api/games", &games)
 	for _, g := range games.Data {
 		o.games = append(o.games, g.ID)
 	}
@@ -404,6 +414,7 @@ func randomPlay(t *testing.T, seed int64, steps int) []string {
 	p := player{r}
 	// The game's own chances and clock follow the seed and the play, so a
 	// seed plays the same way each time
+	//lint:ignore SA1019 The game uses the shared generator, so a seed replays only if it is seeded
 	rand.Seed(seed) //nolint:staticcheck // The game uses the shared generator
 	h := newHarness(t)
 	h.now = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC).AddDate(0, 0, int(seed)*41) // Seeds start in different seasons
@@ -474,7 +485,9 @@ func randomPlay(t *testing.T, seed int64, steps int) []string {
 		}
 		for i, pet := range pets {
 			if petSlots[i] != h.server.slot {
-				h.server.store.SavePet(petSlots[i], pet)
+				if err := h.server.store.SavePet(petSlots[i], pet); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 	}
@@ -712,7 +725,11 @@ func TestConcurrentPlay(t *testing.T) {
 				h.server.shareTripWithFriend()
 				h.server.householdTime(now)
 				if now.Second()%20 == 0 {
-					h.server.saveNow()
+					if _, err := h.server.saveNow(); err != nil {
+						mu.Lock()
+						failures = append(failures, fmt.Sprintf("a save failed: %v", err))
+						mu.Unlock()
+					}
 				}
 			}()
 		}

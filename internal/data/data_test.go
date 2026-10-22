@@ -182,7 +182,9 @@ func TestUpdateStatistics(t *testing.T) {
 
 func TestChecksum(t *testing.T) {
 	sd := NewSaveData("user123", "TestUser")
-	sd.SetPetData(map[string]string{"name": "Fluffy"})
+	if err := sd.SetPetData(map[string]string{"name": "Fluffy"}); err != nil {
+		t.Fatal(err)
+	}
 
 	checksum1 := sd.CalculateChecksum()
 	if checksum1 == "" {
@@ -245,7 +247,9 @@ func TestPrepareSave(t *testing.T) {
 func TestToFromJSON(t *testing.T) {
 	sd := NewSaveData("user123", "TestUser")
 	sd.AddAchievement("test", "Test", "Test", "common", 10)
-	sd.SetPetData(map[string]string{"name": "Fluffy"})
+	if err := sd.SetPetData(map[string]string{"name": "Fluffy"}); err != nil {
+		t.Fatal(err)
+	}
 
 	data, err := sd.ToJSON()
 	if err != nil {
@@ -268,7 +272,9 @@ func TestToFromJSON(t *testing.T) {
 
 func TestEncryption(t *testing.T) {
 	sd := NewSaveData("user123", "TestUser")
-	sd.SetPetData(map[string]string{"name": "Fluffy"})
+	if err := sd.SetPetData(map[string]string{"name": "Fluffy"}); err != nil {
+		t.Fatal(err)
+	}
 
 	key := []byte("test-encryption-key-12345")
 
@@ -344,7 +350,9 @@ func TestSaveAndLoad(t *testing.T) {
 	dm, _ := NewDataManagerWithConfig(config)
 
 	sd := NewSaveData("user123", "TestUser")
-	sd.SetPetData(map[string]string{"name": "Fluffy"})
+	if err := sd.SetPetData(map[string]string{"name": "Fluffy"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Save
 	err := dm.Save(sd, "test_save")
@@ -379,7 +387,9 @@ func TestExists(t *testing.T) {
 	}
 
 	sd := NewSaveData("user123", "TestUser")
-	dm.Save(sd, "test_save")
+	if err := dm.Save(sd, "test_save"); err != nil {
+		t.Fatal(err)
+	}
 
 	if !dm.Exists("test_save") {
 		t.Error("Saved file should exist")
@@ -398,7 +408,9 @@ func TestDelete(t *testing.T) {
 	dm, _ := NewDataManagerWithConfig(config)
 
 	sd := NewSaveData("user123", "TestUser")
-	dm.Save(sd, "test_save")
+	if err := dm.Save(sd, "test_save"); err != nil {
+		t.Fatal(err)
+	}
 
 	err := dm.Delete("test_save")
 	if err != nil {
@@ -425,9 +437,13 @@ func TestListSaves(t *testing.T) {
 	sd1 := NewSaveData("user1", "User1")
 	sd2 := NewSaveData("user2", "User2")
 
-	dm.Save(sd1, "save1")
+	if err := dm.Save(sd1, "save1"); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(10 * time.Millisecond)
-	dm.Save(sd2, "save2")
+	if err := dm.Save(sd2, "save2"); err != nil {
+		t.Fatal(err)
+	}
 
 	saves, err := dm.ListSaves()
 	if err != nil {
@@ -457,7 +473,9 @@ func TestBackup(t *testing.T) {
 	dm, _ := NewDataManagerWithConfig(config)
 
 	sd := NewSaveData("user123", "TestUser")
-	dm.Save(sd, "test_save")
+	if err := dm.Save(sd, "test_save"); err != nil {
+		t.Fatal(err)
+	}
 
 	err := dm.CreateBackup("test_save")
 	if err != nil {
@@ -486,7 +504,9 @@ func TestStorageStats(t *testing.T) {
 	dm, _ := NewDataManagerWithConfig(config)
 
 	sd := NewSaveData("user123", "TestUser")
-	dm.Save(sd, "test_save")
+	if err := dm.Save(sd, "test_save"); err != nil {
+		t.Fatal(err)
+	}
 
 	stats := dm.GetStorageStats()
 
@@ -555,11 +575,15 @@ func TestLoadLatestFallsBackToBackup(t *testing.T) {
 	dm := newTestDataManager(t)
 
 	sd := NewSaveData("user", "User")
-	sd.SetPetData(map[string]string{"name": "first"})
+	if err := sd.SetPetData(map[string]string{"name": "first"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := dm.Save(sd, "pet"); err != nil {
 		t.Fatal(err)
 	}
-	sd.SetPetData(map[string]string{"name": "second"})
+	if err := sd.SetPetData(map[string]string{"name": "second"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := dm.Save(sd, "pet"); err != nil { // Backs up the first save
 		t.Fatal(err)
 	}
@@ -590,15 +614,21 @@ func TestLoadLatestSkipsChecksumMismatch(t *testing.T) {
 	dm := newTestDataManager(t)
 
 	sd := NewSaveData("user", "User")
-	sd.SetPetData(map[string]string{"name": "only"})
+	if err := sd.SetPetData(map[string]string{"name": "only"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := dm.Save(sd, "pet"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Alter pet data without updating the checksum
-	sd.SetPetData(map[string]string{"name": "tampered"})
+	if err := sd.SetPetData(map[string]string{"name": "tampered"}); err != nil {
+		t.Fatal(err)
+	}
 	data, _ := sd.ToJSON()
-	os.WriteFile(dm.getSavePath("pet"), data, 0644)
+	if err := os.WriteFile(dm.getSavePath("pet"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, _, err := dm.LoadLatest("pet"); err == nil || errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Expected failure for save with bad checksum and no backups, got %v", err)
@@ -634,7 +664,9 @@ func TestBackupsAreSeparatePerSave(t *testing.T) {
 	// "pet" is a prefix of "pet_2"; their backups must not be mixed up
 	for _, name := range []string{"pet", "pet_2"} {
 		sd := NewSaveData("user", name)
-		sd.SetPetData(map[string]string{"name": name})
+		if err := sd.SetPetData(map[string]string{"name": name}); err != nil {
+			t.Fatal(err)
+		}
 		if err := dm.Save(sd, name); err != nil {
 			t.Fatal(err)
 		}
@@ -654,13 +686,17 @@ func TestBackupsAreSeparatePerSave(t *testing.T) {
 	}
 
 	// With "pet" corrupt, its fallback must be its own backup
-	os.WriteFile(dm.getSavePath("pet"), []byte("corrupt"), 0644)
+	if err := os.WriteFile(dm.getSavePath("pet"), []byte("corrupt"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	loaded, _, err := dm.LoadLatest("pet")
 	if err != nil {
 		t.Fatalf("LoadLatest failed: %v", err)
 	}
 	var pet map[string]string
-	loaded.GetPetData(&pet)
+	if err := loaded.GetPetData(&pet); err != nil {
+		t.Fatal(err)
+	}
 	if pet["name"] != "pet" {
 		t.Errorf("Fell back to another save's backup: %v", pet)
 	}
@@ -689,8 +725,12 @@ func TestDeleteWithBackups(t *testing.T) {
 
 	for _, name := range []string{"pet", "pet_2"} {
 		sd := NewSaveData("user", name)
-		dm.Save(sd, name)
-		dm.Save(sd, name) // Creates a backup
+		if err := dm.Save(sd, name); err != nil {
+			t.Fatal(err)
+		}
+		if err := dm.Save(sd, name); err != nil { // Creates a backup
+			t.Fatal(err)
+		}
 	}
 
 	if err := dm.DeleteWithBackups("pet"); err != nil {
@@ -726,7 +766,9 @@ func TestSavesArePrivate(t *testing.T) {
 	}
 	tmpDir := t.TempDir()
 	saves := filepath.Join(tmpDir, "saves")
-	os.MkdirAll(saves, 0o755) // Made by an older version
+	if err := os.MkdirAll(saves, 0o755); err != nil { // Made by an older version
+		t.Fatal(err)
+	}
 	config := DataManagerConfig{SavePath: saves, BackupPath: filepath.Join(tmpDir, "backups"),
 		CachePath: filepath.Join(tmpDir, "cache"), MaxBackups: 3, AutoBackup: true}
 	dm, err := NewDataManagerWithConfig(config)

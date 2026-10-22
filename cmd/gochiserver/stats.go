@@ -173,7 +173,7 @@ func (ps *playerStats) save() error {
 	}
 	tmp := ps.path + ".tmp"
 	if err := os.WriteFile(tmp, contents, 0o600); err != nil {
-		os.Remove(tmp) // Cut short (a full disk)
+		_ = os.Remove(tmp) // Cut short (a full disk); the write's error is the one to report
 		return err
 	}
 	if err := os.Rename(tmp, ps.path); err != nil {

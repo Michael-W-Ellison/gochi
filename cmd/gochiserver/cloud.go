@@ -132,7 +132,7 @@ func (c *cloud) saveLocked() error {
 	}
 	tmp := c.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		os.Remove(tmp) // Cut short (a full disk)
+		_ = os.Remove(tmp) // Cut short (a full disk); the write's error is the one to report
 		return err
 	}
 	return os.Rename(tmp, c.path)
@@ -418,7 +418,7 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 					Name string `json:"name"`
 				} `json:"pet_data"`
 			}
-			json.Unmarshal(contents, &save)
+			_ = json.Unmarshal(contents, &save) // An unreadable save keeps the name it is listed under
 			if save.PetData.Name != "" {
 				name = save.PetData.Name
 			}

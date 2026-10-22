@@ -50,7 +50,7 @@ func NewHandler(petStore PetStore) *Handler {
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data) // Fails only if the client has gone
 }
 
 // writeSuccess writes a successful API response

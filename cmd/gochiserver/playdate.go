@@ -300,7 +300,9 @@ func (s *Server) handlePlaydateUpdate(w http.ResponseWriter, r *http.Request) {
 	card, petID, err := s.activeCard(req.Look)
 	if err != nil || petID != pd.petID {
 		// The player switched pets: the playdate was for the other one
-		client.LeavePlaydate(r.Context(), pd.code)
+		if err := client.LeavePlaydate(r.Context(), pd.code); err != nil {
+			log.Printf("Could not leave the playdate on the hub (it ends there when it times out): %v", err)
+		}
 		s.playdates.session = nil
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: "You left the playdate when you changed pets"})
 		return

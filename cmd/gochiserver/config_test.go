@@ -99,8 +99,12 @@ func writeCert(t *testing.T, dir string) (certFile, keyFile string) {
 		t.Fatal(err)
 	}
 	certFile, keyFile = filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
-	os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
-	os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600)
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return certFile, keyFile
 }
 
@@ -108,7 +112,9 @@ func TestTLSSettings(t *testing.T) {
 	dir := t.TempDir()
 	writeCert(t, dir)
 	path := filepath.Join(dir, "config.yaml")
-	os.WriteFile(path, []byte("server:\n  tls_cert: cert.pem\n  tls_key: key.pem\n"), 0o644)
+	if err := os.WriteFile(path, []byte("server:\n  tls_cert: cert.pem\n  tls_key: key.pem\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	config, err := loadConfig(path)
 	if err != nil {
 		t.Fatal(err)

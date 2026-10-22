@@ -97,7 +97,9 @@ func TestHideAndSeekThroughServer(t *testing.T) {
 		var resp struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		json.Unmarshal(rec.Body.Bytes(), &resp)
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
 		data = resp.Data
 		if data["over"] == true {
 			break
