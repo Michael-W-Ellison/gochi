@@ -1,6 +1,9 @@
 package core
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 // Predictive care: the game runs a copy of the pet forward in time to see
 // what it will need, and when, so the owner can see it coming instead of
@@ -14,18 +17,37 @@ type NeedForecast struct {
 	InDays  float64 `json:"in_days"` // Game days from now
 }
 
-// forecastSteps is how many steps a forecast simulates
-const forecastSteps = 60
+// minForecastSteps is the fewest steps a forecast simulates
+const minForecastSteps = 60
+
+// maxForecastStep is the longest step a forecast simulates, in game days:
+// a quarter of a day, so every day has a step in daylight (8 hours at
+// least) and needs that wait for daylight, such as exploring, are seen
+const maxForecastStep = 0.25
 
 // maxForecasts is how many forecasts are returned
 const maxForecasts = 3
+
+// forecastStep returns the step a forecast over horizon game days takes:
+// a quarter of a day, halved until the horizon has at least
+// minForecastSteps steps
+func forecastStep(horizon float64) float64 {
+	step := maxForecastStep
+	for horizon/step < minForecastSteps {
+		step /= 2
+	}
+	return step
+}
 
 // Forecast returns what the pet will ask for within horizon game days if
 // nothing changes, soonest first: the needs a copy of the pet comes to
 // have as time passes, other than any it has now. Every need counts, not
 // only the most urgent, so one starting while a more urgent one waits is
-// still seen. The copy is simulated in up to 60 steps, so a forecast is
-// accurate to about 1/60 of the horizon.
+// still seen.
+//
+// The copy is looked at on a fixed grid of the pet's age (see
+// forecastStep), so forecasts made a moment apart look at the same moments
+// of the pet's future and agree; a forecast is accurate to one step.
 func (p *DigitalPet) Forecast(horizon float64) []NeedForecast {
 	forecasts := []NeedForecast{}
 	if horizon <= 0 || !p.IsAlive() || p.IsHibernating() || p.IsExploring() {
@@ -44,16 +66,23 @@ func (p *DigitalPet) Forecast(horizon float64) []NeedForecast {
 	for _, need := range p.currentNeeds() {
 		seen[need.Action] = true
 	}
-	step := horizon / forecastSteps
-	for elapsed := step; elapsed <= horizon+step/2; elapsed += step {
-		sim.Update(step)
+	step := forecastStep(horizon)
+	now := sim.Biology.GetAgeInDays()
+	simAge := now
+	for n := math.Floor(now/step) + 1; ; n++ { // The grid points after now
+		at := n * step
+		if at-now > horizon {
+			break
+		}
+		sim.Update(at - simAge)
+		simAge = at
 		if !sim.IsAlive() || sim.IsHibernating() {
 			break
 		}
 		for _, r := range sim.currentNeeds() {
 			if !seen[r.Action] && r.Action != "revive" {
 				seen[r.Action] = true
-				forecasts = append(forecasts, NeedForecast{Action: r.Action, Icon: r.Icon, Message: r.Message, InDays: elapsed})
+				forecasts = append(forecasts, NeedForecast{Action: r.Action, Icon: r.Icon, Message: r.Message, InDays: at - now})
 			}
 		}
 		if len(forecasts) >= maxForecasts {

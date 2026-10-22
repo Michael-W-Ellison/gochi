@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestForecastSeesNeedsComing(t *testing.T) {
 	pet := NewDigitalPet("Mochi", "user123")
@@ -76,5 +79,44 @@ func TestForecastSeesNeedsBehindMoreUrgentOnes(t *testing.T) {
 	}
 	if feed < drink {
 		t.Errorf("Hunger (in %v days) should come after thirst (in %v days) here", feed, drink)
+	}
+}
+
+// Forecasts made a moment apart look at the same moments of the pet's
+// future, so a need keeps its time; they once looked at moments counted
+// from now, so a need's time moved, and a need on top only briefly came
+// and went
+func TestForecastsAMomentApartAgree(t *testing.T) {
+	pet := NewDigitalPet("Mochi", "user123")
+	at := func() map[string]float64 {
+		times := map[string]float64{}
+		for _, f := range pet.Forecast(30) {
+			times[f.Action] = pet.Biology.GetAgeInDays() + f.InDays
+		}
+		return times
+	}
+	before := at()
+	if len(before) == 0 {
+		t.Fatal("A new pet should have needs coming within 30 days")
+	}
+	for i := 0; i < 20; i++ {
+		pet.Update(1.0 / 60)
+		after := at()
+		for action, when := range before {
+			if got, ok := after[action]; !ok || math.Abs(got-when) > 1e-6 {
+				t.Fatalf("After %d updates, %s moved from day %.3f to day %.3f (present: %v)", i+1, action, when, got, ok)
+			}
+		}
+	}
+}
+
+func TestForecastStep(t *testing.T) {
+	for _, c := range []struct{ horizon, step float64 }{{30, 0.25}, {120, 0.25}, {1, 1.0 / 64}, {1.0 / 12, 1.0 / 1024}} {
+		if got := forecastStep(c.horizon); got != c.step {
+			t.Errorf("forecastStep(%v) = %v, want %v", c.horizon, got, c.step)
+		}
+		if c.horizon/forecastStep(c.horizon) < minForecastSteps {
+			t.Errorf("A forecast over %v days takes fewer than %d steps", c.horizon, minForecastSteps)
+		}
 	}
 }
