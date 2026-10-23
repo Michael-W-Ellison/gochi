@@ -44,7 +44,31 @@ async function main() {
         await settle(page);
         await playEverything(page, name);
     }
+    await groomPepper(page);
     await browser.close();
+}
+
+// groomPepper loads Pepper, a cat the browser test saved groomed before and
+// in need of it again, and plays the grooming game with her (a new pet is
+// clean, and one grooming makes a pet clean, so it would turn the game down)
+async function groomPepper(page) {
+    await page.evaluate(() => openChooser());
+    const load = page.locator('#savedPetList li', {hasText: 'Pepper'}).locator('button', {hasText: 'Load'});
+    if (await load.count() === 0) {
+        problems.push('Pepper is not in the list of saved pets');
+        return;
+    }
+    await load.click();
+    await page.waitForTimeout(1500);
+    await settle(page);
+    const games = await page.evaluate(() => fetch('/api/games').then(r => r.json()).then(d => d.data || []));
+    const grooming = games.find(g => g.id === 'grooming');
+    if (!grooming || grooming.unavailable) {
+        problems.push('Pepper can not play the grooming game: ' + (grooming ? grooming.unavailable : 'no such game'));
+        return;
+    }
+    await playGame(page, grooming);
+    console.log('Played grooming with Pepper');
 }
 
 // settle closes the tour and any pop-ups, the way a player would
@@ -75,6 +99,42 @@ async function clickAll(page, selector, between) {
         await settle(page);
         if (between) await between(label);
     }
+}
+
+// playGame plays a game from the page, as a player would, and checks it
+// finishes
+async function playGame(page, game) {
+    const playing = () => page.evaluate(() => panelMode === 'game');
+    await page.evaluate(g => startGame(g), game);
+    await page.waitForTimeout(300);
+    const panel = page.locator('#activityPanel');
+    if (game.id === 'fetch') {
+        for (let i = 0; i < 5; i++) {
+            await panel.locator('button', {hasText: 'Throw'}).click({timeout: 5000});
+            await page.waitForTimeout(150);
+        }
+    } else if (game.id === 'wand') {
+        await panel.locator('button', {hasText: 'Let it catch'}).click();
+    } else if (game.id === 'puzzle' || game.id === 'scent') {
+        for (let i = 0; i < 40 && await playing(); i++) {
+            const tiles = panel.locator('.game-tile:enabled');
+            if (await tiles.count() === 0) break;
+            const clicked = await tiles.nth(i % await tiles.count()).click({timeout: 3000}).then(() => true, () => false);
+            if (!clicked && await playing()) { // Not just the game ending as the tile was clicked
+                problems.push('could not click a tile in ' + game.id);
+                break;
+            }
+            await page.waitForTimeout(60);
+        }
+    } else if (game.id === 'grooming') {
+        const rows = panel.locator('.trick-row');
+        for (let i = 0; i < await rows.count(); i++) await rows.nth(i).locator('button').first().click();
+    }
+    // A game shows how it went a moment after it ends
+    for (let wait = 0; wait < 20 && await playing(); wait++) await page.waitForTimeout(150);
+    if (await playing()) problems.push(game.id + ' did not finish');
+    await page.waitForTimeout(1300);
+    await closePanels(page);
 }
 
 // chooseFirst opens the choices behind a button and makes the first one,
@@ -129,39 +189,7 @@ async function playEverything(page, name) {
     console.log(name + ' can play ' + playable.map(g => g.id).join(', '));
     games.filter(g => g.unavailable).forEach(g => console.log('  ' + g.id + ': ' + g.unavailable));
     if (playable.length === 0) problems.push(name + ' has no game to play');
-    const playing = () => page.evaluate(() => panelMode === 'game');
-    for (const game of playable) {
-        await page.evaluate(g => startGame(g), game);
-        await page.waitForTimeout(300);
-        const panel = page.locator('#activityPanel');
-        if (game.id === 'fetch') {
-            for (let i = 0; i < 5; i++) {
-                await panel.locator('button', {hasText: 'Throw'}).click({timeout: 5000});
-                await page.waitForTimeout(150);
-            }
-        } else if (game.id === 'wand') {
-            await panel.locator('button', {hasText: 'Let it catch'}).click();
-        } else if (game.id === 'puzzle' || game.id === 'scent') {
-            for (let i = 0; i < 40 && await playing(); i++) {
-                const tiles = panel.locator('.game-tile:enabled');
-                if (await tiles.count() === 0) break;
-                const clicked = await tiles.nth(i % await tiles.count()).click({timeout: 3000}).then(() => true, () => false);
-                if (!clicked && await playing()) { // Not just the game ending as the tile was clicked
-                    problems.push('could not click a tile in ' + game.id);
-                    break;
-                }
-                await page.waitForTimeout(60);
-            }
-        } else if (game.id === 'grooming') {
-            const rows = panel.locator('.trick-row');
-            for (let i = 0; i < await rows.count(); i++) await rows.nth(i).locator('button').first().click();
-        }
-        // A game shows how it went a moment after it ends
-        for (let wait = 0; wait < 20 && await playing(); wait++) await page.waitForTimeout(150);
-        if (await playing()) problems.push(game.id + ' did not finish');
-        await page.waitForTimeout(1300);
-        await closePanels(page);
-    }
+    for (const game of playable) await playGame(page, game);
     // A home happening, from the page
     await page.evaluate(() => showHappening({id: 'thunderstorm', icon: '⛈️', title: 'Thunderstorm', text: 'A test',
         choices: [{id: 'comfort', label: 'Comfort it'}]}));

@@ -433,3 +433,14 @@ func TestOldSavesSouvenirsAreCollected(t *testing.T) {
 		t.Errorf("A saved pet's souvenirs: %v", d.Collected)
 	}
 }
+
+// A pet with no souvenirs has an empty list of them, not null: the page
+// reads its length, and the collection once failed to draw for a new pet
+func TestCollectionOfAPetWithoutSouvenirs(t *testing.T) {
+	h := newHarness(t)
+	h.createPet("Mochi", core.SpeciesCat)
+	rec := h.do(http.MethodGet, "/api/collection", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"mine":[]`) {
+		t.Errorf("The new pet's souvenirs should be an empty list: %d %s", rec.Code, rec.Body.String())
+	}
+}
