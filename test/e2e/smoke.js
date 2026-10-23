@@ -69,6 +69,66 @@ async function groomPepper(page) {
     }
     await playGame(page, grooming);
     console.log('Played grooming with Pepper');
+    await dressPepper(page);
+    await drawEveryCosmetic(page);
+}
+
+// dressPepper dresses Pepper, who owns every cosmetic, through the
+// wardrobe: an item in each slot, which must then all show on her
+async function dressPepper(page) {
+    const cosmetics = await page.evaluate(() => fetch('/api/shop').then(r => r.json()).then(d => d.data.cosmetics));
+    const unowned = cosmetics.filter(c => !c.owned).map(c => c.id);
+    if (unowned.length) problems.push('Pepper should own every cosmetic, not: ' + unowned.join(', '));
+    const outfit = {};
+    cosmetics.forEach(c => { if (!outfit[c.slot]) outfit[c.slot] = c; });
+    if (Object.keys(outfit).length !== 6) problems.push('the wardrobe should have six slots: ' + Object.keys(outfit));
+
+    await page.evaluate(() => openShop());
+    await page.waitForTimeout(800);
+    await settle(page);
+    await page.locator('.shop-tab', {hasText: 'Wardrobe'}).click();
+    for (const c of Object.values(outfit)) {
+        const row = page.locator('#shopList .shop-item').filter({has: page.locator('.shop-name', {hasText: c.name})}).first();
+        await row.locator('button', {hasText: 'Wear'}).click({timeout: 5000})
+            .catch(e => problems.push('could not wear ' + c.name + ': ' + e.message.split('\n')[0]));
+        await page.waitForTimeout(500); // The wardrobe reloads
+    }
+    const worn = await page.locator('#shopList .shop-item button', {hasText: 'Take off'}).count();
+    if (worn !== 6) problems.push('the wardrobe should show six items to take off, not ' + worn);
+    await page.evaluate(() => closeShop());
+    await page.waitForTimeout(1500); // The pet is drawn again with the next status
+    const shown = await page.evaluate(() => [...document.querySelectorAll('#petSprite title')].map(t => t.textContent));
+    for (const c of Object.values(outfit)) {
+        if (!shown.includes(c.name)) problems.push('Pepper should be shown wearing ' + c.name);
+    }
+    console.log('Dressed Pepper in ' + Object.values(outfit).map(c => c.name).join(', '));
+}
+
+// drawEveryCosmetic draws every cosmetic on every breed of both kinds of
+// pet, with the page's own drawing, and checks each drawing is well formed
+// and shows the item
+async function drawEveryCosmetic(page) {
+    const result = await page.evaluate(async () => {
+        const cosmetics = (await fetch('/api/shop').then(r => r.json())).data.cosmetics;
+        const found = [];
+        let draws = 0;
+        for (const species of ['cat', 'dog']) {
+            const breeds = (await fetch('/api/breeds?species=' + species).then(r => r.json())).data.breeds;
+            for (const b of breeds) {
+                for (const c of cosmetics) {
+                    const svg = GochiArt.draw({species: species, look: b.typical, outfit: {[c.slot]: c}, size: 100, label: b.name});
+                    draws++;
+                    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+                    if (doc.querySelector('parsererror')) found.push(c.id + ' on a ' + b.name + ' is not well formed');
+                    else if (![...doc.querySelectorAll('title')].some(t => t.textContent === c.name)) found.push(c.id + ' is not drawn on a ' + b.name);
+                }
+            }
+        }
+        return {draws: draws, cosmetics: cosmetics.length, found: found};
+    });
+    result.found.slice(0, 20).forEach(p => problems.push(p));
+    if (result.found.length > 20) problems.push((result.found.length - 20) + ' more drawing problems');
+    console.log('Drew ' + result.cosmetics + ' cosmetics on every breed: ' + result.draws + ' drawings');
 }
 
 // settle closes the tour and any pop-ups, the way a player would
