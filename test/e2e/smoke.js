@@ -126,9 +126,10 @@ async function drawEveryCosmetic(page) {
         }
         return {draws: draws, cosmetics: cosmetics.length, found: found};
     });
-    // Round the neck, nothing may hide another: with a collar that has a
-    // charm, a tag and each kind of neck item (a bandana, or one drawn as
-    // its icon), the charms overlap neither each other nor the neck item
+    // Round the neck, in layers: with a collar that has a charm, a tag and
+    // each kind of neck item (a bandana, or one drawn as its icon), the
+    // charms hang from the collar, on top of the neck item, and don't
+    // overlap each other
     const overlaps = await page.evaluate(async () => {
         const cosmetics = (await fetch('/api/shop').then(r => r.json())).data.cosmetics;
         const byID = id => cosmetics.find(c => c.id === id);
@@ -143,11 +144,16 @@ async function drawEveryCosmetic(page) {
                     const outfit = {collar: byID('collar_bell'), tag: byID('tag_paw'), neck: neck};
                     box.innerHTML = GochiArt.draw({species: species, look: b.typical, outfit: outfit, size: 200});
                     const shape = (name, tag) => [...box.querySelectorAll('title')]
-                        .find(t => t.textContent === name && (!tag || t.parentElement.tagName === tag)).parentElement.getBBox();
+                        .find(t => t.textContent === name && (!tag || t.parentElement.tagName === tag)).parentElement;
                     const bell = shape(outfit.collar.name, 'text'), paw = shape(outfit.tag.name), scarf = shape(neck.name);
-                    const meet = (a, c) => a.x < c.x + c.width - 1 && c.x < a.x + a.width - 1 && a.y < c.y + c.height - 1 && c.y < a.y + a.height - 1;
-                    if (meet(bell, paw)) found.push('the bell and the tag overlap on a ' + b.name + ' with a ' + neck.name);
-                    if (meet(bell, scarf) || meet(paw, scarf)) found.push('the ' + neck.name + ' covers a charm on a ' + b.name);
+                    const band = shape(outfit.collar.name, 'path').getBBox();
+                    const on = b.name + ' with a ' + neck.name;
+                    const [bb, pb] = [bell.getBBox(), paw.getBBox()];
+                    if (bb.x < pb.x + pb.width - 1 && pb.x < bb.x + bb.width - 1) found.push('the bell and the tag overlap on a ' + on);
+                    for (const [charm, r] of [[bell, bb], [paw, pb]]) {
+                        if (!(scarf.compareDocumentPosition(charm) & Node.DOCUMENT_POSITION_FOLLOWING)) found.push('the ' + neck.name + ' is drawn over a charm on a ' + on);
+                        if (Math.abs(r.y - (band.y + band.height)) > 3) found.push('a charm doesn\'t hang from the collar on a ' + on);
+                    }
                 }
             }
         }
