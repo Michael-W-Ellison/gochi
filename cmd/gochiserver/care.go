@@ -125,6 +125,9 @@ func (s *Server) writeCareResult(w http.ResponseWriter, result core.InteractionR
 		if message == "" {
 			message = s.pet.Name + " can't do that right now."
 		}
+		if result.Suggestion != "" {
+			message += " " + result.Suggestion
+		}
 		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: message})
 		return
 	}

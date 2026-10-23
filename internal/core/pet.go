@@ -443,14 +443,14 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	}
 	p.Biology.EnsurePhysiology()
 	if refusal := p.careRefusalLocked(interactionType); refusal != "" {
-		return InteractionResult{Refusal: refusal}
+		return InteractionResult{Refusal: refusal, Suggestion: p.suggestionLocked()}
 	}
 	behaviorBefore, contextBefore := p.CurrentBehavior, p.learningContextLocked()
 
 	// The interaction rules can turn care down (a full pet is not hungry,
 	// a sleeping pet won't play); nothing happens and nothing is earned
 	if ok, reason := interaction.ValidateInteraction(interactionType, p.interactionContextLocked()); !ok {
-		return InteractionResult{Refusal: strings.Replace(reason, "Pet", p.Name, 1) + "."}
+		return InteractionResult{Refusal: strings.Replace(reason, "Pet", p.Name, 1) + ".", Suggestion: p.suggestionLocked()}
 	}
 
 	p.TotalInteractions++
@@ -546,6 +546,9 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	description, outcome := careHistoryText(interactionType, result)
 	p.addHistoryLocked(interactionType.String(), description, outcome)
 	p.progressGoalsLocked(interactionType)
+	if result.Reaction == ReactionReluctant && interactionType != types.InteractionDiscipline { // Never enjoyed
+		result.Suggestion = p.suggestionLocked()
+	}
 	return result
 }
 

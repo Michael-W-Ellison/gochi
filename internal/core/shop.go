@@ -376,6 +376,10 @@ type InteractionResult struct {
 	// barely counts towards the pet's learning and personality
 	Repeated string
 
+	// When the pet turned the care down or took it reluctantly: activities
+	// ready now (see ThingsToDo)
+	Suggestion string
+
 	// How the pet reacted, which scales the interaction's benefits by
 	// ReactionMultiplier (see reactionLocked)
 	Reaction           ReactionLevel

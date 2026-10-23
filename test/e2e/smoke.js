@@ -169,6 +169,12 @@ async function playEverything(page, name) {
         if (!seen) problems.push('the ' + kind + ' choices opened out of view');
         await closePanels(page);
     }
+    // Things to do now: listed under the care buttons, each ready one
+    // opening its activity (not exploring, which sends the pet away)
+    if (!(await page.locator('#thingsToDo').isVisible()) || await page.locator('#thingsToDo .thing-btn').count() === 0) {
+        problems.push(name + ' has nothing listed to do now');
+    }
+    await clickAll(page, '#thingsToDo .thing-btn:not([data-thing="explore"])', async () => closePanels(page));
     // The care that opens the games: play (from Play's choices) and
     // enrichment (from Enrich's); grooming was given above
     await chooseFirst(page, '.action-btn.play', 'play');

@@ -142,6 +142,7 @@ type PetStatus struct {
 	SoundOff     bool             `json:"sound_off"` // A parent has turned the game's sounds off
 	GoalLevel    float64          `json:"goal_level"`
 	Forecasts    []forecastStatus `json:"forecasts"`
+	ThingsToDo   []core.ThingToDo `json:"things_to_do"` // Activities, those ready now first
 	PlaySchedule string           `json:"play_schedule"`
 
 	Tricks           []core.TrickProgress   `json:"tricks"`
@@ -808,6 +809,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .forecast { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #e7f5ff; border: 2px solid #d0ebff; font-size: 0.9em; color: #1864ab; }
         .forecast-item { margin-top: 3px; }
         .play-schedule { margin-top: 4px; color: #555; font-size: 0.85em; }
+        .things-to-do { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f3f0ff; border: 2px solid #e5dbff; font-size: 0.9em; }
+        .thing-item { display: flex; gap: 8px; align-items: baseline; margin-top: 5px; }
+        .thing-btn { flex: none; border: 2px solid #b197fc; background: #fff; color: #5f3dc4; border-radius: 10px; padding: 3px 8px; font-weight: 600; cursor: pointer; }
+        .thing-name { flex: none; color: #868e96; font-weight: 600; padding: 0 10px; }
+        .thing-why { color: #555; }
+        .thing-item.waiting .thing-why { color: #868e96; }
         .event-log { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #f8f9fa; border: 2px solid #e9ecef; font-size: 0.88em; }
         .event-log-item { margin-top: 3px; color: #5c3c00; }
         .event-log-item.good { color: #2b8a3e; }
@@ -1128,6 +1135,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 <button class="action-btn clean" id="cleanBtn" onclick="interact('clean')">🧹 Scoop litter</button>
                 <button class="action-btn walk hidden" id="walkBtn" onclick="interact('walk')">🦮 Walk</button>
             </div>
+            <div class="things-to-do hidden" id="thingsToDo"></div>
 
             <div class="health-panel">
                 <div class="section-title">Body</div>
@@ -1889,6 +1897,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
             updateGoals(status);
             updateForecast(status);
+            updateThingsToDo(status);
             fetchEvents(status.name);
         }
 
@@ -1932,6 +1941,48 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 line.append(reward);
                 box.append(line);
             }
+        }
+
+        // What the player can do with the pet now, besides care: each
+        // activity ready opens from here; the others say why they wait
+        const thingActions = {train: () => openTricks(), hide_seek: () => startHideSeek(), games: () => openGames(),
+            explore: () => explore(), shows: () => openShows(), enrich: () => openChoices('enrich')};
+
+        let shownThings = '';
+
+        function updateThingsToDo(status) {
+            const box = document.getElementById('thingsToDo');
+            const things = status.things_to_do || [];
+            // Rebuilt only when it changes, so a button isn't replaced as it is clicked
+            const key = JSON.stringify(things);
+            if (key === shownThings) return;
+            shownThings = key;
+            box.classList.toggle('hidden', things.length === 0);
+            box.replaceChildren();
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = 'Things to do now';
+            box.append(title);
+            things.forEach(t => {
+                const line = document.createElement('div');
+                line.className = 'thing-item' + (t.ready ? '' : ' waiting');
+                let name;
+                if (t.ready && thingActions[t.id]) {
+                    name = document.createElement('button');
+                    name.className = 'thing-btn';
+                    name.dataset.thing = t.id;
+                    name.onclick = thingActions[t.id];
+                } else {
+                    name = document.createElement('span');
+                    name.className = 'thing-name';
+                }
+                name.textContent = t.icon + ' ' + t.name;
+                const why = document.createElement('span');
+                why.className = 'thing-why';
+                why.textContent = t.why;
+                line.append(name, why);
+                box.append(line);
+            });
         }
 
         // What the pet will soon need, and when the player usually plays
@@ -2123,6 +2174,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if (result.lesson) lines.push(['💡 ' + result.lesson, 'lesson']);
             if (result.repeated) lines.push([result.repeated, 'repeated']);
             if (result.note) lines.push([result.note, 'note']);
+            if (result.suggestion) lines.push(['👉 ' + result.suggestion, 'note']);
             if ('points_earned' in result) {
                 lines.push(result.points_earned > 0 ?
                     ['+' + result.points_earned + ' Friendship Points!', ''] :
@@ -3817,6 +3869,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.Weekly = s.pet.WeekGoal()
 	_, petStatus.Titles = s.pet.ShowRecord()
 	petStatus.Forecasts = s.forecastsLocked(now)
+	petStatus.ThingsToDo = s.pet.ThingsToDo()
 	petStatus.Outfit = s.pet.Worn()
 	petStatus.Breed = s.pet.BreedInfo()
 	petStatus.Upkeep = s.pet.UpkeepStatuses()
@@ -3917,16 +3970,7 @@ func (s *Server) handleInteract(w http.ResponseWriter, r *http.Request) {
 		s.writeCareResult(w, result, err)
 		return
 	}
-	result := s.pet.Interact(interactionType, 1.0)
-	if !result.Applied {
-		message := result.Refusal
-		if message == "" {
-			message = s.pet.Name + " can't do that right now."
-		}
-		writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: message})
-		return
-	}
-	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.interactionData(result)})
+	s.writeCareResult(w, s.pet.Interact(interactionType, 1.0), nil)
 }
 
 func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
