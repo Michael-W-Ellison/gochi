@@ -126,6 +126,35 @@ async function drawEveryCosmetic(page) {
         }
         return {draws: draws, cosmetics: cosmetics.length, found: found};
     });
+    // Round the neck, nothing may hide another: with a collar that has a
+    // charm, a tag and each kind of neck item (a bandana, or one drawn as
+    // its icon), the charms overlap neither each other nor the neck item
+    const overlaps = await page.evaluate(async () => {
+        const cosmetics = (await fetch('/api/shop').then(r => r.json())).data.cosmetics;
+        const byID = id => cosmetics.find(c => c.id === id);
+        const necks = ['bandana_blue', 'bow_tie', 'knitted_scarf'].map(byID);
+        const box = document.createElement('div');
+        document.body.append(box);
+        const found = [];
+        for (const species of ['cat', 'dog']) {
+            const breeds = (await fetch('/api/breeds?species=' + species).then(r => r.json())).data.breeds;
+            for (const b of breeds) {
+                for (const neck of necks) {
+                    const outfit = {collar: byID('collar_bell'), tag: byID('tag_paw'), neck: neck};
+                    box.innerHTML = GochiArt.draw({species: species, look: b.typical, outfit: outfit, size: 200});
+                    const shape = (name, tag) => [...box.querySelectorAll('title')]
+                        .find(t => t.textContent === name && (!tag || t.parentElement.tagName === tag)).parentElement.getBBox();
+                    const bell = shape(outfit.collar.name, 'text'), paw = shape(outfit.tag.name), scarf = shape(neck.name);
+                    const meet = (a, c) => a.x < c.x + c.width - 1 && c.x < a.x + a.width - 1 && a.y < c.y + c.height - 1 && c.y < a.y + a.height - 1;
+                    if (meet(bell, paw)) found.push('the bell and the tag overlap on a ' + b.name + ' with a ' + neck.name);
+                    if (meet(bell, scarf) || meet(paw, scarf)) found.push('the ' + neck.name + ' covers a charm on a ' + b.name);
+                }
+            }
+        }
+        box.remove();
+        return found;
+    });
+    result.found.push(...overlaps);
     result.found.slice(0, 20).forEach(p => problems.push(p));
     if (result.found.length > 20) problems.push((result.found.length - 20) + ' more drawing problems');
     console.log('Drew ' + result.cosmetics + ' cosmetics on every breed: ' + result.draws + ' drawings');

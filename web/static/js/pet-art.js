@@ -360,21 +360,30 @@ const GochiArt = (function () {
                 out.push(text(body, cx, bodyCy + 12, 30));
             }
         }
+        // Round the neck, from the inside out: the neck item (bandana, scarf
+        // or bow tie), the collar over it, and the charms (the collar's own,
+        // such as a bell, and a tag) hanging below the neck item, side by
+        // side, so nothing hides another
         const collar = slots.collar;
-        if (collar) {
-            const fill = collar.color && /^#[0-9a-fA-F]{6}$/.test(collar.color) ? collar.color : '#c62828';
-            out.push(`<path d="M${cx - 24},${neckY - 2} q24,12 48,0" stroke="${fill}" stroke-width="6" fill="none" stroke-linecap="round"><title>${esc(collar.name || '')}</title></path>`);
-            if (collar.icon && collar.icon !== '⭕') out.push(text(collar, cx, neckY + 16, 13));
-        }
+        let hangFrom = neckY + 4; // The bottom of the collar, or of the neck item
         if (slots.neck) {
             const n = slots.neck;
             if (n.icon === '🔻' && n.color && /^#[0-9a-fA-F]{6}$/.test(n.color)) {
                 out.push(`<path d="M${cx - 22},${neckY - 3} L${cx + 22},${neckY - 3} L${cx},${neckY + 20} Z" fill="${n.color}"><title>${esc(n.name || '')}</title></path>`);
+                hangFrom = neckY + 21;
             } else {
                 out.push(text(n, cx, neckY + 14, 22));
+                hangFrom = neckY + 21; // The icon reaches 6 below its baseline
             }
         }
-        if (slots.tag) out.push(text(slots.tag, cx, neckY + (collar ? 24 : 16), 12));
+        if (collar) {
+            const fill = collar.color && /^#[0-9a-fA-F]{6}$/.test(collar.color) ? collar.color : '#c62828';
+            out.push(`<path d="M${cx - 24},${neckY - 2} q24,12 48,0" stroke="${fill}" stroke-width="6" fill="none" stroke-linecap="round"><title>${esc(collar.name || '')}</title></path>`);
+        }
+        const charms = [];
+        if (collar && collar.icon && collar.icon !== '⭕') charms.push([collar, 13]);
+        if (slots.tag) charms.push([slots.tag, 12]);
+        charms.forEach(([c, size], i) => out.push(text(c, cx + (charms.length > 1 ? (i ? 9 : -9) : 0), hangFrom + 12, size)));
         if (slots.eyes) out.push(text(slots.eyes, cx, headY + 5, 30));
         if (slots.head) out.push(text(slots.head, cx, headY - headRy + 6, 34));
         return out.join('');
