@@ -195,7 +195,7 @@ type DigitalPet struct {
 
 	// What UpcomingNeeds last showed, and the care given by then (not saved)
 	shownNeeds []shownNeed
-	shownAfter careMark
+	shownAfter careGiven
 
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex

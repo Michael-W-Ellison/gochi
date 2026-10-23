@@ -160,8 +160,9 @@ func upcoming(pet *DigitalPet) map[string]NeedForecast {
 	return needs
 }
 
-// A need once shown stays until care meets it, even when it is no longer
-// forecast: the list once lost needs and got them back between refreshes
+// A need once shown stays until its care meets it, even when it is no
+// longer forecast: the list once lost needs and got them back between
+// refreshes
 func TestUpcomingNeedsKeepAShownNeedUntilMet(t *testing.T) {
 	pet := NewDigitalPet("Mochi", "user123")
 	setCalmHealthyState(pet)
@@ -179,13 +180,21 @@ func TestUpcomingNeedsKeepAShownNeedUntilMet(t *testing.T) {
 		t.Fatalf("Thirst should stay at %v days until met, got %+v", drink.InDays, pet.UpcomingNeeds(3))
 	}
 
-	before := pet.TotalInteractions
-	pet.Interact(types.InteractionPetting, 0.5)
-	if pet.TotalInteractions == before {
-		t.Fatal("The petting should count as care")
+	// Other care doesn't meet thirst
+	if r := pet.Interact(types.InteractionPetting, 0.5); !r.Applied {
+		t.Fatalf("The pet should be petted: %+v", r)
+	}
+	if _, ok := upcoming(pet)["drink"]; !ok {
+		t.Fatalf("Petting doesn't meet thirst: %+v", pet.UpcomingNeeds(3))
+	}
+
+	// A drink does
+	pet.Biology.Vitals.Hydration = 0.6 // Not thirsty within 3 days, but willing to drink
+	if r := pet.Interact(types.InteractionDrinking, 0.5); !r.Applied {
+		t.Fatalf("The pet should drink: %+v", r)
 	}
 	if needs := upcoming(pet); len(needs) != 0 {
-		t.Errorf("Care has been given and thirst isn't coming any more: %+v", needs)
+		t.Errorf("A drink has been given and thirst isn't coming any more: %+v", needs)
 	}
 }
 
@@ -254,6 +263,30 @@ func TestUpcomingNeedsKeepTheirPlaces(t *testing.T) {
 	}
 	if needs["feed"] || !needs["drink"] {
 		t.Errorf("Thirst should take the place feeding freed: %+v", pet.UpcomingNeeds(30))
+	}
+}
+
+// Needs shown are kept while the pet is away exploring, and shown again
+// when it comes home
+func TestUpcomingNeedsKeptWhileExploring(t *testing.T) {
+	pet := NewDigitalPet("Mochi", "user123")
+	setCalmHealthyState(pet)
+	pet.Biology.Vitals.Hydration = minExploreLevel + 0.02 // Thirsty within 3 days, but able to go out
+	if _, ok := upcoming(pet)["drink"]; !ok {
+		t.Fatalf("Thirst should be coming: %+v", pet.UpcomingNeeds(3))
+	}
+	if err := pet.SendExploring(); err != nil {
+		t.Fatal(err)
+	}
+	if needs := pet.UpcomingNeeds(3); len(needs) != 0 {
+		t.Errorf("Nothing is shown while the pet is away: %+v", needs)
+	}
+	pet.Biology.Vitals.Hydration = 1 // No longer coming, but not by a drink
+	if _, err := pet.RecallFromExploring(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := upcoming(pet)["drink"]; !ok {
+		t.Errorf("Thirst should be shown again: %+v", pet.UpcomingNeeds(3))
 	}
 }
 

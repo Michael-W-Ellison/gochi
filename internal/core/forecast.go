@@ -132,35 +132,75 @@ type shownNeed struct {
 	due float64
 }
 
-// careMark tells whether the pet has been cared for since it was taken
-type careMark struct {
-	interactions int
-	lastAge      float64
+// careGiven is the care a pet has had: its care counts by kind and its
+// trips
+type careGiven struct {
+	counts map[string]int
+	trips  int
 }
 
-// careMarkLocked returns the pet's care so far. Caller must hold p.mu.
-func (p *DigitalPet) careMarkLocked() careMark {
-	return careMark{p.TotalInteractions, p.LastInteractionAge}
+// meeting is the care that meets each need: the care the page's button for
+// it gives (treats are among the foods)
+var meeting = map[string][]types.InteractionType{
+	"feed":  {types.InteractionFeeding, types.InteractionRewards},
+	"drink": {types.InteractionDrinking},
+	"pet":   {types.InteractionPetting},
+	"play":  {types.InteractionPlaying},
+	"groom": {types.InteractionGrooming},
+	"medic": {types.InteractionMedicalCare},
+	"clean": {types.InteractionCleaning},
+	"walk":  {types.InteractionWalking},
+	"train": {types.InteractionTraining},
+}
+
+// careGivenLocked returns the care the pet has had so far. Caller must hold
+// p.mu.
+func (p *DigitalPet) careGivenLocked() careGiven {
+	counts := make(map[string]int, len(p.CareCounts))
+	for kind, n := range p.CareCounts {
+		counts[kind] = n
+	}
+	return careGiven{counts, p.TripsTaken}
+}
+
+// meets reports whether care given between before and c meets the need
+// asked for with action (exploring is met by a trip)
+func (c careGiven) meets(before careGiven, action string) bool {
+	if action == "explore" {
+		return c.trips > before.trips
+	}
+	for _, kind := range meeting[action] {
+		if c.counts[kind.String()] > before.counts[kind.String()] {
+			return true
+		}
+	}
+	return false
 }
 
 // UpcomingNeeds returns what the pet will ask for within horizon game days,
 // soonest first, for the owner to see coming: Forecast's needs, except that
-// a need once shown stays until it is due, the pet has it, or care given
-// since has met it (it is no longer forecast). A need that is forecast
-// again takes its new time; new needs fill the places left, up to 3, so
-// one can't push a need already shown off the list.
+// a need once shown stays until it is due, the pet has it, or the care that
+// meets it has been given and it is no longer forecast. A need that is
+// forecast again takes its new time; new needs fill the places left, up to
+// 3, so one can't push a need already shown off the list. While the pet is
+// away exploring nothing is shown, and what was shown is kept for its
+// return.
 func (p *DigitalPet) UpcomingNeeds(horizon float64) []NeedForecast {
 	fresh := p.forecast(horizon, 0) // Every need, so one shown before is found however many come sooner
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.Biology.IsAlive || p.Hibernating || p.isExploringLocked() || horizon <= 0 {
+	if !p.Biology.IsAlive || p.Hibernating || horizon <= 0 {
 		p.shownNeeds = nil
 		return []NeedForecast{}
 	}
+	if p.isExploringLocked() {
+		return []NeedForecast{}
+	}
 	age := p.Biology.GetAgeInDays()
-	cared := p.careMarkLocked() != p.shownAfter
-	p.shownAfter = p.careMarkLocked()
+	care := p.careGivenLocked()
+	before := p.shownAfter
+	p.shownAfter = care
 	now := make(map[string]bool)
 	for _, need := range p.requestsLocked(false) {
 		now[need.Action] = true
@@ -179,7 +219,7 @@ func (p *DigitalPet) UpcomingNeeds(horizon float64) []NeedForecast {
 		case still:
 			shown = append(shown, shownNeed{f, age + f.InDays})
 			listed[s.Action] = true
-		case !cared: // Not met: only care meets a need
+		case !care.meets(before, s.Action): // Not met: only its care meets a need
 			shown = append(shown, s)
 			listed[s.Action] = true
 		}
