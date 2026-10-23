@@ -87,7 +87,7 @@ func (s *Server) forecastsLocked(now time.Time) []forecastStatus {
 		return forecasts
 	}
 	horizon := s.forecastHorizon(now).Seconds() * gamePerReal / secondsPerGameDay
-	for _, f := range s.pet.Forecast(horizon) {
+	for _, f := range s.pet.UpcomingNeeds(horizon) {
 		forecasts = append(forecasts, forecastStatus{f, int(f.InDays*secondsPerGameDay/gamePerReal + 0.5)})
 	}
 	return forecasts

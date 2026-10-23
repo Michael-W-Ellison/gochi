@@ -193,6 +193,10 @@ type DigitalPet struct {
 	// called (not saved)
 	completedGoals []Goal
 
+	// What UpcomingNeeds last showed, and the care given by then (not saved)
+	shownNeeds []shownNeed
+	shownAfter careMark
+
 	// mu guards concurrent updates, interactions and reads of pet state
 	mu sync.Mutex
 }
