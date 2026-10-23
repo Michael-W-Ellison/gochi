@@ -77,6 +77,19 @@ async function clickAll(page, selector, between) {
     }
 }
 
+// chooseFirst opens the choices behind a button and makes the first one,
+// as a player would
+async function chooseFirst(page, opener, what) {
+    await settle(page);
+    await page.locator(opener).click();
+    const choice = page.locator('#activityPanel .choice-row button').first();
+    await choice.click({timeout: 5000})
+        .catch(e => problems.push('could not choose ' + what + ': ' + e.message.split('\n')[0]));
+    await page.waitForTimeout(600); // First-time tips appear after 400ms
+    await settle(page);
+    await closePanels(page);
+}
+
 async function closePanels(page) {
     await page.evaluate(() => { closePanel(); if (typeof closeShop === 'function') closeShop(); });
 }
@@ -96,6 +109,10 @@ async function playEverything(page, name) {
         if (!seen) problems.push('the ' + kind + ' choices opened out of view');
         await closePanels(page);
     }
+    // The care that opens the games: play (from Play's choices) and
+    // enrichment (from Enrich's); grooming was given above
+    await chooseFirst(page, '.action-btn.play', 'play');
+    await chooseFirst(page, '.activity-btn.enrich', 'enrichment');
     // Every activity, and every button along the bottom, but not the camera or ones that leave the pet
     await clickAll(page, '.activities .activity-btn:not(.ar)', async () => closePanels(page));
     await clickAll(page, '.save-row button:not([onclick*="Chooser"]):not([onclick*="AR"])', async label => {
@@ -110,6 +127,9 @@ async function playEverything(page, name) {
     const games = await page.evaluate(() => fetch('/api/games').then(r => r.json()).then(d => d.data || []));
     const playable = games.filter(g => !g.unavailable);
     console.log(name + ' can play ' + playable.map(g => g.id).join(', '));
+    games.filter(g => g.unavailable).forEach(g => console.log('  ' + g.id + ': ' + g.unavailable));
+    if (playable.length === 0) problems.push(name + ' has no game to play');
+    const playing = () => page.evaluate(() => panelMode === 'game');
     for (const game of playable) {
         await page.evaluate(g => startGame(g), game);
         await page.waitForTimeout(300);
@@ -122,16 +142,23 @@ async function playEverything(page, name) {
         } else if (game.id === 'wand') {
             await panel.locator('button', {hasText: 'Let it catch'}).click();
         } else if (game.id === 'puzzle' || game.id === 'scent') {
-            for (let i = 0; i < 40 && await page.evaluate(() => panelMode) === 'game'; i++) {
+            for (let i = 0; i < 40 && await playing(); i++) {
                 const tiles = panel.locator('.game-tile:enabled');
                 if (await tiles.count() === 0) break;
-                await tiles.nth(i % await tiles.count()).click();
+                const clicked = await tiles.nth(i % await tiles.count()).click({timeout: 3000}).then(() => true, () => false);
+                if (!clicked && await playing()) { // Not just the game ending as the tile was clicked
+                    problems.push('could not click a tile in ' + game.id);
+                    break;
+                }
                 await page.waitForTimeout(60);
             }
         } else if (game.id === 'grooming') {
             const rows = panel.locator('.trick-row');
             for (let i = 0; i < await rows.count(); i++) await rows.nth(i).locator('button').first().click();
         }
+        // A game shows how it went a moment after it ends
+        for (let wait = 0; wait < 20 && await playing(); wait++) await page.waitForTimeout(150);
+        if (await playing()) problems.push(game.id + ' did not finish');
         await page.waitForTimeout(1300);
         await closePanels(page);
     }
