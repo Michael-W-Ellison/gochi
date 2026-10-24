@@ -916,7 +916,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .collection-items .missing { filter: grayscale(1); opacity: 0.25; }
         .shelf-pick { display: inline-flex; align-items: center; gap: 2px; margin: 2px 6px 2px 0; font-size: 1.1em; }
         .show-box { border: 1px solid #eee; border-radius: 10px; padding: 8px; margin: 8px 0; text-align: left; }
-        .game-box { margin: 8px 0; }
+        /* Nothing in a game is selected by a drag or a long press, which would draw a box around the pieces */
+        .game-box { margin: 8px 0; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
         .game-meter { position: relative; height: 22px; border-radius: 11px; background: #eee; margin: 8px 0; overflow: hidden; }
         .game-zone { position: absolute; left: 55%; width: 25%; top: 0; bottom: 0; background: #b7e4b0; }
         .game-marker { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: #667eea; }

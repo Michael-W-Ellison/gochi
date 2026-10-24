@@ -293,6 +293,9 @@ async function playGame(page, game) {
     await page.evaluate(g => startGame(g), game);
     await page.waitForTimeout(300);
     const panel = page.locator('#activityPanel');
+    // Selecting the page (a drag or a long press) mustn't draw boxes around the game's pieces
+    const selectable = await page.$eval('.game-box', b => getComputedStyle(b).userSelect !== 'none').catch(() => true);
+    if (selectable) problems.push('the ' + game.id + " game's pieces can be selected");
     if (game.id === 'fetch') {
         for (let i = 0; i < 5; i++) {
             await panel.locator('button', {hasText: 'Throw'}).click({timeout: 5000});
