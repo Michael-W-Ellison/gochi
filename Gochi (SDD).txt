@@ -1034,7 +1034,7 @@ restored; a damaged save
 is replaced by its newest working backup.
 Player accounts (accounts.go): several players can play on one device, one at a time. Each account
 has its own folder, <data-dir>/accounts/<id>/ (the ID is 16 random hex digits), holding its saves,
-backups, cache, keepsake books, household.json, stats.json, owner.json and cloud.json; the device's
+backups, cache, keepsake books, household.json, stats.json, owner.json, cloud.json and popups.json; the device's
 files (accounts.json, parental.json, devices.json and the hub's folder) stay in the data folder.
 accounts.json lists each account's ID, name, number and creation time, and the account being
 played. A name is typed by the player (1 to 24 printable characters, trimmed, unique ignoring case)
@@ -1046,7 +1046,8 @@ and a file the account already has is never replaced. The holiday and sound sett
 household to parental.json once. Switching (POST /api/accounts/switch) saves the play schedule,
 statistics, household and active pet, opens the other account's files (a damaged one is set aside),
 leaves any playdate, replaces the server's account parts and per-session state (pop-ups not yet
-dismissed are kept in memory for their account and shown when it is played again), and restores that
+dismissed are saved as they change in the account's popups.json, at most the newest 50, so they are
+shown when it is played again, also after a restart; a damaged file is set aside), and restores that
 account's most recently saved pet. A server-wide read-write lock, taken for reading by every request
 (except the switch) and every update, autosave and sync step, and for writing by the switch, keeps
 anything from using an account's parts while they are replaced; achievements waiting to be shared

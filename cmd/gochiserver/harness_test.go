@@ -88,6 +88,8 @@ func openHarness(t testing.TB, root string) *harness {
 		ownerPath:    parts.ownerPath,
 		stats:        parts.stats,
 		house:        parts.house,
+		popups:       parts.popups,
+		popupsPath:   parts.popupsPath,
 		parental:     parental,
 		pairing:      pairing,
 		listenAddr:   "127.0.0.1:8080",

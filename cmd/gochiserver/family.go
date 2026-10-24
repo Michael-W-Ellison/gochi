@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,14 +32,81 @@ type popup struct {
 // warned, in real time
 const adultWarning = 5 * time.Minute
 
-// addPopupLocked queues a pop-up. Caller must hold s.mu.
-func (s *Server) addPopupLocked(p popup) {
-	for _, q := range s.popups {
-		if q.ID == p.ID {
-			return
+// Pop-ups wait until dismissed, also while another player plays and after
+// the game is closed: each player's are kept in popups.json in their folder
+
+// popupsFileName is the pop-ups file in a player's folder
+const popupsFileName = "popups.json"
+
+// maxPopups is how many pop-ups can wait; the oldest go first
+const maxPopups = 50
+
+// loadPopups reads popups.json from dir
+func loadPopups(dir string) ([]popup, error) {
+	path := filepath.Join(dir, popupsFileName)
+	contents, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var saved []popup
+	if err := json.Unmarshal(contents, &saved); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	var popups []popup
+	for _, p := range saved {
+		if p.ID != "" && p.Title != "" && !containsPopup(popups, p.ID) {
+			popups = append(popups, p)
 		}
 	}
+	if len(popups) > maxPopups {
+		popups = popups[len(popups)-maxPopups:]
+	}
+	return popups, nil
+}
+
+// containsPopup reports whether popups has one with id
+func containsPopup(popups []popup, id string) bool {
+	for _, p := range popups {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// savePopupsLocked writes the player's pop-ups, logging a failure (they
+// stay in memory). Caller must hold s.mu.
+func (s *Server) savePopupsLocked() {
+	if s.popupsPath == "" {
+		return
+	}
+	contents, err := json.Marshal(append([]popup{}, s.popups...))
+	if err == nil {
+		tmp := s.popupsPath + ".tmp"
+		if err = os.WriteFile(tmp, contents, 0o600); err == nil {
+			err = os.Rename(tmp, s.popupsPath)
+		} else {
+			_ = os.Remove(tmp) // Cut short (a full disk); the write's error is the one to report
+		}
+	}
+	if err != nil {
+		log.Printf("Could not save the pop-ups: %v", err)
+	}
+}
+
+// addPopupLocked queues a pop-up and saves it. Caller must hold s.mu.
+func (s *Server) addPopupLocked(p popup) {
+	if containsPopup(s.popups, p.ID) {
+		return
+	}
 	s.popups = append(s.popups, p)
+	if len(s.popups) > maxPopups {
+		s.popups = s.popups[len(s.popups)-maxPopups:]
+	}
+	s.savePopupsLocked()
 }
 
 // realDuration converts game days to real time at the game's speed
@@ -296,7 +366,10 @@ func (s *Server) handlePopupDismiss(w http.ResponseWriter, r *http.Request) {
 			kept = append(kept, p)
 		}
 	}
-	s.popups = kept
+	if len(kept) != len(s.popups) {
+		s.popups = kept
+		s.savePopupsLocked()
+	}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, APIResponse{Success: true})
 }

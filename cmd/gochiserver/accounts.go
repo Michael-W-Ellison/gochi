@@ -38,7 +38,7 @@ import (
 //
 //	accounts.json, parental.json, devices.json, hub/
 //	accounts/<id>/saves, backups, cache, books, household.json,
-//	              stats.json, owner.json, cloud.json
+//	              stats.json, owner.json, cloud.json, popups.json
 
 // accountsFileName is the list of accounts in the data folder
 const accountsFileName = "accounts.json"
@@ -365,6 +365,9 @@ type accountParts struct {
 	ownerPath string
 	stats     *playerStats
 	house     *household
+
+	popups     []popup // Not dismissed yet
+	popupsPath string
 }
 
 // openAccountParts reads an account's files from dir. A damaged file
@@ -391,6 +394,11 @@ func openAccountParts(dir, timeScale string, autosaveSeconds int) (accountParts,
 	}
 	if p.house, err = setAsideOnError("the household", filepath.Join(dir, householdFileName),
 		func() (*household, error) { return loadHousehold(dir) }); err != nil {
+		return p, err
+	}
+	p.popupsPath = filepath.Join(dir, popupsFileName)
+	if p.popups, err = setAsideOnError("the pop-ups", p.popupsPath,
+		func() ([]popup, error) { return loadPopups(dir) }); err != nil {
 		return p, err
 	}
 	return p, nil
@@ -458,8 +466,7 @@ func (s *Server) switchAccount(id string) error {
 	if !ok {
 		return errNoAccount
 	}
-	from := s.accounts.current().ID
-	if from == id {
+	if s.accounts.current().ID == id {
 		return nil
 	}
 	if err := s.saveAccountLocked(); err != nil {
@@ -481,15 +488,9 @@ func (s *Server) switchAccount(id string) error {
 	s.mu.Lock()
 	s.store, s.cloud, s.owner, s.ownerPath, s.stats, s.house = parts.store, parts.cloud, parts.owner,
 		parts.ownerPath, parts.stats, parts.house
-	// Pop-ups not dismissed yet wait for their player to come back
-	if s.otherPopups == nil {
-		s.otherPopups = map[string][]popup{}
-	}
-	if len(s.popups) > 0 {
-		s.otherPopups[from] = s.popups
-	}
-	s.popups = s.otherPopups[id]
-	delete(s.otherPopups, id)
+	// The player's pop-ups are saved as they change; the other player's
+	// wait in their folder
+	s.popups, s.popupsPath = parts.popups, parts.popupsPath
 	s.pet, s.slot, s.holidayBought = nil, "", false
 	s.lastHouseholdAwards, s.householdDays, s.lastHouseholdTime = time.Time{}, 0, time.Time{}
 	now := time.Now()
@@ -698,9 +699,6 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 		writeAccountError(w, err)
 		return
 	}
-	s.mu.Lock()
-	delete(s.otherPopups, req.ID)
-	s.mu.Unlock()
 	log.Printf("Deleted a player: %s", a.Name)
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.accountsStatus()})
 }

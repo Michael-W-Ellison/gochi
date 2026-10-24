@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -403,13 +404,44 @@ func TestPopupsStayWithTheirPlayer(t *testing.T) {
 		t.Errorf("A dismissed pop-up shouldn't come back: %v", got)
 	}
 
-	// Deleting a player drops their waiting pop-ups
-	if rec := h.post("/api/accounts/delete", `{"id":"`+sam+`","confirm_name":"Sam"}`); rec.Code != http.StatusOK {
-		t.Fatal(rec.Body.String())
+	// They last after the game is closed: Player 1's new one shows at once,
+	// Sam's waits for Sam
+	h.server.mu.Lock()
+	h.server.addPopupLocked(popup{ID: "again", Icon: "🎉", Title: "Again", Text: "For Player 1."})
+	h.server.mu.Unlock()
+	h = openHarness(t, h.root)
+	if got := h.server.popups; len(got) != 1 || got[0].ID != "again" {
+		t.Errorf("Player 1's pop-up should be kept after closing the game: %v", got)
 	}
-	h.server.mu.RLock()
-	defer h.server.mu.RUnlock()
-	if len(h.server.otherPopups) != 0 {
-		t.Errorf("Sam's pop-ups should be gone with Sam: %v", h.server.otherPopups)
+	h.switchTo(sam)
+	if got := popupsOf(); len(got) != 1 || got[0].ID != "sams" {
+		t.Errorf("Sam's pop-up should be kept after closing the game: %v", got)
+	}
+}
+
+// A damaged pop-ups file is set aside, and the player starts without
+// pop-ups; one with too many keeps the newest
+func TestPopupsFile(t *testing.T) {
+	h := newHarness(t)
+	path := filepath.Join(h.dir, popupsFileName)
+	if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again := openHarness(t, h.root)
+	if len(again.server.popups) != 0 {
+		t.Errorf("A damaged file should give no pop-ups: %v", again.server.popups)
+	}
+	var many []popup
+	for i := 0; i < maxPopups+5; i++ {
+		many = append(many, popup{ID: "p" + strconv.Itoa(i), Title: "T"}, popup{ID: "p" + strconv.Itoa(i), Title: "Twice"})
+	}
+	many = append(many, popup{ID: "", Title: "No ID"})
+	data, _ := json.Marshal(many)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := openHarness(t, h.root).server.popups
+	if len(got) != maxPopups || got[0].ID != "p5" || got[len(got)-1].ID != "p"+strconv.Itoa(maxPopups+4) {
+		t.Errorf("The newest %d pop-ups should be kept, once each: %d, %v ... %v", maxPopups, len(got), got[0], got[len(got)-1])
 	}
 }

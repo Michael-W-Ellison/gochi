@@ -64,11 +64,8 @@ type Server struct {
 	holidayBought bool
 
 	// Messages the page shows in front of everything until dismissed
-	popups []popup
-
-	// Pop-ups of the players not playing, by account ID, shown when they
-	// play again (accounts.go); kept while the game runs
-	otherPopups map[string][]popup
+	popups     []popup
+	popupsPath string // Where the player's pop-ups are saved (family.go); "" to not save them
 
 	// When the household achievements were last checked
 	lastHouseholdAwards time.Time
@@ -343,6 +340,8 @@ func main() {
 		ownerPath:    parts.ownerPath,
 		stats:        parts.stats,
 		house:        parts.house,
+		popups:       parts.popups,
+		popupsPath:   parts.popupsPath,
 		parental:     parental,
 		pairing:      pairing,
 		listenAddr:   config.Server.Addr,
