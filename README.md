@@ -403,7 +403,9 @@ a little less happy in the opposite one.
 Below the bars, five smaller bars show needs that build up over time: **Exercise** (met by play,
 hide and seek and exploring), **Company** and **Affection** (petting, grooming, treats and
 training), **Learning** (training and play) and **Adventure** (exploring). A pet asks for help when
-a need runs low, and needs left completely unmet make it unhappy. After each action the page shows what changed, for
+a need runs low, and needs left completely unmet make it unhappy. Pointing at one of these bars
+with the mouse (or tabbing to it, or tapping it on a phone or tablet) opens a pop-up with its level,
+what it means and which buttons fill it. After each action the page shows what changed, for
 example "Energy −10% · Happiness +20% · Stress −5%". A stat that is already full does not change.
 
 ### Daily Goals and What's Coming Up

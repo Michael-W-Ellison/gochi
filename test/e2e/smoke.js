@@ -343,6 +343,13 @@ async function closePanels(page) {
 }
 
 async function playEverything(page, name) {
+    // Each need explains itself when the mouse is over it
+    for (let i = 0; i < await page.locator('#needs .need').count(); i++) {
+        await page.locator('#needs .need').nth(i).hover();
+        const tip = await page.locator('#tipPop').isVisible() ? await page.textContent('#tipPop') : '';
+        if (!/%, .*To fill it: .+\./.test(tip)) problems.push('need ' + i + ' has no pop-up: ' + tip);
+    }
+    await page.mouse.move(0, 0);
     // Care
     await clickAll(page, '.actions .action-btn');
     // Buttons with choices (▾) show them in a panel above the buttons: it must

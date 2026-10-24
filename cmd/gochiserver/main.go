@@ -854,7 +854,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .points-toast .lesson { color: #1864ab; }
         .points-toast .repeated { color: #868e96; font-size: 0.95em; }
         .needs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
-        .need { text-align: center; font-size: 0.7em; color: #666; }
+        .need { text-align: center; font-size: 0.7em; color: #666; cursor: help; border-radius: 4px; }
+        .need:focus-visible { outline: 2px solid #667eea; outline-offset: 2px; }
+        .tip-pop { position: absolute; z-index: 20; max-width: 270px; padding: 9px 11px; border-radius: 10px; background: #2f3542; color: #fff; font-size: 0.85em; line-height: 1.4; box-shadow: 0 4px 14px rgba(0,0,0,0.25); pointer-events: none; }
+        .tip-pop .tip-head { font-weight: 600; margin-bottom: 4px; }
+        .tip-pop .tip-line { margin-top: 4px; }
         .need-bar { height: 6px; margin-top: 3px; background: #e9ecef; border-radius: 3px; overflow: hidden; }
         .need-fill { height: 100%; background: #20c997; }
         .need-fill.low { background: #fab005; }
@@ -1762,24 +1766,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('happinessBar').style.width = (status.happiness * 100) + '%';
             document.getElementById('hungerBar').style.width = (status.hunger * 100) + '%';
             document.getElementById('waterBar').style.width = (status.water * 100) + '%';
-            const needLabels = {'Exercise': 'Exercise', 'Social': 'Company', 'Mental Stimulation': 'Learning',
-                'Affection': 'Affection', 'Exploration': 'Adventure'};
-            const needs = document.getElementById('needs');
-            needs.replaceChildren();
-            (status.needs || []).forEach(n => {
-                const cell = document.createElement('div');
-                cell.className = 'need';
-                cell.title = n.need + ': ' + Math.round(n.level * 100) + '%';
-                cell.textContent = needLabels[n.need] || n.need;
-                const bar = document.createElement('div');
-                bar.className = 'need-bar';
-                const fill = document.createElement('div');
-                fill.className = 'need-fill' + (n.level < 0.2 ? ' critical' : n.level < 0.4 ? ' low' : '');
-                fill.style.width = Math.round(n.level * 100) + '%';
-                bar.append(fill);
-                cell.append(bar);
-                needs.append(cell);
-            });
+            updateNeeds(status);
             document.getElementById('friendship').textContent = formatPoints(status.friendship_points) +
                 (status.home_stars !== undefined ? ' · ⭐ ' + status.home_stars + ' Home Stars' : '');
             const belongings = document.getElementById('belongings');
@@ -1830,6 +1817,118 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             updateHealth(status);
             updateActivities(status);
         }
+
+        // The needs row: each need explains itself in a pop-up on hover,
+        // keyboard focus or a tap. The cells are kept from one update to
+        // the next, so an open pop-up stays open and follows the level.
+        const needInfo = {
+            'Exercise': {label: 'Exercise', what: 'Running, chasing and moving about.',
+                fill: s => ['Play ▾', s.walks ? '🦮 Walk' : null, '🏠 Enrich', '🙈 Hide & Seek',
+                    '🎮 Games (' + (s.walks ? 'Fetch' : 'Feather wand') + ')']},
+            'Social': {label: 'Company', what: 'Time spent with you and with other pets.',
+                fill: s => ['Pet ▾', '🎓 Train', s.walks ? '🦮 Walk' : null, '🤝 Meet another of your pets',
+                    '🧭 Explore (busy places)']},
+            'Mental Stimulation': {label: 'Learning', what: 'Things to think about and work out.',
+                fill: () => ['🎓 Train', 'Play ▾', '🏠 Enrich', '🎮 Games (Puzzle feeder, Scent trail)']},
+            'Affection': {label: 'Affection', what: 'Being stroked, groomed and made a fuss of.',
+                fill: () => ['Pet ▾', 'Groom', 'a treat from Feed ▾']},
+            'Exploration': {label: 'Adventure', what: 'New places, sights and smells.',
+                fill: s => ['🏠 Enrich', '🧭 Explore', s.walks ? '🦮 Walk' : null]},
+        };
+        let needsStatus = null, tipCell = null;
+
+        function needState(level) {
+            if (level >= 0.7) return 'well met';
+            if (level >= 0.4) return 'fine for now';
+            if (level >= 0.2) return 'low: your pet will ask for it';
+            return 'very low: your pet is getting unhappier';
+        }
+
+        function updateNeeds(status) {
+            needsStatus = {name: status.name, walks: speciesInfo(status.species).walks, levels: {}};
+            const needs = document.getElementById('needs');
+            const shown = new Set();
+            (status.needs || []).forEach(n => {
+                needsStatus.levels[n.need] = n.level;
+                shown.add(n.need);
+                let cell = needs.querySelector('[data-need="' + CSS.escape(n.need) + '"]');
+                if (!cell) {
+                    cell = document.createElement('div');
+                    cell.className = 'need';
+                    cell.dataset.need = n.need;
+                    cell.tabIndex = 0;
+                    const label = document.createElement('span');
+                    label.textContent = (needInfo[n.need] || {}).label || n.need;
+                    const bar = document.createElement('div');
+                    bar.className = 'need-bar';
+                    bar.append(document.createElement('div'));
+                    cell.append(label, bar);
+                    needs.append(cell);
+                }
+                const fill = cell.querySelector('.need-bar div');
+                fill.className = 'need-fill' + (n.level < 0.2 ? ' critical' : n.level < 0.4 ? ' low' : '');
+                fill.style.width = Math.round(n.level * 100) + '%';
+                cell.setAttribute('aria-label', cell.firstChild.textContent + ': ' + Math.round(n.level * 100) + '%');
+            });
+            [...needs.children].forEach(cell => { if (!shown.has(cell.dataset.need)) cell.remove(); });
+            if (tipCell) showNeedTip(tipCell.isConnected ? tipCell : null);
+        }
+
+        function needTipElement() {
+            let pop = document.getElementById('tipPop');
+            if (!pop) {
+                pop = document.createElement('div');
+                pop.id = 'tipPop';
+                pop.className = 'tip-pop hidden';
+                pop.setAttribute('role', 'tooltip');
+                document.body.append(pop);
+            }
+            return pop;
+        }
+
+        function showNeedTip(cell) {
+            const pop = needTipElement();
+            if (tipCell && tipCell !== cell) tipCell.removeAttribute('aria-describedby');
+            tipCell = cell;
+            if (!cell || !needsStatus) {
+                pop.classList.add('hidden');
+                return;
+            }
+            const need = cell.dataset.need, info = needInfo[need] || {label: need, what: '', fill: () => []};
+            const level = needsStatus.levels[need] || 0;
+            const line = (text, className) => {
+                const div = document.createElement('div');
+                div.className = className || 'tip-line';
+                div.textContent = text;
+                return div;
+            };
+            pop.replaceChildren(line(info.label + ': ' + Math.round(level * 100) + '%, ' + needState(level), 'tip-head'),
+                line(info.what),
+                line('To fill it: ' + info.fill(needsStatus).filter(Boolean).join(', ') + '.'),
+                line('It empties over time. Below 40% ' + needsStatus.name + ' asks for it; below 20% ' +
+                    needsStatus.name + ' gets unhappier until it is met.'));
+            pop.classList.remove('hidden');
+            cell.setAttribute('aria-describedby', 'tipPop');
+            const r = cell.getBoundingClientRect();
+            const left = Math.min(Math.max(8, r.left + r.width / 2 - pop.offsetWidth / 2), window.innerWidth - pop.offsetWidth - 8);
+            const below = r.bottom + 8 + pop.offsetHeight <= window.innerHeight;
+            pop.style.left = (left + window.scrollX) + 'px';
+            pop.style.top = ((below ? r.bottom + 8 : r.top - 8 - pop.offsetHeight) + window.scrollY) + 'px';
+        }
+
+        (() => {
+            const needs = document.getElementById('needs');
+            const cellOf = e => e.target.closest && e.target.closest('.need');
+            needs.addEventListener('mouseover', e => { if (cellOf(e)) showNeedTip(cellOf(e)); });
+            needs.addEventListener('mouseleave', () => { if (document.activeElement !== tipCell) showNeedTip(null); });
+            needs.addEventListener('focusin', e => { if (cellOf(e)) showNeedTip(cellOf(e)); });
+            needs.addEventListener('focusout', () => showNeedTip(null));
+            // A tap shows it on phones and tablets; tapping elsewhere hides it
+            needs.addEventListener('click', e => { if (cellOf(e)) showNeedTip(cellOf(e)); });
+            document.addEventListener('click', e => { if (tipCell && !needs.contains(e.target)) showNeedTip(null); });
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') showNeedTip(null); });
+            window.addEventListener('scroll', () => { if (tipCell) showNeedTip(tipCell); }, {passive: true});
+        })();
 
         // Health care: the pet's organ systems, its living area, illness,
         // warning signs and today's checklist
