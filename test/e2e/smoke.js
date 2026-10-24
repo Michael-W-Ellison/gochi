@@ -238,6 +238,38 @@ async function settle(page) {
     }
 }
 
+// opensInView clicks each visible, enabled button matching selector, with
+// the page scrolled so the button is at the bottom of the window, and
+// checks that the panel or view it opens, if any, has its top in sight
+async function opensInView(page, selector) {
+    const places = ['#activityPanel', '#playersPanel', '#shopView', '#createView'];
+    const count = await page.locator(selector).count();
+    for (let i = 0; i < count; i++) {
+        const button = page.locator(selector).nth(i);
+        await closePanels(page);
+        await page.evaluate(() => { closePlayers(); if (choosing) closeChooser(); });
+        await settle(page);
+        if (!(await button.isVisible()) || !(await button.isEnabled())) continue;
+        const label = (await button.innerText()).trim();
+        const shownBefore = await page.evaluate(ids => ids.filter(id => !document.querySelector(id).classList.contains('hidden')), places);
+        await button.evaluate(b => b.scrollIntoView({block: 'end'}));
+        await button.click({timeout: 5000}).catch(() => {});
+        await page.waitForTimeout(1500); // It loads, then the page scrolls
+        await settle(page);
+        const opened = await page.evaluate(([ids, before]) => ids.filter(id => {
+            const el = document.querySelector(id);
+            return !el.classList.contains('hidden') && (!before.includes(id) || id === '#activityPanel' || id === '#playersPanel');
+        }).map(id => {
+            const r = document.querySelector(id).getBoundingClientRect();
+            return {id, inView: r.top > -1 && r.top < innerHeight};
+        }), [places, shownBefore]);
+        opened.filter(o => !o.inView).forEach(o => problems.push(label + ' opened ' + o.id + ' out of view'));
+        if (await page.locator('#shopView').isVisible()) await page.evaluate(() => closeShop());
+    }
+    await closePanels(page);
+    await page.evaluate(() => { closePlayers(); if (choosing) closeChooser(); });
+}
+
 // clickAll clicks each visible, enabled button matching selector
 async function clickAll(page, selector, between) {
     const count = await page.locator(selector).count();
@@ -332,6 +364,11 @@ async function playEverything(page, name) {
     // enrichment (from Enrich's); grooming was given above
     await chooseFirst(page, '.action-btn.play', 'play');
     await chooseFirst(page, '.activity-btn.enrich', 'enrichment');
+    // Whatever a button opens comes into view, from a page scrolled to the button
+    await opensInView(page, '#thingsToDo .thing-btn:not([data-thing="explore"])');
+    await opensInView(page, '.activities .activity-btn:not(.ar)');
+    await opensInView(page, '.save-row button:not([onclick*="AR"])');
+    await opensInView(page, '#playersBtn');
     // Every activity, and every button along the bottom, but not the camera or ones that leave the pet
     await clickAll(page, '.activities .activity-btn:not(.ar)', async () => closePanels(page));
     await clickAll(page, '.save-row button:not([onclick*="Chooser"]):not([onclick*="AR"])', async label => {

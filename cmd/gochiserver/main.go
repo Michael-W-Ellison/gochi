@@ -2114,7 +2114,6 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         p.append(details);
                     });
                     p.classList.remove('hidden');
-                    p.scrollIntoView({behavior: 'smooth', block: 'nearest'});
                 })
                 .catch(console.error);
         }
@@ -2320,15 +2319,12 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         const choiceTitles = {feed: 'What to feed', play: 'How to play', pet: 'Where to pet', enrich: 'Change something at home'};
-        // openChoices shows the choices for Feed, Pet, Play or Enrich. The
-        // panel sits above the buttons, so a button scrolls the page to it;
-        // refreshing the choices after one is made leaves the page where it is.
-        function openChoices(kind, refresh) {
+        // openChoices shows the choices for Feed, Pet, Play or Enrich (the
+        // page scrolls to them: see bringIntoView)
+        function openChoices(kind) {
             panelMode = 'choice';
             loadCareOptions().then(options => {
-                if (!options) return;
-                renderChoices(kind, options);
-                if (!refresh) panel().scrollIntoView({behavior: 'smooth', block: 'nearest'});
+                if (options) renderChoices(kind, options);
             }).catch(console.error);
         }
 
@@ -2376,7 +2372,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if (data.success) {
                 showResult(data.data, data.data.text);
                 setTimeout(fetchStatus, 500);
-                if (panelMode === 'choice') openChoices(kind, true); // Quantities and uses change
+                if (panelMode === 'choice') openChoices(kind); // Quantities and uses change
             } else {
                 showPointsToast(data.error || 'Something went wrong');
             }
@@ -3400,6 +3396,36 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         // Initial check for existing pet; keep polling so the server knows
         // whether the player is present
+        // A button that opens a panel or view scrolls the page to it when it
+        // isn't in sight: the panels sit above the buttons, and the shop and
+        // the pet list replace the page. A panel's own buttons change it
+        // where it is, and the page doesn't move as it updates by itself.
+        let lastClick = {at: 0, inside: null};
+        document.addEventListener('click', e => {
+            const btn = e.target.closest('button');
+            if (btn) lastClick = {at: Date.now(), inside: btn.closest('#activityPanel, #playersPanel, #shopView')};
+        }, true);
+
+        function bringIntoView(el) {
+            const r = el.getBoundingClientRect();
+            if (r.top >= 0 && (r.bottom <= window.innerHeight || r.top <= window.innerHeight / 4)) return;
+            el.scrollIntoView({behavior: 'smooth', block: r.height <= window.innerHeight ? 'nearest' : 'start'});
+        }
+
+        // Panels are opened by showing them or by replacing what they show;
+        // views only by showing them
+        [['activityPanel', true], ['playersPanel', true], ['shopView', false], ['createView', false]].forEach(([id, panel]) => {
+            const el = document.getElementById(id);
+            new MutationObserver(records => {
+                if (Date.now() - lastClick.at > 3000 || lastClick.inside === el || el.classList.contains('hidden')) return;
+                const opened = records.some(r => r.type === 'childList' ||
+                    (r.oldValue || '').split(' ').includes('hidden'));
+                if (!opened) return;
+                lastClick.at = 0;
+                requestAnimationFrame(() => bringIntoView(el));
+            }).observe(el, {attributes: true, attributeFilter: ['class'], attributeOldValue: true, childList: panel});
+        });
+
         loadSpecies().then(fetchStatus);
         loadPlayers().catch(console.error);
         startUpdates();
