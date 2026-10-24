@@ -667,7 +667,8 @@ playroom; sunroom; multi-pet feeding station; pet door to a fenced yard; catio; 
 quiet room) and house looks (wallpaper, floor, window view, nameplate). They are kept as a ledger in
 household.json: each entry has an ID (random for repeatable earnings, a hash of what it was for
 when it can happen once), so devices merge by taking every entry from both. The household is synced
-through the hub as a sealed record, like a pet's save.
+through the hub as a sealed record, like a pet's save. Each player account has its own household
+(section 4.1); the holidays a parent turns off are the device's, in parental.json, for every account.
 
 3.7.5 Families: Points and Inheritance
 A baby starts with no points and no belongings. While a child is young (60 game days), a living
@@ -843,8 +844,9 @@ merged as a union; POST /api/tips/seen refuses any other), so each is shown once
 the status carries the list. Sound (sounds.js) is synthesized with the Web Audio API from 19
 recipes of oscillators and filtered noise; nothing is downloaded. The player's sound settings (on,
 volume, quiet hours) are kept in the browser's local storage, defaulting to on at 0.5. A parent
-setting, SoundOff in the household file (PIN-protected like the other parental settings, merged
-with the other settings by time), silences every sound and hides the player's sound settings.
+setting, SoundOff in parental.json (PIN-protected like the other parental settings, the same for
+every player account on the device, not synced), silences every sound and hides the player's sound
+settings.
 
 3.9b Themes, Projects and Keepsake Books
 Themes (themes.go): ISO week number mod 12 picks dental, enrichment, grooming, hydration, training,
@@ -1022,8 +1024,29 @@ cppclass DataManager {
 Save slots: each pet has its own save file, and the player can create, switch between and delete
 pets. The active pet is saved automatically (every minute by default), when the player presses
 Save, when switching or creating pets, and when the program exits. The previous five saves of
-each pet are kept as backups. On startup the most recently saved pet is restored; a damaged save
+each pet are kept as backups. On startup the most recently saved pet of the account played last is
+restored; a damaged save
 is replaced by its newest working backup.
+Player accounts (accounts.go): several players can play on one device, one at a time. Each account
+has its own folder, <data-dir>/accounts/<id>/ (the ID is 16 random hex digits), holding its saves,
+backups, cache, keepsake books, household.json, stats.json, owner.json and cloud.json; the device's
+files (accounts.json, parental.json, devices.json and the hub's folder) stay in the data folder.
+accounts.json lists each account's ID, name, number and creation time, and the account being
+played. A name is typed by the player (1 to 24 printable characters, trimmed, unique ignoring case)
+and never leaves the device; the number (1000 to 9999, random from crypto/rand, unique on the
+device) picks the account's hub handle (section 4.2). At most 20 accounts. The first start makes
+"Player 1" and moves the files a version before accounts kept in the data folder into its folder
+with renames; this is repeated at every start for files still left there (a crash while moving),
+and a file the account already has is never replaced. The holiday and sound settings move from that
+household to parental.json once. Switching (POST /api/accounts/switch) saves the play schedule,
+statistics, household and active pet, opens the other account's files (a damaged one is set aside),
+leaves any playdate, replaces the server's account parts and per-session state, and restores that
+account's most recently saved pet. A server-wide read-write lock, taken for reading by every request
+(except the switch) and every update, autosave and sync step, and for writing by the switch, keeps
+anything from using an account's parts while they are replaced; achievements waiting to be shared
+carry their account's cloud connection. Adding, renaming and deleting accounts are accepted only from
+this computer; deleting needs the name typed and the parent PIN if one is set, and isn't allowed for
+the account being played. Accounts have no lock of their own.
 Saves read or written are kept in an in-memory cache (least recently used first out, up to 32 MB
 of pet data) along with the file's modification time and size; a load or pet list entry uses the
 cache only while the file is unchanged, so a damaged or replaced file is always read and checked.
@@ -1056,7 +1079,10 @@ a join code, on its own HTTPS address, hub.addr, default :8443), or which runs o
 (section 6.3). Players never choose a name: registering with the join code returns an account key
 (32 random bytes; the hub stores its SHA-256 hash) and a handle the hub picks from fixed lists, a
 color, an animal and a number from 10 to 99 (such as "Blue Otter 42"); accounts are stored under a
-random ID. Other devices sign in with the account key alone. HTTP API at /hub/v1: register; list,
+random ID. Registering may carry the game's player number (seed): the handle is then the one at
+(seed x 2654435761) mod 92,160 among all handles, or the next free one after it, so the same number
+gives the same handle on any hub where it is free; without a seed it is random. A hub from before
+seeds refuses the field, and the game registers again without it. Other devices sign in with the account key alone. HTTP API at /hub/v1: register; list,
 get, put (with the base version: a stale upload is refused with 409 and the hub's version) and delete
 pets, keyed by a hash of the pet ID; get the profile (handle and sharing) and set sharing; the
 achievements feed; and AR playdates (section 5.2). Requests with fields the hub doesn't expect are
@@ -1260,7 +1286,7 @@ HMAC-SHA256(account key, "gochi save encryption v1"), a random 12-byte nonce, an
 as additional data, stored as {"gochi_sealed": 1, "nonce", "data"}; downloads are opened the same way,
 and unsealed saves from older versions are accepted. The hub keeps only the account key's hash, so
 its files can't be decrypted on their own; nothing else about a pet is stored on the hub.
-At rest locally: saves, backups, cloud.json, owner.json, parental.json and devices.json are written with mode 0600
+At rest locally: saves, backups, accounts.json, cloud.json, owner.json, parental.json and devices.json are written with mode 0600
 in directories made 0700 (existing ones too). Saves aren't encrypted locally: the key would have to
 be stored beside them; the operating system's disk encryption is the means for that.
 Privacy controls: sharing achievements is off until chosen (section 4.2). Learning the play
@@ -1275,8 +1301,8 @@ computer, not from paired devices. COPPA compliance is a legal obligation of
 whoever operates a hub for children; the software collects no personal information and gives parents
 control of what is shared.
 No personal information and no messaging: the game asks for nothing about the player, pet IDs are
-random ("pet_" and 32 hex digits), and pet names (1 to 24 printable characters) never leave the
-computer. Nothing a player types reaches another player: other players see only hub-chosen handles,
+random ("pet_" and 32 hex digits), and pet names and player account names (1 to 24 printable
+characters) never leave the computer; a hub sees an account's random number, not its name. Nothing a player types reaches another player: other players see only hub-chosen handles,
 species, sprite states, achievements from the game's list, and text written by the hub; the hub
 refuses unknown fields and values outside its lists. Playdate numbers are coarse so they can't carry
 messages: sociability, play quality and bond are rounded to tenths, and positions are on the floor

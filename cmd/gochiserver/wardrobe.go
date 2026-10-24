@@ -138,10 +138,7 @@ func (s *Server) handleHolidays(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
 		return
 	}
-	allOff := false
-	if s.house != nil {
-		allOff = s.house.snapshot().AllHolidaysOff
-	}
+	allOff, _ := s.parental.holidays()
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
 		"holidays": holidaysStatus(), "all_off": allOff}})
 }

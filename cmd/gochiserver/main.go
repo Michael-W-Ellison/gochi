@@ -30,6 +30,12 @@ import (
 
 // Server holds the server state
 type Server struct {
+	// Held for reading by every request and background step, and for
+	// writing while the player switches accounts (accounts.go); acquire
+	// before every other lock
+	accountMu sync.RWMutex
+	accounts  *accountRegistry // The players on this device; nil for one player, without accounts
+
 	saveMu sync.Mutex // Orders saves and pet switches; acquire before mu
 	mu     sync.RWMutex
 	pet    *core.DigitalPet        // The active pet; only its time passes
@@ -38,6 +44,7 @@ type Server struct {
 	clock  *simulation.TimeManager // Game clock; its scale sets the game's speed
 	store  *petStore               // nil disables saving
 	cloud  *cloud                  // Connection to a cloud hub; nil disables cloud features
+	shares chan sharedAchievement  // Achievements to share through the hub, from the update loop; nil to not share
 	hub    *hub.Hub                // This server's own hub, if it runs one
 	events *core.EventSystem       // What happened to the pets while time passed
 
@@ -270,14 +277,27 @@ func main() {
 	timeScale := timeScales[config.Simulation.TimeScale]
 	log.Printf("Game speed: %s", config.Simulation.TimeScale)
 
-	store, err := newPetStore(config.Server.DataDir)
+	// The device's files are in the data folder; each player account's
+	// are in its own folder in it (accounts.go)
+	dataPath := dataRoot(config.Server.DataDir)
+	accounts, err := openAccounts(dataPath)
 	if err != nil {
-		log.Fatalf("Could not set up save directory: %v", err)
+		log.Fatalf("Could not read the player accounts: %v\nTo start afresh with the files from before accounts, "+
+			"move %s aside (the accounts' folders stay in %s)", err, filepath.Join(dataPath, accountsFileName),
+			filepath.Join(dataPath, "accounts"))
 	}
-	store.timeScale, store.autosaveSeconds = config.Simulation.TimeScale, int(config.Simulation.Autosave.Seconds())
-	dataPath := filepath.Dir(store.SaveDir())
-	cloudConn := loadOrSetAside("the cloud settings", filepath.Join(dataPath, "cloud.json"),
-		func() (*cloud, error) { return newCloud(dataPath) })
+	player := accounts.current()
+	parts, err := openAccountParts(accounts.dir(player.ID), config.Simulation.TimeScale,
+		int(config.Simulation.Autosave.Seconds()))
+	if err != nil {
+		log.Fatalf("Could not open %s's files: %v", player.Name, err)
+	}
+	players, _ := accounts.list()
+	if len(players) == 1 {
+		log.Printf("Playing as %s", player.Name)
+	} else {
+		log.Printf("Playing as %s (%d players on this device)", player.Name, len(players))
+	}
 	parental, err := loadParentalControls(dataPath)
 	if err != nil {
 		// Not started without the PIN, so damaging the file doesn't
@@ -285,15 +305,14 @@ func main() {
 		log.Fatalf("Could not read the parent PIN: %v\nTo start without a PIN (it can be set again in Privacy), remove %s",
 			err, filepath.Join(dataPath, "parental.json"))
 	}
-	owner, ownerPath, err := loadOwnerSchedule(dataPath)
-	if err != nil {
-		log.Printf("Warning: could not read the play schedule, starting a new one: %v", err)
-		owner = &ai.OwnerSchedule{}
+	// The holiday and sound settings were the household's before they
+	// were the device's
+	if err := parental.adoptHouseSettings(parts.house.snapshot()); err != nil {
+		log.Printf("Warning: could not move the holiday and sound settings to %s: %v",
+			filepath.Join(dataPath, "parental.json"), err)
 	}
-	stats := loadOrSetAside("your statistics", filepath.Join(dataPath, statsFileName),
-		func() (*playerStats, error) { return loadPlayerStats(dataPath) })
-	house := loadOrSetAside("the household", filepath.Join(dataPath, householdFileName),
-		func() (*household, error) { return loadHousehold(dataPath) })
+	parental.apply()
+	store := parts.store
 	pairing := loadOrSetAside("the paired devices", filepath.Join(dataPath, "devices.json"),
 		func() (*devicePairing, error) { return loadDevicePairing(dataPath) })
 	removeTempFiles(dataPath)
@@ -308,16 +327,18 @@ func main() {
 	server := &Server{
 		static:       static,
 		clock:        simulation.NewTimeManager(timeScale),
+		accounts:     accounts,
 		store:        store,
 		lastActivity: time.Now(),
 		awayTimeout:  config.Simulation.AwayPause,
 		events:       newEventSystem(),
-		cloud:        cloudConn,
+		cloud:        parts.cloud,
+		shares:       make(chan sharedAchievement, shareQueue),
 		hub:          hubServer,
-		owner:        owner,
-		ownerPath:    ownerPath,
-		stats:        stats,
-		house:        house,
+		owner:        parts.owner,
+		ownerPath:    parts.ownerPath,
+		stats:        parts.stats,
+		house:        parts.house,
 		parental:     parental,
 		pairing:      pairing,
 		listenAddr:   config.Server.Addr,
@@ -421,7 +442,8 @@ func main() {
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	httpServer := &http.Server{Addr: config.Server.Addr, Handler: server.guard(securityHeaders(mux)), TLSConfig: tlsConfig(),
+	httpServer := &http.Server{Addr: config.Server.Addr, Handler: server.guard(server.accountGate(securityHeaders(mux))),
+		TLSConfig:         tlsConfig(),
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second,
 		IdleTimeout: 2 * time.Minute}
 	scheme := "http"
@@ -463,23 +485,27 @@ func main() {
 		}
 	}
 
+	// The loops keep running; no switch can start once the page is shut
+	// down, so the account stays the one being played
+	server.accountMu.RLock()
+	defer server.accountMu.RUnlock()
 	if err := server.saveOwner(); err != nil {
 		log.Printf("Could not save the play schedule: %v", err)
 	}
 	server.mu.RLock()
 	server.observePet(server.pet, false)
 	server.mu.RUnlock()
-	if err := stats.save(); err != nil {
+	if err := server.stats.save(); err != nil {
 		log.Printf("Could not save your statistics: %v", err)
 	}
-	if err := house.save(); err != nil {
+	if err := server.house.save(); err != nil {
 		log.Printf("Could not save the household: %v", err)
 	}
 	if saved, err := server.saveNow(); err != nil {
 		log.Printf("Failed to save pet on exit: %v", err)
 		os.Exit(1)
 	} else if saved {
-		log.Printf("Saved pet to %s", store.SavePath(server.slot))
+		log.Printf("Saved pet to %s", server.store.SavePath(server.slot))
 	}
 	if server.cloudStatus().Connected {
 		syncCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -509,6 +535,8 @@ func (s *Server) safeTick(now time.Time) {
 			log.Printf("Error advancing the pet: %v", r)
 		}
 	}()
+	s.accountMu.RLock()
+	defer s.accountMu.RUnlock()
 	s.tick(now)
 	s.shareTripWithFriend()
 	s.householdTime(now)
@@ -946,6 +974,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .saved-pet-name { font-weight: bold; color: #333; overflow-wrap: anywhere; }
         .saved-pet-meta { font-size: 0.8em; color: #888; }
         .saved-pet-actions { display: flex; gap: 6px; flex-shrink: 0; }
+        .players-bar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+        .player-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
+        .player-name { font-weight: 600; color: #333; overflow-wrap: anywhere; }
+        .player-row .cloud-field { flex-basis: 100%; }
         .delete-btn { border-color: #e17070; color: #c94a4a; }
         .hibernate-banner { text-align: center; margin: 10px 0; padding: 12px; border-radius: 12px; background: #fff4e0; color: #8a5a00; font-size: 0.9em; }
         .hibernate-banner button { display: block; margin: 10px auto 0; }
@@ -1027,6 +1059,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 </head>
 <body>
     <div class="container" id="app">
+        <!-- Players on this device -->
+        <div class="players-bar">
+            <button class="save-btn" id="playersBtn" onclick="togglePlayers()">👤 Players</button>
+        </div>
+        <div class="activity-panel hidden" id="playersPanel"></div>
         <!-- Create Pet View -->
         <div id="createView" class="create-form">
             <h1>Welcome to Gochi!</h1>
@@ -2657,6 +2694,122 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             p.classList.remove('hidden');
         }
 
+        // Players: each has their own pets, household and stats; one plays
+        // at a time, and switching saves the one playing
+        function playerLabel(a) {
+            return a.name + ' #' + a.number;
+        }
+
+        function loadPlayers() {
+            return fetch('/api/accounts').then(r => r.json()).then(data => {
+                if (!data.success) return null;
+                const current = data.data.accounts.find(a => a.current);
+                document.getElementById('playersBtn').textContent = '👤 ' + (current ? playerLabel(current) : 'Players');
+                return data.data;
+            });
+        }
+
+        function togglePlayers() {
+            if (document.getElementById('playersPanel').classList.contains('hidden')) openPlayers();
+            else closePlayers();
+        }
+
+        function openPlayers() {
+            loadPlayers().then(players => {
+                if (players) renderPlayers(players);
+            }).catch(console.error);
+        }
+
+        function closePlayers() {
+            const p = document.getElementById('playersPanel');
+            p.classList.add('hidden');
+            p.replaceChildren();
+        }
+
+        function playersPost(url, body, done) {
+            postJSON(url, body).then(data => {
+                showPointsToast(data.success ? done : (data.error || 'Something went wrong'));
+                if (data.success) openPlayers();
+            }).catch(console.error);
+        }
+
+        // Switching saves the player's game, so the page starts afresh
+        // with the other player's
+        function switchPlayer(id, btn) {
+            btn.disabled = true;
+            btn.textContent = 'Opening...';
+            postJSON('/api/accounts/switch', {id: id}).then(data => {
+                if (data.success) {
+                    location.reload();
+                    return;
+                }
+                showPointsToast(data.error || 'Something went wrong');
+                openPlayers();
+            }).catch(console.error);
+        }
+
+        function renderPlayers(players) {
+            const p = document.getElementById('playersPanel');
+            const head = panelHeader('Players');
+            head.querySelector('.panel-close').onclick = closePlayers;
+            p.replaceChildren(head);
+            cloudText(p, 'Each player has their own pets, Home Stars, house, collection, stats, books and cloud ' +
+                'connection. One player plays at a time; switching saves the game of the one playing. Names stay on ' +
+                'this computer; a player\'s number picks the name a cloud hub gives them.', 'panel-text cloud-note');
+            players.accounts.forEach(a => {
+                const row = document.createElement('div');
+                row.className = 'player-row';
+                const name = document.createElement('span');
+                name.className = 'player-name';
+                name.textContent = playerLabel(a);
+                const actions = document.createElement('div');
+                actions.className = 'saved-pet-actions';
+                const play = cloudButton(actions, a.current ? 'Playing' : 'Play', () => switchPlayer(a.id, play));
+                play.disabled = a.current;
+                cloudButton(actions, 'Rename', () => {
+                    actions.remove();
+                    const field = cloudField(row, 'New name', '', a.name, '', 'text');
+                    field.maxLength = 24;
+                    const save = document.createElement('div');
+                    save.className = 'save-row';
+                    cloudButton(save, 'Save name', () => playersPost('/api/accounts/rename',
+                        {id: a.id, name: field.value.trim()}, 'Name saved.'));
+                    cloudButton(save, 'Cancel', openPlayers);
+                    row.append(save);
+                    field.focus();
+                });
+                if (!a.current) {
+                    const del = cloudButton(actions, 'Delete', () => {
+                        actions.remove();
+                        const field = cloudField(row, 'Deleting ' + a.name + ' deletes their pets, books and ' +
+                            'everything else of theirs on this computer, for good. Type their name to confirm:',
+                            '', '', a.name, 'text');
+                        const go = document.createElement('div');
+                        go.className = 'save-row';
+                        const yes = cloudButton(go, 'Delete for good', () => playersPost('/api/accounts/delete',
+                            {id: a.id, confirm_name: field.value.trim()}, 'Player deleted.'));
+                        yes.classList.add('delete-btn');
+                        cloudButton(go, 'Cancel', openPlayers);
+                        row.append(go);
+                        field.focus();
+                    });
+                    del.classList.add('delete-btn');
+                }
+                row.append(name, actions);
+                p.append(row);
+            });
+            if (players.accounts.length < players.max) {
+                const name = cloudField(p, 'New player\'s name', 'newPlayerName', '', 'Name', 'text');
+                name.maxLength = 24;
+                const row = document.createElement('div');
+                row.className = 'save-row';
+                cloudButton(row, 'Add player', () => playersPost('/api/accounts/create', {name: name.value.trim()},
+                    'Player added. Press Play to play as them.'));
+                p.append(row);
+            }
+            p.classList.remove('hidden');
+        }
+
         // Privacy: learning when the player plays, and the parent PIN
         function openPrivacy() {
             panelMode = 'privacy';
@@ -2715,7 +2868,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             hols.style.marginTop = '14px';
             cloudText(p, 'Holiday items are sold for a week before and after each holiday. Turn off any holiday ' +
                 '(or all of them): its shop closes and its decorations and cosmetics are hidden until it is turned on ' +
-                'again. Changing this needs the parent PIN, if one is set.', 'panel-text cloud-note');
+                'again. This is for every player on this computer. Changing this needs the parent PIN, if one is set.',
+                'panel-text cloud-note');
             const allRow = document.createElement('label');
             allRow.className = 'setting';
             const all = document.createElement('input');
@@ -2750,7 +2904,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             soundOff.type = 'checkbox';
             soundOff.checked = privacy.sound_off;
             soundOff.onchange = () => privacyPost({sound_off: soundOff.checked},
-                soundOff.checked ? 'Sound is off for every pet.' : 'Sound is back on.');
+                soundOff.checked ? 'Sound is off for every player.' : 'Sound is back on.');
             soundRow.append(soundOff, document.createTextNode(' Turn the game\'s sounds off (players can\'t turn them back on)'));
             p.append(soundRow);
 
@@ -3247,6 +3401,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // Initial check for existing pet; keep polling so the server knows
         // whether the player is present
         loadSpecies().then(fetchStatus);
+        loadPlayers().catch(console.error);
         startUpdates();
         watchBattery();
     </script>
@@ -3267,22 +3422,30 @@ func (s *Server) autosaveLoop(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := s.saveNow(); err != nil {
-				log.Printf("Autosave failed: %v", err)
-			}
-			if err := s.saveOwner(); err != nil {
-				log.Printf("Could not save the play schedule: %v", err)
-			}
-			if s.stats != nil {
-				if err := s.stats.save(); err != nil {
-					log.Printf("Could not save your statistics: %v", err)
-				}
-			}
-			if s.house != nil {
-				if err := s.house.save(); err != nil {
-					log.Printf("Could not save the household: %v", err)
-				}
-			}
+			s.autosave()
+		}
+	}
+}
+
+// autosave saves the active pet, the play schedule, the statistics and the
+// household
+func (s *Server) autosave() {
+	s.accountMu.RLock()
+	defer s.accountMu.RUnlock()
+	if _, err := s.saveNow(); err != nil {
+		log.Printf("Autosave failed: %v", err)
+	}
+	if err := s.saveOwner(); err != nil {
+		log.Printf("Could not save the play schedule: %v", err)
+	}
+	if s.stats != nil {
+		if err := s.stats.save(); err != nil {
+			log.Printf("Could not save your statistics: %v", err)
+		}
+	}
+	if s.house != nil {
+		if err := s.house.save(); err != nil {
+			log.Printf("Could not save the household: %v", err)
 		}
 	}
 }
@@ -3738,7 +3901,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Deleted %s (%s)", name, req.Slot)
 	if petID != "" {
-		go s.cloudForget(context.Background(), petID) // Other devices stop syncing it
+		go s.cloud.forget(context.Background(), petID) // Other devices stop syncing it
 	}
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
 		"deleted":    req.Slot,
@@ -3879,6 +4042,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.FirstAidUses = s.pet.FirstAidUses
 	petStatus.Injured = s.pet.Injured
 	petStatus.HouseLook = map[string]core.HouseLook{}
+	petStatus.SoundOff = s.parental.soundOff()
 	if s.house != nil {
 		d := s.house.snapshot()
 		for slot, id := range d.Look {
@@ -3887,7 +4051,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		petStatus.HomeStars = s.house.status(now).Stars
-		petStatus.TipsSeen, petStatus.SoundOff = d.TipsSeen, d.SoundOff
+		petStatus.TipsSeen = d.TipsSeen
 		petStatus.Shelf = []core.Souvenir{}
 		for _, id := range d.Shelf {
 			if sv, ok := core.FindSouvenir(id); ok {
@@ -4105,6 +4269,11 @@ func (s *Server) routes() []route {
 		{"/api/cloud/profile", s.handleCloudProfile},
 		{"/api/cloud/key", s.handleCloudKey},
 		{"/api/pairing", s.handlePairing},
+		{"/api/accounts", s.handleAccounts},
+		{"/api/accounts/create", s.handleAccountCreate},
+		{"/api/accounts/switch", s.handleAccountSwitch},
+		{"/api/accounts/rename", s.handleAccountRename},
+		{"/api/accounts/delete", s.handleAccountDelete},
 		{"/pair", s.handlePair},
 		{"/api/cloud/feed", s.handleCloudFeed},
 		// Simple API routes

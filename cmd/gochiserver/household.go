@@ -26,8 +26,8 @@ import (
 // Stars are earned by playing (trips, new places, achievements, a day's
 // goals, daily visits) and spent on house upgrades and house cosmetics,
 // which apply to every pet. Household settings are the hemisphere seasons
-// follow and the holidays a parent has turned off. It is all kept in
-// household.json, which only the player's account can read, and goes to
+// follow, the house's look and the shelf. It is all kept in each player
+// account's household.json, which only the player's account can read, and goes to
 // the player's other devices through the cloud hub, sealed like a pet's
 // save.
 //
@@ -70,12 +70,16 @@ type householdData struct {
 	Ledger []ledgerEntry `json:"ledger"`
 
 	// Settings, and when they last changed (the newer wins when devices merge)
-	Hemisphere     environment.Hemisphere `json:"hemisphere"`
-	HolidaysOff    []string               `json:"holidays_off"`
-	AllHolidaysOff bool                   `json:"all_holidays_off"`
-	SoundOff       bool                   `json:"sound_off"` // A parent has turned the game's sounds off
-	Look           map[string]string      `json:"look"`      // House cosmetics in use, by slot
-	SettingsTime   time.Time              `json:"settings_time"`
+	Hemisphere   environment.Hemisphere `json:"hemisphere"`
+	Look         map[string]string      `json:"look"` // House cosmetics in use, by slot
+	SettingsTime time.Time              `json:"settings_time"`
+
+	// The holidays a parent turned off and whether they turned sounds off,
+	// from before these were device settings (parental.json); read once to
+	// move them there, and not changed since
+	HolidaysOff    []string `json:"holidays_off,omitempty"`
+	AllHolidaysOff bool     `json:"all_holidays_off,omitempty"`
+	SoundOff       bool     `json:"sound_off,omitempty"`
 
 	// Daily visits: the day being counted and how long it has been
 	// played, the last day that earned its stars, and the streak
@@ -163,9 +167,19 @@ func (h *household) clean() {
 // apply tells the game the household's settings and upgrades
 func (h *household) apply() {
 	core.UseCalendar(h.data.Hemisphere)
-	core.SetHolidays(h.data.AllHolidaysOff, h.data.HolidaysOff)
 	core.SetHouse(h.upgradesLocked(), h.data.FilterUntil > h.data.GameDays)
 	core.SetShelfSet(shelfSetPlace(h.data.Shelf) != "")
+}
+
+// reapply tells the game the household's settings and upgrades again,
+// after another household was opened
+func (h *household) reapply() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.apply()
 }
 
 // saveLocked writes household.json. Caller must hold h.mu.
@@ -356,29 +370,6 @@ func (h *household) setHemisphere(hemi environment.Hemisphere) error {
 	return h.saveLocked()
 }
 
-// setHolidays sets which holidays are turned off
-func (h *household) setHolidays(allOff bool, off []string) error {
-	var known []string
-	for _, id := range off {
-		if _, ok := core.FindHoliday(id); ok && !slices.Contains(known, id) {
-			known = append(known, id)
-		}
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.data.AllHolidaysOff, h.data.HolidaysOff, h.data.SettingsTime = allOff, known, time.Now()
-	h.apply()
-	return h.saveLocked()
-}
-
-// setSoundOff sets whether a parent has turned the game's sounds off
-func (h *household) setSoundOff(off bool) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.data.SoundOff, h.data.SettingsTime = off, time.Now()
-	return h.saveLocked()
-}
-
 // seeTip records that a tip has been shown
 func (h *household) seeTip(id string) error {
 	h.mu.Lock()
@@ -454,10 +445,8 @@ func (h *household) merge(other householdData) bool {
 	}
 	sort.SliceStable(h.data.Ledger, func(i, j int) bool { return h.data.Ledger[i].Time.Before(h.data.Ledger[j].Time) })
 	if other.SettingsTime.After(h.data.SettingsTime) {
-		h.data.Hemisphere, h.data.HolidaysOff, h.data.AllHolidaysOff = other.Hemisphere, other.HolidaysOff, other.AllHolidaysOff
-		h.data.Look, h.data.SettingsTime = other.Look, other.SettingsTime
+		h.data.Hemisphere, h.data.Look, h.data.SettingsTime = other.Hemisphere, other.Look, other.SettingsTime
 		h.data.Shelf = slices.Clone(other.Shelf)
-		h.data.SoundOff = other.SoundOff
 		changed = true
 	}
 	if other.PaidDay > h.data.PaidDay {

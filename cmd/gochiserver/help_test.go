@@ -26,7 +26,8 @@ func TestTipsAndSoundSetting(t *testing.T) {
 		t.Errorf("Tips seen: %v, sound off %v", status["tips_seen"], status["sound_off"])
 	}
 
-	// A parent turns sound off; it merges like the other settings
+	// A parent turns sound off, for every player on this device; the
+	// household's other settings merge
 	if rec := post(t, server.handlePrivacy, `{"sound_off":true}`); rec.Code != http.StatusOK {
 		t.Fatalf("Turning sound off: %d %s", rec.Code, rec.Body.String())
 	}
@@ -38,7 +39,7 @@ func TestTipsAndSoundSetting(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.house.merge(other.snapshot())
-	if d := server.house.snapshot(); !d.SoundOff || !slices.Equal(d.TipsSeen, []string{"tour", "shop"}) {
-		t.Errorf("After a merge: sound off %v, tips %v", d.SoundOff, d.TipsSeen)
+	if d := server.house.snapshot(); !server.parental.soundOff() || !slices.Equal(d.TipsSeen, []string{"tour", "shop"}) {
+		t.Errorf("After a merge: sound off %v, tips %v", server.parental.soundOff(), d.TipsSeen)
 	}
 }

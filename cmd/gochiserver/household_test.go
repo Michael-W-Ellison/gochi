@@ -214,7 +214,7 @@ func TestHolidaySwitchesNeedThePIN(t *testing.T) {
 	if rec.Code != http.StatusOK || core.HolidayOn("halloween") || !core.HolidayOn("christmas") {
 		t.Fatalf("Turning Halloween off with the PIN: %d %s", rec.Code, rec.Body.String())
 	}
-	if off := server.house.snapshot().HolidaysOff; len(off) != 1 {
+	if _, off := server.parental.holidays(); len(off) != 1 {
 		t.Errorf("Only known holidays are kept: %v", off)
 	}
 	post(t, server.handlePrivacy, `{"all_holidays_off":true,"parent_pin":"2468"}`)

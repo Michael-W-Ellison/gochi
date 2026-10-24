@@ -108,7 +108,7 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 |---|---|---|
 | `-config` | `configs/config.yaml` | Settings file (see [Configuration](#configuration)); the default is used only if it exists |
 | `-addr` | `127.0.0.1:8080` | Address and port the game listens on. The default answers only this computer; `:8080` lets paired phones and tablets on the network play too (see [Privacy](#privacy-and-parental-controls)) |
-| `-data-dir` | `~/.gochi` | Directory for saved pets (`saves/`) and backups (`backups/`) |
+| `-data-dir` | `~/.gochi` | Directory for the game's files: each player's own folder (`accounts/`) and the settings shared by every player (see [Players](#players)) |
 | `-autosave` | `1m` | How often the active pet is saved automatically; `0` turns autosave off |
 | `-away-pause` | `2m` | Pause time once the player has been away this long; `0` turns the away pause off |
 | `-api-token` | (none) | Turn on the REST API at `/api/v1` for requests carrying this token (see [REST API](#rest-api)) |
@@ -123,17 +123,54 @@ Durations use Go syntax, such as `30s`, `5m` or `1h`.
 
 ## Playing
 
+### Players
+
+Several players can play on one computer, one at a time. Each player has their own pets, Home
+Stars, house, collection, stats, play schedule, keepsake books and cloud connection; none of it is
+shared with the other players. The parent PIN, the holiday and sound settings a parent makes, and
+paired phones and tablets belong to the computer and apply to every player.
+
+The **👤** button at the top of the page names the player who is playing. It opens **Players**:
+
+- **Play** switches to another player. The game of the player who was playing is saved first (like
+  switching pets), and the page opens the other player's most recently saved pet. A player who
+  doesn't have a pet yet starts on the new-pet form.
+- **Add player**: type a name of 1 to 24 letters, numbers or symbols. No two players can have the
+  same name (capitals don't count). Each player is also given a random number from 1000 to 9999,
+  shown after their name (for example "Sam #4821").
+- **Rename** changes a player's name.
+- **Delete** deletes a player, with their pets, books and everything else of theirs on this
+  computer, for good. The player who is playing can't be deleted; switch to another player first.
+  The player's name must be typed to confirm, and the parent PIN is needed if one is set.
+
+Adding, renaming and deleting players can be done only on the computer running the game; switching
+players can be done from a paired phone or tablet too. Players aren't locked: anyone using the game
+can play as any player. There can be up to 20 players.
+
+Names stay on this computer: they are never sent to a cloud hub or shown to anyone else. When a
+player connects to a [cloud hub](#cloud-backup-sync-and-sharing), their number, not their name,
+picks the handle the hub gives them, so the same number gets the same handle on any hub where that
+handle is free (and the next free one where it isn't). A hub from before player numbers gives a
+random handle instead.
+
+The game keeps each player's files in their own folder, `<data-dir>/accounts/<id>/` (called
+`<player-dir>` below), and the list of players in `<data-dir>/accounts.json`. The first time a
+version with players starts, it makes one player, "Player 1", and moves the files an older version
+kept in the data directory (saves, backups, books, the household, stats, the play schedule and the
+cloud connection) into that player's folder. Holiday and sound settings from the household move to
+`<data-dir>/parental.json`.
+
 ### Saving and Loading Pets
 
-Each pet has its own save file in `<data-dir>/saves/`. The game saves the active pet:
+Each pet has its own save file in `<player-dir>/saves/`. The game saves the active pet:
 
 - automatically, every `-autosave` interval
 - when you press **Save**
-- when you switch to another pet or create a new one
+- when you switch to another pet or create a new one, or to another player
 - when you exit the program with **Ctrl+C**
 
-The previous five saves of each pet are kept in `<data-dir>/backups/`. When the program starts, it
-restores the most recently saved pet. If a save file is damaged, the newest working backup is used
+The previous five saves of each pet are kept in `<player-dir>/backups/`. When the program starts, it
+restores the most recently saved pet of the player who was playing last. If a save file is damaged, the newest working backup is used
 instead. A save missing the parts that make up the pet (its body or personality) counts as damaged;
 missing parts that older saves may not have are rebuilt, and values out of range (such as a time of
 day past 24) are brought back into range, so a damaged save can't stop the game. A pet whose save
@@ -142,8 +179,8 @@ delete it.
 
 You can have up to 100 saved pets; delete one to make room for more.
 
-If one of the game's settings files in the data directory (`stats.json`, `cloud.json`,
-`devices.json`) can't be read, it is renamed to `<name>.damaged-<date>` and the game starts with
+If one of the game's settings files (`stats.json`, `cloud.json`, `household.json` in a player's
+folder, or `devices.json`) can't be read, it is renamed to `<name>.damaged-<date>` and the game starts with
 fresh settings. If `parental.json` can't be read the game doesn't start, so damaging it can't remove
 the parent PIN; the message names the file to remove to start without a PIN. Temporary files left
 by a crash or a full disk are removed when the game starts.
@@ -213,7 +250,8 @@ refuses any other afterwards, so nobody can stand in for the hub later; the Clou
 certificate's fingerprint, which a parent can compare with the one the hub printed. To connect
 another device to the same account, press **Show account key** on the computer running the game (other
 devices are never shown it) and enter that key on the other device instead of the join code. The
-connection is kept in `<data-dir>/cloud.json`, readable only by you. Connections made by older
+connection is kept in `<player-dir>/cloud.json`, readable only by you; each player connects on
+their own and gets their own handle (see [Players](#players)). Connections made by older
 versions (with usernames, or over plain HTTP) are forgotten; connect again.
 
 **Encryption**: your game encrypts each pet's save (AES-256-GCM, with a key made from your account
@@ -256,7 +294,11 @@ Press **🔒 Privacy**:
   it). After 5 wrong PINs, no PIN is accepted for 5 minutes, and each wait after that is twice as
   long as the last (up to a day) until the right PIN is given; restarting the game doesn't end a
   wait. The PIN is stored as a salted hash in `<data-dir>/parental.json`; it stops a child changing
-  settings in the game, not someone who can edit the computer's files.
+  settings in the game, not someone who can edit the computer's files. The PIN is the computer's:
+  it is the same for every player.
+- **Holidays** and **Sound**: the holidays a parent turns off and turning the game's sounds off
+  apply to every player on this computer. They are kept in `<data-dir>/parental.json` and aren't
+  synced through a cloud hub.
 - **Only on this computer**: connecting to or disconnecting from a cloud hub, changing what is
   shared, seeing the account key, the parent PIN and these privacy settings can be changed only on
   the computer running the game, not from a paired phone or tablet.
@@ -399,7 +441,7 @@ forward in time, up to when you usually stop playing. To know that, the game lea
 each hour of the week you use the page counts towards your usual times, recent weeks counting more
 than older ones. After a few visits it looks ahead until the end of your usual playing time
 (between 10 minutes and 2 hours), and otherwise 30 minutes, and the panel says when you usually
-play (for example "weekday evenings"). This is kept in `<data-dir>/owner.json` and never leaves
+play (for example "weekday evenings"). This is kept in `<player-dir>/owner.json` and never leaves
 your computer. A need stays on the list until its time comes, your pet starts asking for it, or you
 give the care that meets it.
 
@@ -797,7 +839,7 @@ the stairs for seniors.
   ribbon, a chime for points, a page turn for the care guide, an alert for a new warning sign, and
   sounds in the games) are made in the browser: there are no sound files and nothing is
   downloaded. In **⚙️ Settings**, sound can be turned off, made louder or quieter, and given quiet
-  hours; these settings are kept on that device. A parent can turn sound off for the household in
+  hours; these settings are kept on that device. A parent can turn sound off for every player in
   **🔒 Privacy** (with the parent PIN if one is set); players can't then turn it back on.
 
 ### Theme of the week, projects and books
@@ -986,8 +1028,8 @@ minutes of play (with 20 more after 7 days in a row and 60 more after 30).
 - **House looks** change the scene behind your pets: wallpaper, floors, the view from the window
   and a nameplate.
 
-Home Stars and the house are kept in `<data-dir>/household.json`, which only your user account can
-read. With a [cloud hub](#cloud-backup-sync-and-sharing), they go to your other devices sealed with
+Home Stars and the house are kept in `<player-dir>/household.json`, which only your user account can
+read; each player has their own. With a [cloud hub](#cloud-backup-sync-and-sharing), they go to your other devices sealed with
 your account key like a pet's save, and stars earned on two devices are both counted, once.
 
 ### Families: Giving Points and Inheritance
@@ -1036,7 +1078,7 @@ Press **📊 My stats** to see your own record of every pet you have raised in t
 - **Kinds of pet**, and **each pet**: its name, whether it is alive or how it died, its age and how
   much care it had.
 
-Your stats are kept in `<data-dir>/stats.json`, apart from the pets' saves, so they last after a
+Your stats are kept in `<player-dir>/stats.json`, apart from the pets' saves, so they last after a
 pet is deleted. Only your user account on this computer can read the file. They are never sent
 anywhere: not to a cloud hub (they are not part of cloud sync), not through the REST API, and not
 to the game's makers. (Each pet also counts the care it has had in its own save, alongside its

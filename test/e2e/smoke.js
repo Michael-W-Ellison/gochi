@@ -1,7 +1,8 @@
 // Browser smoke test: plays the game's page in a headless browser and
 // fails on any error in the page. It creates a cat and a dog through the
 // form, gives every kind of care, opens every panel from its button,
-// plays every game and answers a home happening.
+// plays every game and answers a home happening, then adds a second
+// player, plays as them and switches back.
 //
 // Usage: node smoke.js <game address>, with Playwright where node finds it
 // (NODE_PATH). The Go test TestBrowserSmoke starts a game and runs it:
@@ -11,6 +12,9 @@ const { chromium } = require('playwright');
 
 const base = process.argv[2] || 'http://127.0.0.1:8080';
 const problems = [];
+// Set while the page reloads after a player switch: requests still running
+// then are cut off, which the page logs, and which isn't a problem
+let reloading = false;
 
 async function main() {
     const launch = {};
@@ -20,6 +24,7 @@ async function main() {
     page.on('pageerror', e => problems.push('page error: ' + e.message));
     page.on('console', m => {
         // The game answers refused actions with 4xx, which the browser logs
+        if (reloading && /Failed to fetch/.test(m.text())) return;
         if (m.type() === 'error' && !/status of 4\d\d/.test(m.text())) problems.push('console: ' + m.text());
     });
     page.on('dialog', d => d.dismiss());
@@ -45,7 +50,60 @@ async function main() {
         await playEverything(page, name);
     }
     await groomPepper(page);
+    await secondPlayer(page);
     await browser.close();
+}
+
+// secondPlayer adds Sam, who starts with no pets, gives them a pet, switches
+// back to Player 1, whose pets are still there, and deletes Sam
+async function secondPlayer(page) {
+    const playerRow = name => page.locator('#playersPanel .player-row', {hasText: name});
+    await page.click('#playersBtn');
+    await page.fill('#newPlayerName', 'Sam');
+    await page.locator('#playersPanel button', {hasText: 'Add player'}).click();
+    await page.waitForTimeout(800);
+    reloading = true;
+    const reloadedSam = page.waitForEvent('load');
+    await playerRow('Sam').locator('button', {hasText: 'Play'}).click();
+    await reloadedSam;
+    await page.waitForTimeout(1500);
+    reloading = false;
+    if (!/^👤 Sam #\d{4}$/.test(await page.textContent('#playersBtn'))) {
+        problems.push('the Players button should name Sam: ' + await page.textContent('#playersBtn'));
+    }
+    if (!await page.locator('#createView').isVisible() || await page.locator('#savedPetList li').count() !== 0) {
+        problems.push("Sam shouldn't have Player 1's pets");
+    }
+    await page.fill('#petNameInput', 'Rex');
+    await page.click('#createBtn');
+    await page.waitForTimeout(1500);
+    await settle(page);
+
+    await page.click('#playersBtn');
+    await page.waitForTimeout(500);
+    reloading = true;
+    const reloadedPlayer1 = page.waitForEvent('load');
+    await playerRow('Player 1').locator('button', {hasText: 'Play'}).click();
+    await reloadedPlayer1;
+    await page.waitForTimeout(1500);
+    reloading = false;
+    await page.evaluate(() => openChooser());
+    await page.waitForTimeout(800);
+    const names = await page.locator('#savedPetList li').allTextContents();
+    if (!names.some(n => n.includes('Pepper')) || names.some(n => n.includes('Rex'))) {
+        problems.push("Player 1's pets should be back, without Sam's: " + names.join(' | '));
+    }
+    await page.evaluate(() => closeChooser());
+
+    await page.click('#playersBtn');
+    await page.waitForTimeout(500);
+    await playerRow('Sam').locator('button', {hasText: 'Delete'}).click();
+    await playerRow('Sam').locator('input').fill('Sam');
+    await playerRow('Sam').locator('button', {hasText: 'Delete for good'}).click();
+    await page.waitForTimeout(800);
+    if (await playerRow('Sam').count() !== 0) problems.push('Sam should be deleted');
+    await page.evaluate(() => closePlayers());
+    console.log('Added Sam, played as them, switched back and deleted them');
 }
 
 // groomPepper loads Pepper, a cat the browser test saved groomed before and

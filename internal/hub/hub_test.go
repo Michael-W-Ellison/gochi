@@ -30,7 +30,7 @@ func testHub(t *testing.T) (*Hub, *httptest.Server) {
 func register(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
 	c := NewClient(server.URL, "", "")
-	token, handle, err := c.Register(context.Background(), "secret")
+	token, handle, err := c.Register(context.Background(), "secret", 0)
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestRegistrationGivesHandles(t *testing.T) {
 	if status, err := c.Status(ctx); err != nil || !status.RegistrationOpen {
 		t.Fatalf("Status: %+v, %v", status, err)
 	}
-	if _, _, err := c.Register(ctx, "wrong"); err == nil || !strings.Contains(err.Error(), "wrong join code") {
+	if _, _, err := c.Register(ctx, "wrong", 0); err == nil || !strings.Contains(err.Error(), "wrong join code") {
 		t.Errorf("Wrong join code: %v", err)
 	}
 	// Players can't choose a name
@@ -85,7 +85,7 @@ func TestRegistrationGivesHandles(t *testing.T) {
 	}
 	handles := map[string]bool{}
 	for i := 0; i < 20; i++ {
-		token, handle, err := c.Register(ctx, "secret")
+		token, handle, err := c.Register(ctx, "secret", 0)
 		if err != nil || len(token) != 64 || !ValidHandle(handle) || handles[handle] {
 			t.Fatalf("Register: %q %q %v", token, handle, err)
 		}
@@ -102,8 +102,79 @@ func TestRegistrationGivesHandles(t *testing.T) {
 	}
 
 	closed, _ := New(t.TempDir(), "")
-	if _, _, err := closed.Register(""); !errors.Is(err, ErrRegistrationClosed) {
+	if _, _, err := closed.Register("", 0); !errors.Is(err, ErrRegistrationClosed) {
 		t.Errorf("A hub without a join code is closed: %v", err)
+	}
+}
+
+// A player's number picks their handle: the same number gives the same
+// handle on another hub, and the next free one where it is taken
+func TestHandleFromANumber(t *testing.T) {
+	_, server := testHub(t)
+	_, other := testHub(t)
+	first := NewClient(server.URL, "", "")
+	_, handle, err := first.Register(ctx, "secret", 4821)
+	if err != nil || !ValidHandle(handle) {
+		t.Fatalf("Register: %q %v", handle, err)
+	}
+	_, again, err := NewClient(other.URL, "", "").Register(ctx, "secret", 4821)
+	if err != nil || again != handle {
+		t.Errorf("The same number on another hub should give %q: %q %v", handle, again, err)
+	}
+	_, taken, err := first.Register(ctx, "secret", 4821)
+	if err != nil || taken == handle || !ValidHandle(taken) {
+		t.Errorf("A taken handle should step to a free one: %q %v", taken, err)
+	}
+	if _, near, _ := first.Register(ctx, "secret", 4822); near == handle || near == taken {
+		t.Errorf("The next number should give another handle: %q", near)
+	}
+
+	// Every handle can be given, once
+	seen := map[string]bool{}
+	for i := 0; i < handleCount; i++ {
+		h := handleAt(i)
+		if !ValidHandle(h) || seen[h] {
+			t.Fatalf("Handle %d: %q", i, h)
+		}
+		seen[h] = true
+	}
+	if _, err := seededHandle(1, func(string) bool { return true }); err == nil {
+		t.Error("A hub with every handle taken should say so")
+	}
+}
+
+// A hub from before numbers refuses the number; the game registers
+// without it and gets a random handle
+func TestRegisteringWithAnOlderHub(t *testing.T) {
+	_, server := testHub(t)
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			JoinCode string `json:"join_code"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid request"}`))
+			return
+		}
+		body, _ := json.Marshal(req)
+		forward, _ := http.NewRequest(http.MethodPost, server.URL+r.URL.Path, strings.NewReader(string(body)))
+		resp, err := http.DefaultClient.Do(forward)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		w.WriteHeader(resp.StatusCode)
+		buf := make([]byte, 4096)
+		n, _ := resp.Body.Read(buf)
+		_, _ = w.Write(buf[:n])
+	}))
+	t.Cleanup(old.Close)
+	token, handle, err := NewClient(old.URL, "", "").Register(ctx, "secret", 4821)
+	if err != nil || len(token) != 64 || !ValidHandle(handle) {
+		t.Errorf("Registering with an older hub: %q %q %v", token, handle, err)
 	}
 }
 
@@ -252,7 +323,7 @@ func TestAccountQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, _ := h.Register("secret")
+	token, _, _ := h.Register("secret", 0)
 	id, _ := h.Authenticate(token)
 	save := json.RawMessage(`"` + strings.Repeat("x", MaxSaveBytes-10) + `"`)
 	n := MaxAccountBytes / len(save)
@@ -336,7 +407,7 @@ func TestIndexesSurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, handle, _ := h.Register("secret")
+	token, handle, _ := h.Register("secret", 0)
 	id, _ := h.Authenticate(token)
 	key := PetKey("pet_1")
 	if _, err := h.PutPet(id, PetInfo{Key: key}, json.RawMessage(`{"big":"save"}`), 0); err != nil {

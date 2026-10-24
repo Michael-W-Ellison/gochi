@@ -18,7 +18,7 @@ import (
 // shown to another player except values from fixed lists and numbers.
 //
 //	GET    /hub/v1/status              Whether this is a hub and registration is open
-//	POST   /hub/v1/register            {"join_code"} -> {"token", "handle"}
+//	POST   /hub/v1/register            {"join_code", "seed"} -> {"token", "handle"}
 //	GET    /hub/v1/pets                The player's pets
 //	GET    /hub/v1/pets/{key}          A pet's information and (encrypted) save
 //	PUT    /hub/v1/pets/{key}          {"base_version", "info", "save"} -> {"version"}; 409 on a conflict
@@ -154,11 +154,12 @@ type registration struct {
 func (h *Hub) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JoinCode string `json:"join_code"`
+		Seed     uint32 `json:"seed,omitempty"` // The player's number, which picks the handle; 0 for a random one
 	}
 	if !decode(w, r, requestBytes, &req) {
 		return
 	}
-	token, handle, err := h.Register(req.JoinCode)
+	token, handle, err := h.Register(req.JoinCode, req.Seed)
 	if err != nil {
 		fail(w, err)
 		return

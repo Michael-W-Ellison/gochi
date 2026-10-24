@@ -32,6 +32,30 @@ func randomIndex(n int) (int, error) {
 	return int(v.Int64()), nil
 }
 
+// handleCount is how many handles there are: every color, animal and
+// number from 10 to 99
+var handleCount = len(handleColors) * len(handleAnimals) * 90
+
+// handleAt returns the handle numbered i, from 0 to handleCount-1
+func handleAt(i int) string {
+	n, i := i%90, i/90
+	a, c := i%len(handleAnimals), i/len(handleAnimals)
+	return fmt.Sprintf("%s %s %d", handleColors[c], handleAnimals[a], n+10)
+}
+
+// seededHandle returns the handle a player's number (seed) gives, or, if
+// that one is taken, the next free one after it. The same number gives
+// the same handle on every hub where it is free.
+func seededHandle(seed uint32, taken func(string) bool) (string, error) {
+	start := int(uint64(seed) * 2654435761 % uint64(handleCount)) // Spreads close numbers apart
+	for step := 0; step < handleCount; step++ {
+		if handle := handleAt((start + step) % handleCount); !taken(handle) {
+			return handle, nil
+		}
+	}
+	return "", fmt.Errorf("no free handle found")
+}
+
 // newHandle returns a random handle that taken doesn't report as taken
 func newHandle(taken func(string) bool) (string, error) {
 	for tries := 0; tries < 1000; tries++ {
