@@ -614,3 +614,44 @@ func TestTripWithAFriendThroughServer(t *testing.T) {
 		t.Error("The trip is shared once")
 	}
 }
+
+// The page gets the things to do with the pet's status, and care the pet
+// doesn't want comes back with a suggestion, also when it is turned down
+func TestThingsToDoReachThePage(t *testing.T) {
+	h := newHarness(t)
+	h.createPet("Mochi", core.SpeciesCat)
+	h.server.mu.Lock()
+	h.server.pet.Biology.Vitals.Hydration, h.server.pet.Biology.Vitals.Nutrition = 1, 1
+	h.server.pet.CurrentBehavior = types.BehaviorIdle
+	h.server.mu.Unlock()
+
+	var status struct {
+		Data struct {
+			ThingsToDo []core.ThingToDo `json:"things_to_do"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(h.do(http.MethodGet, "/api/status", "").Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Data.ThingsToDo) == 0 || !status.Data.ThingsToDo[0].Ready {
+		t.Errorf("The status should list things to do, ready ones first: %+v", status.Data.ThingsToDo)
+	}
+
+	var drink struct {
+		Data struct {
+			Reaction   string `json:"reaction"`
+			Suggestion string `json:"suggestion"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(h.post("/api/interact", `{"action":"drink"}`).Body.Bytes(), &drink); err != nil {
+		t.Fatal(err)
+	}
+	if drink.Data.Reaction != "reluctant" || !strings.HasPrefix(drink.Data.Suggestion, "Meanwhile, try ") {
+		t.Errorf("A drink the pet doesn't want should suggest something else: %+v", drink.Data)
+	}
+
+	rec := h.post("/api/interact", `{"action":"feed"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "Meanwhile, try ") {
+		t.Errorf("Food turned down should suggest something else: %d %s", rec.Code, rec.Body.String())
+	}
+}

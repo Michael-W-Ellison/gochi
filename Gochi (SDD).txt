@@ -1174,11 +1174,24 @@ and an absence of an hour or more starts a new visit. With at least 6 such steps
 predicts: an hour is usual if its weight is at least 35% of the busiest hour's; the usual end of a
 session is the end of the run of usual hours containing now; and the summary names the busiest
 weekday and weekend parts of the day (such as "weekday evenings").
-Predictive care: Forecast(horizon) copies the pet (through its save) and advances the copy in 60
-steps, recording each request (section 3.9) it starts to make that the pet isn't making now, at
-most 3, soonest first. The status's forecasts look ahead until the usual end of play (between 10
+Predictive care: Forecast(horizon) copies the pet (through its save) and advances the copy on a
+fixed grid of the pet's age: steps of a quarter of a game day (so every day has a step in daylight,
+which lasts at least 8 hours), halved until the horizon has at least 60 steps. At each step it
+records every need (section 3.9's requests, all of them, not only the most urgent) the copy has
+that the pet doesn't have now, at most 3, soonest first. The copy's weather takes its chances from
+generators seeded from the pet's ID and the game hour of each check, so forecasts a moment apart
+see the same future. The status's forecasts look ahead until the usual end of play (between 10
 minutes and 2 hours of real time) or 30 minutes if that isn't known, converted to game time at the
-current game speed, and give each forecast's real time. The page shows them as "Coming up".
+current game speed, and give each forecast's real time. The page shows them as "Coming up", from
+UpcomingNeeds: a need once shown stays until it is due, the pet has it, or the care that meets it
+(its button's care; feeding or a treat for food, a finished trip for exploring) has been given and
+it is no longer forecast; new needs fill the places left, up to 3. While the pet is away exploring
+nothing is shown, and what was shown is kept for its return.
+Things to do now: ThingsToDo lists the activities other than care (Train, Hide & Seek, Games,
+Explore, Shows, Enrich), those ready now first, each with what it offers or why it waits, from the
+activities' own checks. The page shows them under the care buttons, each ready one opening its
+activity. Care the pet turns down or takes reluctantly (other than discipline) suggests up to two
+activities ready now ("Meanwhile, try ...").
 Adaptive goals: each calendar day the pet gets three goals at a difficulty level from 1 to 5:
 the routine care (section 3.10.4's checklist) given least over the last 7 days relative to how
 often it is due, target its daily target + floor(steps/2); an activity (level 4 and above, learn a

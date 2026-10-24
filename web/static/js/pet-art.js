@@ -360,12 +360,11 @@ const GochiArt = (function () {
                 out.push(text(body, cx, bodyCy + 12, 30));
             }
         }
+        // Round the neck, in layers from the inside out: the neck item
+        // (bandana, scarf or bow tie), the collar over it, and on top the
+        // charms (the collar's own, such as a bell, and a tag) hanging from
+        // the collar, side by side, so nothing hides another
         const collar = slots.collar;
-        if (collar) {
-            const fill = collar.color && /^#[0-9a-fA-F]{6}$/.test(collar.color) ? collar.color : '#c62828';
-            out.push(`<path d="M${cx - 24},${neckY - 2} q24,12 48,0" stroke="${fill}" stroke-width="6" fill="none" stroke-linecap="round"><title>${esc(collar.name || '')}</title></path>`);
-            if (collar.icon && collar.icon !== '⭕') out.push(text(collar, cx, neckY + 16, 13));
-        }
         if (slots.neck) {
             const n = slots.neck;
             if (n.icon === '🔻' && n.color && /^#[0-9a-fA-F]{6}$/.test(n.color)) {
@@ -374,7 +373,15 @@ const GochiArt = (function () {
                 out.push(text(n, cx, neckY + 14, 22));
             }
         }
-        if (slots.tag) out.push(text(slots.tag, cx, neckY + (collar ? 24 : 16), 12));
+        if (collar) {
+            const fill = collar.color && /^#[0-9a-fA-F]{6}$/.test(collar.color) ? collar.color : '#c62828';
+            out.push(`<path d="M${cx - 24},${neckY - 2} q24,12 48,0" stroke="${fill}" stroke-width="6" fill="none" stroke-linecap="round"><title>${esc(collar.name || '')}</title></path>`);
+        }
+        const charms = [];
+        if (collar && collar.icon && collar.icon !== '⭕') charms.push([collar, 13]);
+        if (slots.tag) charms.push([slots.tag, 12]);
+        // The collar is lowest at neckY + 4; a charm's top meets it there
+        charms.forEach(([c, size], i) => out.push(text(c, cx + (charms.length > 1 ? (i ? 9 : -9) : 0), neckY + 4 + size, size)));
         if (slots.eyes) out.push(text(slots.eyes, cx, headY + 5, 30));
         if (slots.head) out.push(text(slots.head, cx, headY - headRy + 6, 34));
         return out.join('');

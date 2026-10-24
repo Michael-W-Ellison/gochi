@@ -44,7 +44,126 @@ async function main() {
         await settle(page);
         await playEverything(page, name);
     }
+    await groomPepper(page);
     await browser.close();
+}
+
+// groomPepper loads Pepper, a cat the browser test saved groomed before and
+// in need of it again, and plays the grooming game with her (a new pet is
+// clean, and one grooming makes a pet clean, so it would turn the game down)
+async function groomPepper(page) {
+    await page.evaluate(() => openChooser());
+    const load = page.locator('#savedPetList li', {hasText: 'Pepper'}).locator('button', {hasText: 'Load'});
+    if (await load.count() === 0) {
+        problems.push('Pepper is not in the list of saved pets');
+        return;
+    }
+    await load.click();
+    await page.waitForTimeout(1500);
+    await settle(page);
+    const games = await page.evaluate(() => fetch('/api/games').then(r => r.json()).then(d => d.data || []));
+    const grooming = games.find(g => g.id === 'grooming');
+    if (!grooming || grooming.unavailable) {
+        problems.push('Pepper can not play the grooming game: ' + (grooming ? grooming.unavailable : 'no such game'));
+        return;
+    }
+    await playGame(page, grooming);
+    console.log('Played grooming with Pepper');
+    await dressPepper(page);
+    await drawEveryCosmetic(page);
+}
+
+// dressPepper dresses Pepper, who owns every cosmetic, through the
+// wardrobe: an item in each slot, which must then all show on her
+async function dressPepper(page) {
+    const cosmetics = await page.evaluate(() => fetch('/api/shop').then(r => r.json()).then(d => d.data.cosmetics));
+    const unowned = cosmetics.filter(c => !c.owned).map(c => c.id);
+    if (unowned.length) problems.push('Pepper should own every cosmetic, not: ' + unowned.join(', '));
+    const outfit = {};
+    cosmetics.forEach(c => { if (!outfit[c.slot]) outfit[c.slot] = c; });
+    if (Object.keys(outfit).length !== 6) problems.push('the wardrobe should have six slots: ' + Object.keys(outfit));
+
+    await page.evaluate(() => openShop());
+    await page.waitForTimeout(800);
+    await settle(page);
+    await page.locator('.shop-tab', {hasText: 'Wardrobe'}).click();
+    for (const c of Object.values(outfit)) {
+        const row = page.locator('#shopList .shop-item').filter({has: page.locator('.shop-name', {hasText: c.name})}).first();
+        await row.locator('button', {hasText: 'Wear'}).click({timeout: 5000})
+            .catch(e => problems.push('could not wear ' + c.name + ': ' + e.message.split('\n')[0]));
+        await page.waitForTimeout(500); // The wardrobe reloads
+    }
+    const worn = await page.locator('#shopList .shop-item button', {hasText: 'Take off'}).count();
+    if (worn !== 6) problems.push('the wardrobe should show six items to take off, not ' + worn);
+    await page.evaluate(() => closeShop());
+    await page.waitForTimeout(1500); // The pet is drawn again with the next status
+    const shown = await page.evaluate(() => [...document.querySelectorAll('#petSprite title')].map(t => t.textContent));
+    for (const c of Object.values(outfit)) {
+        if (!shown.includes(c.name)) problems.push('Pepper should be shown wearing ' + c.name);
+    }
+    console.log('Dressed Pepper in ' + Object.values(outfit).map(c => c.name).join(', '));
+}
+
+// drawEveryCosmetic draws every cosmetic on every breed of both kinds of
+// pet, with the page's own drawing, and checks each drawing is well formed
+// and shows the item
+async function drawEveryCosmetic(page) {
+    const result = await page.evaluate(async () => {
+        const cosmetics = (await fetch('/api/shop').then(r => r.json())).data.cosmetics;
+        const found = [];
+        let draws = 0;
+        for (const species of ['cat', 'dog']) {
+            const breeds = (await fetch('/api/breeds?species=' + species).then(r => r.json())).data.breeds;
+            for (const b of breeds) {
+                for (const c of cosmetics) {
+                    const svg = GochiArt.draw({species: species, look: b.typical, outfit: {[c.slot]: c}, size: 100, label: b.name});
+                    draws++;
+                    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+                    if (doc.querySelector('parsererror')) found.push(c.id + ' on a ' + b.name + ' is not well formed');
+                    else if (![...doc.querySelectorAll('title')].some(t => t.textContent === c.name)) found.push(c.id + ' is not drawn on a ' + b.name);
+                }
+            }
+        }
+        return {draws: draws, cosmetics: cosmetics.length, found: found};
+    });
+    // Round the neck, in layers: with a collar that has a charm, a tag and
+    // each kind of neck item (a bandana, or one drawn as its icon), the
+    // charms hang from the collar, on top of the neck item, and don't
+    // overlap each other
+    const overlaps = await page.evaluate(async () => {
+        const cosmetics = (await fetch('/api/shop').then(r => r.json())).data.cosmetics;
+        const byID = id => cosmetics.find(c => c.id === id);
+        const necks = ['bandana_blue', 'bow_tie', 'knitted_scarf'].map(byID);
+        const box = document.createElement('div');
+        document.body.append(box);
+        const found = [];
+        for (const species of ['cat', 'dog']) {
+            const breeds = (await fetch('/api/breeds?species=' + species).then(r => r.json())).data.breeds;
+            for (const b of breeds) {
+                for (const neck of necks) {
+                    const outfit = {collar: byID('collar_bell'), tag: byID('tag_paw'), neck: neck};
+                    box.innerHTML = GochiArt.draw({species: species, look: b.typical, outfit: outfit, size: 200});
+                    const shape = (name, tag) => [...box.querySelectorAll('title')]
+                        .find(t => t.textContent === name && (!tag || t.parentElement.tagName === tag)).parentElement;
+                    const bell = shape(outfit.collar.name, 'text'), paw = shape(outfit.tag.name), scarf = shape(neck.name);
+                    const band = shape(outfit.collar.name, 'path').getBBox();
+                    const on = b.name + ' with a ' + neck.name;
+                    const [bb, pb] = [bell.getBBox(), paw.getBBox()];
+                    if (bb.x < pb.x + pb.width - 1 && pb.x < bb.x + bb.width - 1) found.push('the bell and the tag overlap on a ' + on);
+                    for (const [charm, r] of [[bell, bb], [paw, pb]]) {
+                        if (!(scarf.compareDocumentPosition(charm) & Node.DOCUMENT_POSITION_FOLLOWING)) found.push('the ' + neck.name + ' is drawn over a charm on a ' + on);
+                        if (Math.abs(r.y - (band.y + band.height)) > 3) found.push('a charm doesn\'t hang from the collar on a ' + on);
+                    }
+                }
+            }
+        }
+        box.remove();
+        return found;
+    });
+    result.found.push(...overlaps);
+    result.found.slice(0, 20).forEach(p => problems.push(p));
+    if (result.found.length > 20) problems.push((result.found.length - 20) + ' more drawing problems');
+    console.log('Drew ' + result.cosmetics + ' cosmetics on every breed: ' + result.draws + ' drawings');
 }
 
 // settle closes the tour and any pop-ups, the way a player would
@@ -77,6 +196,55 @@ async function clickAll(page, selector, between) {
     }
 }
 
+// playGame plays a game from the page, as a player would, and checks it
+// finishes
+async function playGame(page, game) {
+    const playing = () => page.evaluate(() => panelMode === 'game');
+    await page.evaluate(g => startGame(g), game);
+    await page.waitForTimeout(300);
+    const panel = page.locator('#activityPanel');
+    if (game.id === 'fetch') {
+        for (let i = 0; i < 5; i++) {
+            await panel.locator('button', {hasText: 'Throw'}).click({timeout: 5000});
+            await page.waitForTimeout(150);
+        }
+    } else if (game.id === 'wand') {
+        await panel.locator('button', {hasText: 'Let it catch'}).click();
+    } else if (game.id === 'puzzle' || game.id === 'scent') {
+        for (let i = 0; i < 40 && await playing(); i++) {
+            const tiles = panel.locator('.game-tile:enabled');
+            if (await tiles.count() === 0) break;
+            const clicked = await tiles.nth(i % await tiles.count()).click({timeout: 3000}).then(() => true, () => false);
+            if (!clicked && await playing()) { // Not just the game ending as the tile was clicked
+                problems.push('could not click a tile in ' + game.id);
+                break;
+            }
+            await page.waitForTimeout(60);
+        }
+    } else if (game.id === 'grooming') {
+        const rows = panel.locator('.trick-row');
+        for (let i = 0; i < await rows.count(); i++) await rows.nth(i).locator('button').first().click();
+    }
+    // A game shows how it went a moment after it ends
+    for (let wait = 0; wait < 20 && await playing(); wait++) await page.waitForTimeout(150);
+    if (await playing()) problems.push(game.id + ' did not finish');
+    await page.waitForTimeout(1300);
+    await closePanels(page);
+}
+
+// chooseFirst opens the choices behind a button and makes the first one,
+// as a player would
+async function chooseFirst(page, opener, what) {
+    await settle(page);
+    await page.locator(opener).click();
+    const choice = page.locator('#activityPanel .choice-row button').first();
+    await choice.click({timeout: 5000})
+        .catch(e => problems.push('could not choose ' + what + ': ' + e.message.split('\n')[0]));
+    await page.waitForTimeout(600); // First-time tips appear after 400ms
+    await settle(page);
+    await closePanels(page);
+}
+
 async function closePanels(page) {
     await page.evaluate(() => { closePanel(); if (typeof closeShop === 'function') closeShop(); });
 }
@@ -96,6 +264,16 @@ async function playEverything(page, name) {
         if (!seen) problems.push('the ' + kind + ' choices opened out of view');
         await closePanels(page);
     }
+    // Things to do now: listed under the care buttons, each ready one
+    // opening its activity (not exploring, which sends the pet away)
+    if (!(await page.locator('#thingsToDo').isVisible()) || await page.locator('#thingsToDo .thing-btn').count() === 0) {
+        problems.push(name + ' has nothing listed to do now');
+    }
+    await clickAll(page, '#thingsToDo .thing-btn:not([data-thing="explore"])', async () => closePanels(page));
+    // The care that opens the games: play (from Play's choices) and
+    // enrichment (from Enrich's); grooming was given above
+    await chooseFirst(page, '.action-btn.play', 'play');
+    await chooseFirst(page, '.activity-btn.enrich', 'enrichment');
     // Every activity, and every button along the bottom, but not the camera or ones that leave the pet
     await clickAll(page, '.activities .activity-btn:not(.ar)', async () => closePanels(page));
     await clickAll(page, '.save-row button:not([onclick*="Chooser"]):not([onclick*="AR"])', async label => {
@@ -110,31 +288,9 @@ async function playEverything(page, name) {
     const games = await page.evaluate(() => fetch('/api/games').then(r => r.json()).then(d => d.data || []));
     const playable = games.filter(g => !g.unavailable);
     console.log(name + ' can play ' + playable.map(g => g.id).join(', '));
-    for (const game of playable) {
-        await page.evaluate(g => startGame(g), game);
-        await page.waitForTimeout(300);
-        const panel = page.locator('#activityPanel');
-        if (game.id === 'fetch') {
-            for (let i = 0; i < 5; i++) {
-                await panel.locator('button', {hasText: 'Throw'}).click({timeout: 5000});
-                await page.waitForTimeout(150);
-            }
-        } else if (game.id === 'wand') {
-            await panel.locator('button', {hasText: 'Let it catch'}).click();
-        } else if (game.id === 'puzzle' || game.id === 'scent') {
-            for (let i = 0; i < 40 && await page.evaluate(() => panelMode) === 'game'; i++) {
-                const tiles = panel.locator('.game-tile:enabled');
-                if (await tiles.count() === 0) break;
-                await tiles.nth(i % await tiles.count()).click();
-                await page.waitForTimeout(60);
-            }
-        } else if (game.id === 'grooming') {
-            const rows = panel.locator('.trick-row');
-            for (let i = 0; i < await rows.count(); i++) await rows.nth(i).locator('button').first().click();
-        }
-        await page.waitForTimeout(1300);
-        await closePanels(page);
-    }
+    games.filter(g => g.unavailable).forEach(g => console.log('  ' + g.id + ': ' + g.unavailable));
+    if (playable.length === 0) problems.push(name + ' has no game to play');
+    for (const game of playable) await playGame(page, game);
     // A home happening, from the page
     await page.evaluate(() => showHappening({id: 'thunderstorm', icon: '⛈️', title: 'Thunderstorm', text: 'A test',
         choices: [{id: 'comfort', label: 'Comfort it'}]}));

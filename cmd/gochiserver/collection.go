@@ -159,7 +159,7 @@ func (s *Server) collectLocked(pet *core.DigitalPet, ids []string) {
 
 // souvenirIDs returns the souvenirs a pet has found
 func souvenirIDs(pet *core.DigitalPet) []string {
-	var ids []string
+	ids := []string{} // An empty list, not null, for a pet with none
 	for _, c := range pet.SouvenirCollection() {
 		ids = append(ids, c.ID)
 	}

@@ -400,7 +400,14 @@ each hour of the week you use the page counts towards your usual times, recent w
 than older ones. After a few visits it looks ahead until the end of your usual playing time
 (between 10 minutes and 2 hours), and otherwise 30 minutes, and the panel says when you usually
 play (for example "weekday evenings"). This is kept in `<data-dir>/owner.json` and never leaves
-your computer.
+your computer. A need stays on the list until its time comes, your pet starts asking for it, or you
+give the care that meets it.
+
+**Things to do now**, under the care buttons, lists what you can do with your pet besides care:
+train, hide and seek, games, exploring, shows and changing its home. Those you can do now come
+first and open with a click; the others say why they have to wait (asleep, too tired, too young,
+games not yet open). When your pet doesn't want care, for example a drink when it isn't thirsty,
+the reply suggests something it would do instead ("Meanwhile, try 🎓 Train or 🙈 Hide & Seek.").
 
 ### Health and Learning Real Care
 
