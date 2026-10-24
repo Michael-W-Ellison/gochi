@@ -2244,11 +2244,16 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                         if (!choosing && !shopping) {
                             showPetView();
                             updateUI(data.data);
+                        } else if (choosing) {
+                            showPopups(data.data.popups); // On the new-pet screen
                         }
-                    } else if (hasPet || !choosing) {
-                        hasPet = false;
-                        choosing = true;
-                        showCreateView();
+                    } else {
+                        if (hasPet || !choosing) {
+                            hasPet = false;
+                            choosing = true;
+                            showCreateView();
+                        }
+                        showPopups(data.data && data.data.popups);
                     }
                 })
                 .catch(err => {
@@ -3564,10 +3569,15 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             if (btn) lastClick = {at: Date.now(), inside: btn.closest('#activityPanel, #playersPanel, #shopView')};
         }, true);
 
+        // A margin is left above it, as what is above can still shrink a little
+        const viewMargin = 24;
         function bringIntoView(el) {
             const r = el.getBoundingClientRect();
-            if (r.top >= 0 && (r.bottom <= window.innerHeight || r.top <= window.innerHeight / 4)) return;
-            el.scrollIntoView({behavior: 'smooth', block: r.height <= window.innerHeight ? 'nearest' : 'start'});
+            if (r.top >= viewMargin && (r.bottom <= window.innerHeight || r.top <= window.innerHeight / 4)) return;
+            // Its top near the top of the window, or, if it fits and is below, its bottom at the bottom
+            let by = r.top - viewMargin;
+            if (r.top > 0 && r.height + viewMargin <= window.innerHeight) by = r.bottom - window.innerHeight + viewMargin;
+            window.scrollBy({top: by, behavior: 'smooth'});
         }
 
         // Panels are opened by showing them or by replacing what they show;
@@ -4157,7 +4167,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.pet == nil {
-		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		// The player's pop-ups are shown on the new-pet screen too
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found",
+			Data: map[string][]popup{"popups": append([]popup{}, s.popups...)}})
 		return
 	}
 

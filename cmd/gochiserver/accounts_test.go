@@ -445,3 +445,24 @@ func TestPopupsFile(t *testing.T) {
 		t.Errorf("The newest %d pop-ups should be kept, once each: %d, %v ... %v", maxPopups, len(got), got[0], got[len(got)-1])
 	}
 }
+
+// A player without a pet still gets their pop-ups, for the new-pet screen
+func TestPopupsWithoutAPet(t *testing.T) {
+	h := newHarness(t)
+	h.server.mu.Lock()
+	h.server.addPopupLocked(popup{ID: "died_x", Icon: "🕊️", Title: "Mochi has passed away", Text: "Goodbye."})
+	h.server.mu.Unlock()
+	rec := h.do(http.MethodGet, "/api/status", "")
+	var reply struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Popups []popup `json:"popups"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusNotFound || reply.Success || len(reply.Data.Popups) != 1 || reply.Data.Popups[0].ID != "died_x" {
+		t.Errorf("The status without a pet should carry the pop-up: %d %s", rec.Code, rec.Body.String())
+	}
+}

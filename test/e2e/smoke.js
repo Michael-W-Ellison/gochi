@@ -39,6 +39,8 @@ async function main() {
     await page.waitForTimeout(1000);
     for (const [name, species] of [['Biscuit', 'dog'], ['Mochi', 'cat']]) {
         if (await page.locator('#petView').isVisible()) await page.evaluate(() => openChooser());
+        await page.waitForTimeout(800); // The pet list shows pop-ups too
+        await settle(page);
         await page.fill('#petNameInput', name);
         await page.evaluate(s => {
             const radio = document.querySelector('input[name="species"][value="' + s + '"]');
@@ -114,6 +116,8 @@ async function secondPlayer(page) {
 // clean, and one grooming makes a pet clean, so it would turn the game down)
 async function groomPepper(page) {
     await page.evaluate(() => openChooser());
+    await page.waitForTimeout(800); // The pet list shows pop-ups too
+    await settle(page);
     const load = page.locator('#savedPetList li', {hasText: 'Pepper'}).locator('button', {hasText: 'Load'});
     if (await load.count() === 0) {
         problems.push('Pepper is not in the list of saved pets');
@@ -292,6 +296,30 @@ async function clickAll(page, selector, between) {
 // playGame plays a game from the page, as a player would, and checks it
 // finishes
 async function playGame(page, game) {
+    await withPopupsClosed(page, () => playOneGame(page, game));
+}
+
+// withPopupsClosed runs steps, closing any pop-up (a home happening, a tip)
+// that arrives meanwhile and covers the page, as a player would
+async function withPopupsClosed(page, steps) {
+    let running = true;
+    const closer = (async () => {
+        while (running) {
+            if (await page.locator('#popupModal').isVisible().catch(() => false)) {
+                await page.locator('#popupActions button').last().click({timeout: 1000}).catch(() => {});
+            }
+            await page.waitForTimeout(400);
+        }
+    })();
+    try {
+        await steps();
+    } finally {
+        running = false;
+        await closer;
+    }
+}
+
+async function playOneGame(page, game) {
     const playing = () => page.evaluate(() => panelMode === 'game');
     await settle(page);
     await page.evaluate(g => startGame(g), game);
@@ -348,12 +376,17 @@ async function closePanels(page) {
 
 async function playEverything(page, name) {
     // Each need explains itself when the mouse is over it
-    for (let i = 0; i < await page.locator('#needs .need').count(); i++) {
-        await settle(page);
-        await page.locator('#needs .need').nth(i).hover();
-        const tip = await page.locator('#tipPop').isVisible() ? await page.textContent('#tipPop') : '';
-        if (!/%, .*To fill it: .+\./.test(tip)) problems.push('need ' + i + ' has no pop-up: ' + tip);
-    }
+    await withPopupsClosed(page, async () => {
+        for (let i = 0; i < await page.locator('#needs .need').count(); i++) {
+            let tip = '';
+            for (let tries = 0; tries < 2 && !/%, .*To fill it: .+\./.test(tip); tries++) { // Once more if a pop-up came between
+                await settle(page);
+                await page.locator('#needs .need').nth(i).hover();
+                tip = await page.locator('#tipPop').isVisible() ? await page.textContent('#tipPop') : '';
+            }
+            if (!/%, .*To fill it: .+\./.test(tip)) problems.push('need ' + i + ' has no pop-up: ' + tip);
+        }
+    });
     await page.mouse.move(0, 0);
     // Care
     await clickAll(page, '.actions .action-btn');

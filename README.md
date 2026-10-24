@@ -135,7 +135,8 @@ The **👤** button at the top of the page names the player who is playing. It o
 - **Play** switches to another player. The game of the player who was playing is saved first (like
   switching pets), and the page opens the other player's most recently saved pet. Messages a player
   hasn't closed yet wait for them and are shown when they play again, also after the game is closed
-  and started again (they are kept in `<player-dir>/popups.json`, at most the newest 50). A player who
+  and started again (they are kept in `<player-dir>/popups.json`, at most the newest 50). They are
+  shown on the new-pet screen too, so a player without a pet still sees them. A player who
   doesn't have a pet yet starts on the new-pet form.
 - **Add player**: type a name of 1 to 24 letters, numbers or symbols. No two players can have the
   same name (capitals don't count). Each player is also given a random number from 1000 to 9999,
