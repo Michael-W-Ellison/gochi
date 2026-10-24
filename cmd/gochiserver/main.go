@@ -853,6 +853,11 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .guide-topic p { margin: 6px 0 2px; color: #444; font-size: 0.92em; line-height: 1.4; }
         .points-toast .lesson { color: #1864ab; }
         .points-toast .repeated { color: #868e96; font-size: 0.95em; }
+        .trip-card { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: #fff; color: #333; text-align: left; border: 1px solid #e3e7ff; }
+        .trip-card-head { display: flex; justify-content: space-between; font-size: 0.75em; color: #777; text-transform: uppercase; letter-spacing: 0.04em; }
+        .trip-card-title { font-weight: 600; margin: 4px 0; }
+        .trip-card-text { font-size: 0.9em; line-height: 1.4; }
+        .trip-card-nav { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
         .needs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
         .need { text-align: center; font-size: 0.7em; color: #666; cursor: help; border-radius: 4px; }
         .need:focus-visible { outline: 2px solid #667eea; outline-offset: 2px; }
@@ -1131,6 +1136,15 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             <div class="activity-panel hidden" id="activityPanel"></div>
             <div class="explore-banner hidden" id="exploreBanner">
                 <div id="exploreText"></div>
+                <div class="trip-card hidden" id="tripCard" tabindex="0" aria-live="polite">
+                    <div class="trip-card-head"><span id="tripCardKind"></span><span id="tripCardCount"></span></div>
+                    <div class="trip-card-title" id="tripCardTitle"></div>
+                    <div class="trip-card-text" id="tripCardText"></div>
+                    <div class="trip-card-nav">
+                        <button class="save-btn" id="tripCardPrev" onclick="stepTripCard(-1)" aria-label="Previous">◀</button>
+                        <button class="save-btn" id="tripCardNext" onclick="stepTripCard(1)" aria-label="Next">▶</button>
+                    </div>
+                </div>
                 <button class="save-btn" onclick="recallPet()">Call home early</button>
             </div>
             <div class="adventure-banner hidden" id="adventureBanner">
@@ -3395,6 +3409,46 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 .catch(console.error);
         }
 
+        // While the pet is out exploring, the banner shows facts about it
+        // and care tips, a new one every 15 seconds (not while the player
+        // points at or has selected the card), or with ◀ ▶
+        const tripCardSeconds = 15;
+        let tripCards = {trip: null, cards: [], index: 0, timer: null};
+
+        function updateTripCards(trip) {
+            const card = document.getElementById('tripCard');
+            if (trip === tripCards.trip) return;
+            clearInterval(tripCards.timer);
+            tripCards = {trip: trip, cards: [], index: 0, timer: null};
+            card.classList.add('hidden');
+            if (!trip) return;
+            fetch('/api/explore/cards').then(r => r.json()).then(data => {
+                if (!data.success || tripCards.trip !== trip || !data.data.cards.length) return;
+                tripCards.cards = data.data.cards;
+                showTripCard();
+                card.classList.remove('hidden');
+                tripCards.timer = setInterval(() => {
+                    if (!card.matches(':hover') && !card.contains(document.activeElement)) stepTripCard(1);
+                }, tripCardSeconds * 1000);
+            }).catch(console.error);
+        }
+
+        function stepTripCard(by) {
+            const n = tripCards.cards.length;
+            if (!n) return;
+            tripCards.index = (tripCards.index + by + n) % n;
+            showTripCard();
+        }
+
+        function showTripCard() {
+            const c = tripCards.cards[tripCards.index];
+            document.getElementById('tripCardKind').textContent = c.kind === 'tip' ? 'Care tip' : 'About ' +
+                (lastStatus ? lastStatus.name : 'your pet');
+            document.getElementById('tripCardCount').textContent = (tripCards.index + 1) + ' / ' + tripCards.cards.length;
+            document.getElementById('tripCardTitle').textContent = c.icon + ' ' + c.title;
+            document.getElementById('tripCardText').textContent = c.text;
+        }
+
         function adventureKey(status) {
             return status.slot + ':' + status.last_adventure.returned_age;
         }
@@ -3435,6 +3489,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             document.getElementById('exploreText').textContent = away ?
                 '🧭 ' + status.name + ' is out exploring. Back in ' + formatWait(status.exploring_seconds) + '.' : '';
             banner.classList.toggle('hidden', !away);
+            updateTripCards(away ? status.slot : null);
 
             document.querySelectorAll('.activity-btn').forEach(b => { b.disabled = busy; });
             if (busy && panelMode && panelMode !== 'guide') closePanel();
@@ -4430,6 +4485,7 @@ func (s *Server) routes() []route {
 		{"/api/breed/partners", s.handleBreedPartners},
 		{"/api/explore/recall", s.handleRecall},
 		{"/api/explore/places", s.handlePlaces},
+		{"/api/explore/cards", s.handleTripCards},
 		{"/api/hideseek/quit", s.handleHideSeekQuit},
 		{"/api/guide", s.handleGuide},
 		{"/api/species", s.handleSpecies},

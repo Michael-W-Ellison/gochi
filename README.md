@@ -770,6 +770,12 @@ Several kinds of care come in variants, each with its own effect and lesson:
     of exploring. An injured pet asks to be healed and can't explore again until you press
     **Heal**. Adaptable pets get hurt less often. A badly hurt pet can die, or hibernates if gentle mode is on.
 
+  While your pet is away, the exploring banner shows a card with a fact about your pet or a care
+  tip, a new one every 15 seconds (or press ◀ ▶; pointing at the card holds it). The facts are where
+  it is and the souvenirs it has found or still has to find there, its breed, personality, likes and
+  dislikes, tricks and age; the tips are the outdoor lessons for that place, its breed's health
+  tendencies, the week's theme and the care guide.
+
   Press **Call home early** to bring your pet back before the trip ends; it comes home with
   nothing from the trip.
 

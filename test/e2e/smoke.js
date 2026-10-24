@@ -62,6 +62,7 @@ async function secondPlayer(page) {
     await page.fill('#newPlayerName', 'Sam');
     await page.locator('#playersPanel button', {hasText: 'Add player'}).click();
     await page.waitForTimeout(800);
+    await settle(page);
     reloading = true;
     const reloadedSam = page.waitForEvent('load');
     await playerRow('Sam').locator('button', {hasText: 'Play'}).click();
@@ -81,6 +82,7 @@ async function secondPlayer(page) {
 
     await page.click('#playersBtn');
     await page.waitForTimeout(500);
+    await settle(page);
     reloading = true;
     const reloadedPlayer1 = page.waitForEvent('load');
     await playerRow('Player 1').locator('button', {hasText: 'Play'}).click();
@@ -95,6 +97,7 @@ async function secondPlayer(page) {
     }
     await page.evaluate(() => closeChooser());
 
+    await settle(page);
     await page.click('#playersBtn');
     await page.waitForTimeout(500);
     await playerRow('Sam').locator('button', {hasText: 'Delete'}).click();
@@ -290,6 +293,7 @@ async function clickAll(page, selector, between) {
 // finishes
 async function playGame(page, game) {
     const playing = () => page.evaluate(() => panelMode === 'game');
+    await settle(page);
     await page.evaluate(g => startGame(g), game);
     await page.waitForTimeout(300);
     const panel = page.locator('#activityPanel');
@@ -345,6 +349,7 @@ async function closePanels(page) {
 async function playEverything(page, name) {
     // Each need explains itself when the mouse is over it
     for (let i = 0; i < await page.locator('#needs .need').count(); i++) {
+        await settle(page);
         await page.locator('#needs .need').nth(i).hover();
         const tip = await page.locator('#tipPop').isVisible() ? await page.textContent('#tipPop') : '';
         if (!/%, .*To fill it: .+\./.test(tip)) problems.push('need ' + i + ' has no pop-up: ' + tip);
@@ -387,9 +392,23 @@ async function playEverything(page, name) {
         }
         await closePanels(page);
     });
+    // While it is out exploring, the banner shows facts and tips, and ▶ moves on
+    await page.evaluate(() => postJSON('/api/explore', {place: 'park'}));
+    await page.waitForTimeout(3000);
+    if (await page.locator('#exploreBanner').isVisible()) {
+        const first = await page.textContent('#tripCardTitle').catch(() => '');
+        await page.click('#tripCardNext').catch(() => {});
+        const second = await page.textContent('#tripCardTitle').catch(() => '');
+        if (!(await page.locator('#tripCard').isVisible()) || !first || first === second) {
+            problems.push(name + "'s trip shows no facts or tips: " + first + ' / ' + second);
+        }
+    } else {
+        problems.push(name + ' could not be sent exploring to see the trip cards');
+    }
     // Every game the pet can play now (call it home first: panels close while it is away)
     await page.evaluate(() => postJSON('/api/explore/recall', {}));
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(3000); // A pop-up the trip brought arrives with the next update
+    await settle(page);
     const games = await page.evaluate(() => fetch('/api/games').then(r => r.json()).then(d => d.data || []));
     const playable = games.filter(g => !g.unavailable);
     console.log(name + ' can play ' + playable.map(g => g.id).join(', '));

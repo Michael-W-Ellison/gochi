@@ -331,6 +331,22 @@ func (s *Server) handlePlaces(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// handleTripCards handles GET /api/explore/cards - facts about the pet and
+// care tips to read while it is out exploring
+func (s *Server) handleTripCards(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"cards": s.pet.TripCards()}})
+}
+
 // handleRecall handles POST /api/explore/recall - calls the pet home
 // early; it brings nothing back
 func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request) {
