@@ -133,7 +133,8 @@ paired phones and tablets belong to the computer and apply to every player.
 The **👤** button at the top of the page names the player who is playing. It opens **Players**:
 
 - **Play** switches to another player. The game of the player who was playing is saved first (like
-  switching pets), and the page opens the other player's most recently saved pet. A player who
+  switching pets), and the page opens the other player's most recently saved pet. Messages a player
+  hasn't closed yet wait for them and are shown when they play again (until the game is closed). A player who
   doesn't have a pet yet starts on the new-pet form.
 - **Add player**: type a name of 1 to 24 letters, numbers or symbols. No two players can have the
   same name (capitals don't count). Each player is also given a random number from 1000 to 9999,

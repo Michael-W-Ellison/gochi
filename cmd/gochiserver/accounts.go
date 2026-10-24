@@ -458,7 +458,8 @@ func (s *Server) switchAccount(id string) error {
 	if !ok {
 		return errNoAccount
 	}
-	if s.accounts.current().ID == id {
+	from := s.accounts.current().ID
+	if from == id {
 		return nil
 	}
 	if err := s.saveAccountLocked(); err != nil {
@@ -480,7 +481,16 @@ func (s *Server) switchAccount(id string) error {
 	s.mu.Lock()
 	s.store, s.cloud, s.owner, s.ownerPath, s.stats, s.house = parts.store, parts.cloud, parts.owner,
 		parts.ownerPath, parts.stats, parts.house
-	s.pet, s.slot, s.popups, s.holidayBought = nil, "", nil, false
+	// Pop-ups not dismissed yet wait for their player to come back
+	if s.otherPopups == nil {
+		s.otherPopups = map[string][]popup{}
+	}
+	if len(s.popups) > 0 {
+		s.otherPopups[from] = s.popups
+	}
+	s.popups = s.otherPopups[id]
+	delete(s.otherPopups, id)
+	s.pet, s.slot, s.holidayBought = nil, "", false
 	s.lastHouseholdAwards, s.householdDays, s.lastHouseholdTime = time.Time{}, 0, time.Time{}
 	now := time.Now()
 	s.clock.SetPaused(true, now) // The account's pet's time starts from now
@@ -688,6 +698,9 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 		writeAccountError(w, err)
 		return
 	}
+	s.mu.Lock()
+	delete(s.otherPopups, req.ID)
+	s.mu.Unlock()
 	log.Printf("Deleted a player: %s", a.Name)
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: s.accountsStatus()})
 }

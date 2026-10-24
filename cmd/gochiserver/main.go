@@ -66,6 +66,10 @@ type Server struct {
 	// Messages the page shows in front of everything until dismissed
 	popups []popup
 
+	// Pop-ups of the players not playing, by account ID, shown when they
+	// play again (accounts.go); kept while the game runs
+	otherPopups map[string][]popup
+
 	// When the household achievements were last checked
 	lastHouseholdAwards time.Time
 

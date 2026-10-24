@@ -355,3 +355,61 @@ func TestSwitchingWhilePlaying(t *testing.T) {
 		t.Errorf("Sam's Rex should be active: %v", pet)
 	}
 }
+
+// Pop-ups a player hasn't dismissed wait while another player plays, and
+// are shown to them only
+func TestPopupsStayWithTheirPlayer(t *testing.T) {
+	h := newHarness(t)
+	h.createPet("Mochi", core.SpeciesCat)
+	p1 := h.server.accounts.current().ID
+	popupsOf := func() []popup {
+		var status struct {
+			Data struct {
+				Popups []popup `json:"popups"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(h.do(http.MethodGet, "/api/status", "").Body.Bytes(), &status); err != nil {
+			t.Fatal(err)
+		}
+		return status.Data.Popups
+	}
+	h.server.mu.Lock()
+	h.server.addPopupLocked(popup{ID: "grown_up", Icon: "🎉", Title: "Grown up", Text: "Mochi is an adult."})
+	h.server.mu.Unlock()
+
+	sam := h.createAccount("Sam")
+	h.switchTo(sam)
+	h.createPet("Rex", core.SpeciesDog)
+	if got := popupsOf(); len(got) != 0 {
+		t.Errorf("Sam shouldn't see Player 1's pop-up: %v", got)
+	}
+	h.server.mu.Lock()
+	h.server.addPopupLocked(popup{ID: "sams", Icon: "🐾", Title: "Sam's", Text: "For Sam."})
+	h.server.mu.Unlock()
+
+	h.switchTo(p1)
+	if got := popupsOf(); len(got) != 1 || got[0].ID != "grown_up" {
+		t.Errorf("Player 1's pop-up should be back: %v", got)
+	}
+	if rec := h.post("/api/popup/dismiss", `{"id":"grown_up"}`); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	h.switchTo(sam)
+	if got := popupsOf(); len(got) != 1 || got[0].ID != "sams" {
+		t.Errorf("Sam's pop-up should be back: %v", got)
+	}
+	h.switchTo(p1)
+	if got := popupsOf(); len(got) != 0 {
+		t.Errorf("A dismissed pop-up shouldn't come back: %v", got)
+	}
+
+	// Deleting a player drops their waiting pop-ups
+	if rec := h.post("/api/accounts/delete", `{"id":"`+sam+`","confirm_name":"Sam"}`); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	h.server.mu.RLock()
+	defer h.server.mu.RUnlock()
+	if len(h.server.otherPopups) != 0 {
+		t.Errorf("Sam's pop-ups should be gone with Sam: %v", h.server.otherPopups)
+	}
+}
