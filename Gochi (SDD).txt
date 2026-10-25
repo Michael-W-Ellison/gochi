@@ -1115,7 +1115,9 @@ achievements feed; and AR playdates (section 5.2). Requests with fields the hub 
 refused. uploadPetData / downloadPetData store and return a pet's whole save file, encrypted by the
 game (section 6.2), with only its key, version, size and last-played time readable (at most 4 MB per
 pet, 50 pets and 64 MB per account, 10,000 accounts); the hub keeps one previous version, and a
-deleted pet leaves a marker so other devices don't upload it again. enableSocialFeatures sets whether
+deleted pet leaves a marker so other devices don't upload it again. Markers don't count toward the 50
+pets; an account keeps at most 200, and beyond that the marker of the pet last played longest ago is
+removed (a device that hasn't synced since then uploads that pet again). enableSocialFeatures sets whether
 the player shares achievements (off for a new account). shareAchievement takes only an achievement's
 ID (from the game's list) and the pet's species (a registered species); the hub fills in the
 achievement's name, icon and description, and posts it with the player's handle to a feed of the last

@@ -549,3 +549,71 @@ func TestUploadsAreLimited(t *testing.T) {
 		d()
 	}
 }
+
+// Deleted pets don't count toward an account's pets, and only the most
+// recent records of deleted pets are kept
+func TestDeletedPetsDontCount(t *testing.T) {
+	h, err := New(t.TempDir(), "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, _ := h.Register("secret", 0)
+	id, _ := h.Authenticate(token)
+	save := json.RawMessage(`"x"`)
+	at := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	put := func(name string, base int) (int, error) {
+		at = at.Add(time.Minute)
+		return h.PutPet(id, PetInfo{Key: PetKey(name), SavedAt: at}, save, base)
+	}
+	for i := 0; i < MaxPetsPerAccount; i++ {
+		if _, err := put(fmt.Sprint("pet", i), 0); err != nil {
+			t.Fatalf("Pet %d: %v", i, err)
+		}
+	}
+	if _, err := put("one more", 0); !errors.Is(err, ErrTooManyPets) {
+		t.Errorf("Pet %d: %v", MaxPetsPerAccount+1, err)
+	}
+	version, err := h.DeletePet(id, PetKey("pet0"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := put("one more", 0); err != nil {
+		t.Errorf("After deleting a pet there is room for another: %v", err)
+	}
+	if _, err := put("pet0", version); !errors.Is(err, ErrTooManyPets) {
+		t.Errorf("A deleted pet uploaded again counts once more: %v", err)
+	}
+
+	// Pets saved and deleted over and over leave a bounded number of records
+	if _, err := h.DeletePet(id, PetKey("one more"), 1); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxDeletedPets+5; i++ {
+		name := fmt.Sprint("passing", i)
+		if _, err := put(name, 0); err != nil {
+			t.Fatalf("Pet %s: %v", name, err)
+		}
+		if _, err := h.DeletePet(id, PetKey(name), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted := 0
+	for _, info := range h.pets[id] {
+		if info.Deleted {
+			deleted++
+		}
+	}
+	if deleted != maxDeletedPets {
+		t.Errorf("Records of deleted pets: %d, want %d", deleted, maxDeletedPets)
+	}
+	if _, ok := h.pets[id][PetKey("pet0")]; ok {
+		t.Error("The record of the pet deleted longest ago should be forgotten first")
+	}
+	again, err := New(h.dir, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.pets[id]) != len(h.pets[id]) {
+		t.Errorf("After a restart: %d pets and records, want %d", len(again.pets[id]), len(h.pets[id]))
+	}
+}

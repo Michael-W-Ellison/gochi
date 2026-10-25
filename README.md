@@ -240,7 +240,10 @@ account keys stored only as hashes), each player's encrypted pets, and the share
 no join code, nobody new can register. The hub allows each player 120 requests a minute (requests
 without an account, such as registering, 120 a minute from each address), and 1,200 requests a minute
 from any one address whatever the accounts; 50 pets and 64 MB of saves per account (4 MB per pet,
-with the previous copy of each pet counted too), 16 GB of saves in all, and 10,000 accounts. Join
+with the previous copy of each pet counted too; deleted pets don't count), 16 GB of saves in all, and
+10,000 accounts. The hub remembers the 200 most recently played deleted pets of each account, so the
+player's other devices don't upload them again; a device that hasn't synced since an older one was
+deleted uploads it again. Join
 codes and playdate codes can't be guessed: after 5 wrong join codes an address waits an hour (and
 after 100 from everyone, registration waits), and after 20 wrong playdate codes an account or
 address waits an hour. One address can make 5 new accounts a day, and a player can share 10

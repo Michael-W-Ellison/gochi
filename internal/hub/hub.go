@@ -37,7 +37,8 @@ import (
 
 // Limits
 const (
-	MaxPetsPerAccount = 50
+	MaxPetsPerAccount = 50       // Pets with a save; deleted pets don't count
+	maxDeletedPets    = 200      // Records of deleted pets kept per account
 	MaxSaveBytes      = 4 << 20  // A pet's (encrypted) save
 	MaxAccountBytes   = 64 << 20 // All of an account's saves, with the previous version of each
 	MaxHubBytes       = 16 << 30 // Every account's saves together, so the hub's disk can't be filled
@@ -497,7 +498,7 @@ func (h *Hub) PutPet(id string, info PetInfo, save json.RawMessage, baseVersion 
 		return 0, err
 	}
 	current, exists := h.pets[id][info.Key]
-	if !exists && len(h.pets[id]) >= MaxPetsPerAccount {
+	if (!exists || current.Deleted) && h.livePetsLocked(id) >= MaxPetsPerAccount {
 		return 0, ErrTooManyPets
 	}
 	// The current version becomes the backup, if the account has room
@@ -562,7 +563,48 @@ func (h *Hub) DeletePet(id, key string, baseVersion int) (int, error) {
 	}
 	h.totalBytes -= freed
 	h.pets[id][key] = info
+	h.forgetOldDeletionsLocked(id)
 	return info.Version, nil
+}
+
+// livePetsLocked counts an account's pets that haven't been deleted.
+// Caller must hold h.mu.
+func (h *Hub) livePetsLocked(id string) int {
+	n := 0
+	for _, info := range h.pets[id] {
+		if !info.Deleted {
+			n++
+		}
+	}
+	return n
+}
+
+// forgetOldDeletionsLocked keeps at most maxDeletedPets records of
+// deleted pets, forgetting first those last played longest ago. A device
+// that hasn't synced since one of those was deleted uploads it again.
+// Caller must hold h.mu.
+func (h *Hub) forgetOldDeletionsLocked(id string) {
+	var deleted []PetInfo
+	for _, info := range h.pets[id] {
+		if info.Deleted {
+			deleted = append(deleted, info)
+		}
+	}
+	if len(deleted) <= maxDeletedPets {
+		return
+	}
+	slices.SortFunc(deleted, func(a, b PetInfo) int {
+		if c := a.SavedAt.Compare(b.SavedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Key, b.Key)
+	})
+	for _, info := range deleted[:len(deleted)-maxDeletedPets] {
+		if err := os.Remove(filepath.Join(h.petDir(id), info.Key+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			continue // Kept until it can be removed
+		}
+		delete(h.pets[id], info.Key)
+	}
 }
 
 // GetProfile returns a player's handle and settings
