@@ -26,8 +26,8 @@ import (
 // Stars are earned by playing (trips, new places, achievements, a day's
 // goals, daily visits) and spent on house upgrades and house cosmetics,
 // which apply to every pet. Household settings are the hemisphere seasons
-// follow and the holidays a parent has turned off. It is all kept in
-// household.json, which only the player's account can read, and goes to
+// follow, the house's look and the shelf. It is all kept in each player
+// account's household.json, which only the player's account can read, and goes to
 // the player's other devices through the cloud hub, sealed like a pet's
 // save.
 //
@@ -70,12 +70,16 @@ type householdData struct {
 	Ledger []ledgerEntry `json:"ledger"`
 
 	// Settings, and when they last changed (the newer wins when devices merge)
-	Hemisphere     environment.Hemisphere `json:"hemisphere"`
-	HolidaysOff    []string               `json:"holidays_off"`
-	AllHolidaysOff bool                   `json:"all_holidays_off"`
-	SoundOff       bool                   `json:"sound_off"` // A parent has turned the game's sounds off
-	Look           map[string]string      `json:"look"`      // House cosmetics in use, by slot
-	SettingsTime   time.Time              `json:"settings_time"`
+	Hemisphere   environment.Hemisphere `json:"hemisphere"`
+	Look         map[string]string      `json:"look"` // House cosmetics in use, by slot
+	SettingsTime time.Time              `json:"settings_time"`
+
+	// The holidays a parent turned off and whether they turned sounds off,
+	// from before these were device settings (parental.json); read once to
+	// move them there, and not changed since
+	HolidaysOff    []string `json:"holidays_off,omitempty"`
+	AllHolidaysOff bool     `json:"all_holidays_off,omitempty"`
+	SoundOff       bool     `json:"sound_off,omitempty"`
 
 	// Daily visits: the day being counted and how long it has been
 	// played, the last day that earned its stars, and the streak
@@ -103,6 +107,10 @@ type householdData struct {
 
 	// The tour and first-time tips that have been shown (help.go)
 	TipsSeen []string `json:"tips_seen"`
+
+	// The week (core.ThemeWeek) one of the pets had the week's themed
+	// happening in, so the player's other pets don't have it again
+	ThemeHappeningWeek string `json:"theme_happening_week,omitempty"`
 }
 
 // household is the player's household
@@ -163,9 +171,19 @@ func (h *household) clean() {
 // apply tells the game the household's settings and upgrades
 func (h *household) apply() {
 	core.UseCalendar(h.data.Hemisphere)
-	core.SetHolidays(h.data.AllHolidaysOff, h.data.HolidaysOff)
 	core.SetHouse(h.upgradesLocked(), h.data.FilterUntil > h.data.GameDays)
 	core.SetShelfSet(shelfSetPlace(h.data.Shelf) != "")
+}
+
+// reapply tells the game the household's settings and upgrades again,
+// after another household was opened
+func (h *household) reapply() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.apply()
 }
 
 // saveLocked writes household.json. Caller must hold h.mu.
@@ -356,27 +374,23 @@ func (h *household) setHemisphere(hemi environment.Hemisphere) error {
 	return h.saveLocked()
 }
 
-// setHolidays sets which holidays are turned off
-func (h *household) setHolidays(allOff bool, off []string) error {
-	var known []string
-	for _, id := range off {
-		if _, ok := core.FindHoliday(id); ok && !slices.Contains(known, id) {
-			known = append(known, id)
-		}
-	}
+// themeHappeningWeek returns the week the household last had the week's
+// themed happening in
+func (h *household) themeHappeningWeek() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.data.AllHolidaysOff, h.data.HolidaysOff, h.data.SettingsTime = allOff, known, time.Now()
-	h.apply()
-	return h.saveLocked()
+	return h.data.ThemeHappeningWeek
 }
 
-// setSoundOff sets whether a parent has turned the game's sounds off
-func (h *household) setSoundOff(off bool) error {
+// setThemeHappeningWeek records that a pet had the week's themed happening
+func (h *household) setThemeHappeningWeek(week string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.data.SoundOff, h.data.SettingsTime = off, time.Now()
-	return h.saveLocked()
+	if h.data.ThemeHappeningWeek == week {
+		return
+	}
+	h.data.ThemeHappeningWeek = week
+	h.saveOrLogLocked()
 }
 
 // seeTip records that a tip has been shown
@@ -454,10 +468,8 @@ func (h *household) merge(other householdData) bool {
 	}
 	sort.SliceStable(h.data.Ledger, func(i, j int) bool { return h.data.Ledger[i].Time.Before(h.data.Ledger[j].Time) })
 	if other.SettingsTime.After(h.data.SettingsTime) {
-		h.data.Hemisphere, h.data.HolidaysOff, h.data.AllHolidaysOff = other.Hemisphere, other.HolidaysOff, other.AllHolidaysOff
-		h.data.Look, h.data.SettingsTime = other.Look, other.SettingsTime
+		h.data.Hemisphere, h.data.Look, h.data.SettingsTime = other.Hemisphere, other.Look, other.SettingsTime
 		h.data.Shelf = slices.Clone(other.Shelf)
-		h.data.SoundOff = other.SoundOff
 		changed = true
 	}
 	if other.PaidDay > h.data.PaidDay {
@@ -479,6 +491,9 @@ func (h *household) merge(other householdData) bool {
 		if !slices.Contains(h.data.Collected, id) {
 			h.data.Collected, changed = append(h.data.Collected, id), true
 		}
+	}
+	if other.ThemeHappeningWeek > h.data.ThemeHappeningWeek { // "2026-W43" sorts by date
+		h.data.ThemeHappeningWeek, changed = other.ThemeHappeningWeek, true
 	}
 	for _, id := range other.TipsSeen {
 		if !slices.Contains(h.data.TipsSeen, id) {

@@ -366,6 +366,11 @@ type InteractionResult struct {
 	// Why the pet turned the interaction down, if it did (Applied is false)
 	Refusal string
 
+	// Set when the pet turned it down because it is asleep (see
+	// WaitsForWaking); WakeIn is about how many game days it will sleep
+	Asleep bool
+	WakeIn float64
+
 	// What this care teaches about looking after a real pet
 	Lesson string
 

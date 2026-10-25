@@ -138,14 +138,30 @@ func TestSleepingPetRestsAndWakes(t *testing.T) {
 		t.Fatalf("A tired pet should sleep, got %s", pet.CurrentBehavior)
 	}
 
-	if r := pet.Interact(types.InteractionPlaying, 1.0); r.Applied || r.Refusal != "Biscuit is sleeping." {
-		t.Errorf("A sleeping pet should not play: %+v", r)
+	// Play, petting and grooming wait until it wakes, and say so
+	for _, care := range []types.InteractionType{types.InteractionPlaying, types.InteractionPetting,
+		types.InteractionGrooming, types.InteractionTraining} {
+		if r := pet.Interact(care, 1.0); r.Applied || !r.Asleep || r.Refusal != "Biscuit is asleep." || r.WakeIn <= 0 {
+			t.Errorf("A sleeping pet should turn down %s: %+v", care, r)
+		}
+	}
+	if r, err := pet.PetOn("cheeks"); err != nil || r.Applied || !r.Asleep {
+		t.Errorf("Petting a sleeping pet on its cheeks: %+v %v", r, err)
 	}
 	if err := pet.StartHideAndSeek(); err != ErrSleeping {
 		t.Errorf("A sleeping pet should not play hide and seek: %v", err)
 	}
+	// Food and water still work
+	pet.Biology.Vitals.Nutrition, pet.Biology.Vitals.Hydration = 0.3, 0.3
+	for _, care := range []types.InteractionType{types.InteractionFeeding, types.InteractionDrinking} {
+		if r := pet.Interact(care, 1.0); !r.Applied || r.Asleep {
+			t.Errorf("A sleeping pet should still take %s: %+v", care, r)
+		}
+	}
 
-	// Sleep continues until rested, then the pet wakes
+	// Sleep continues until rested, then the pet wakes, about when the
+	// estimate said
+	estimate := pet.WakeIn()
 	slept := 0
 	for pet.CurrentBehavior == types.BehaviorSleeping && slept < 100 {
 		pet.Update(0.1)
@@ -160,6 +176,13 @@ func TestSleepingPetRestsAndWakes(t *testing.T) {
 	}
 	if pet.Biology.Vitals.Fatigue > wakeFatigue {
 		t.Errorf("A rested pet should have low fatigue, got %f", pet.Biology.Vitals.Fatigue)
+	}
+	t.Logf("Woke after %.1f game days; estimated %.2f", float64(slept)*0.1, estimate)
+	if actual := float64(slept) * 0.1; actual < estimate*0.5 || actual > estimate*2 {
+		t.Errorf("The pet woke after %.1f game days; the estimate was %.1f", actual, estimate)
+	}
+	if pet.WakeIn() != 0 {
+		t.Error("An awake pet has no time to wake in")
 	}
 }
 

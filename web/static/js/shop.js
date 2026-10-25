@@ -384,14 +384,18 @@ function showModal(icon, title, text, buttons) {
     actions.firstChild && actions.firstChild.focus();
 }
 
-// Pop-ups from the server, shown one at a time until dismissed
+// Pop-ups from the server, shown one at a time until dismissed. A status
+// fetched while one was being dismissed can still list it, so the ones
+// dismissed on this page aren't shown again.
 let popupShowing = null;
+const popupsDismissed = new Set();
 
 function showPopups(popups) {
-    if (popupShowing || !popups || !popups.length) return;
-    const p = popups[0];
+    const p = (popups || []).find(q => !popupsDismissed.has(q.id));
+    if (popupShowing || !p) return;
     popupShowing = p.id;
     showModal(p.icon, p.title, p.text, [['OK', () => {
+        popupsDismissed.add(p.id);
         postJSON('/api/popup/dismiss', {id: p.id}).finally(() => { popupShowing = null; });
     }]]);
 }

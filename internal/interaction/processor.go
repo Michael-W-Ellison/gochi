@@ -97,8 +97,16 @@ func ValidateInteraction(interactionType types.InteractionType, ctx InteractionC
 		}
 
 	case types.InteractionGrooming:
+		if ctx.IsSleeping {
+			return false, "Pet is sleeping"
+		}
 		if ctx.Cleanliness > 0.95 {
 			return false, "Pet is already clean"
+		}
+
+	case types.InteractionPetting:
+		if ctx.IsSleeping {
+			return false, "Pet is sleeping"
 		}
 	}
 

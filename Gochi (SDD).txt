@@ -452,8 +452,13 @@ class InteractionProcessor {
 
 Validation: before care is applied, it is checked against the pet's state. A full pet is not
 hungry, a clean pet does not need grooming, a very tired pet will not play, a stressed or tired
-pet will not train, and a sleeping pet accepts only food, water and medical care. Refused care
-changes nothing, earns no points and returns the reason (for example "Biscuit is not hungry.").
+pet will not train, and a sleeping pet accepts only food, water and medical care (and cleaning up):
+play, training, walks, meeting, petting and grooming wait until it wakes (WaitsForWaking). Refused care
+changes nothing, earns no points and returns the reason (for example "Biscuit is not hungry."). A
+refusal because the pet is asleep is marked asleep, with an estimate of when it wakes (WakeIn: the
+time for rest to bring tiredness down to 0.2 and energy up to 0.5, also in the status as
+wake_seconds); the page shows it as a pop-up, and shows it without asking the server when the last
+status says the pet sleeps.
 The description of each interaction is shown as the tip of its care button.
 
 The player's care actions are Feed, Drink, Pet, Play, Groom, Heal (medical care) and Treat
@@ -667,7 +672,8 @@ playroom; sunroom; multi-pet feeding station; pet door to a fenced yard; catio; 
 quiet room) and house looks (wallpaper, floor, window view, nameplate). They are kept as a ledger in
 household.json: each entry has an ID (random for repeatable earnings, a hash of what it was for
 when it can happen once), so devices merge by taking every entry from both. The household is synced
-through the hub as a sealed record, like a pet's save.
+through the hub as a sealed record, like a pet's save. Each player account has its own household
+(section 4.1); the holidays a parent turns off are the device's, in parental.json, for every account.
 
 3.7.5 Families: Points and Inheritance
 A baby starts with no points and no belongings. While a child is young (60 game days), a living
@@ -728,10 +734,19 @@ before play. The pet's enjoyment is described from the quality: loved (0.8 or mo
 (0.5), had some fun (0.2), lost interest. The page computes quality as: fetch, good throws of 5
 (the marker between 55% and 80%); feather wand, 0.3 x min(fast moves / 6, 1) + 0.3 x min(slow
 moves / 6, 1) + 0.4 if the cat catches it (30 seconds, no limit in relaxed mode); puzzle feeder,
-kibble found / kibble, with 3 + round(3 x intelligence) tiles, kibble under half (rounded up),
-and 3 empty tiles allowed; scent trail, min(1, 6 / guesses) for 3 treats in 6 rooms; gentle
+kibble found / kibble (cup shuffle: rounds won / 3); scent trail, min(1, 6 / guesses) for 3 treats in 6 rooms; gentle
 grooming, regions brushed with the fur (and gently where the pet's liking of the petting region
 is below 0) / regions.
+Puzzle feeder levels: each pet has a puzzle level (PuzzleLevel, 1 to 10, saved with the pet), raised
+by one by a game of quality 0.8 or more and lowered by one by a game below 0.34; the result says so.
+At level L (step s = L - 1): tiles min(3 + round(3 x intelligence) + s, 12); kibble max(2,
+ceil(tiles / 2) - floor(s / 3)); empty picks allowed max(1, 3 - floor(s / 3)); nose hints max(1,
+3 - floor(s / 2)) a game, naming the spot (or cup) up to level 3 and only the row (or left or right
+side) after. Feeders open with levels 1 to 4: lifting tiles; a memory board (the kibble shown for
+max(1, 3 - 0.25 s) seconds, then covered); a sniff mat (an empty spot shows how much kibble is in
+the 8 spots around it; 2 more empty picks allowed); a cup shuffle (min(3 + floor(s / 3), 5) cups, 3
+rounds of 3 + L swaps of max(0.3, 0.8 - 0.05 s) seconds each). The page picks one of the open
+feeders each game; relaxed mode doubles the memory board's time and slows the swaps.
 
 3.8.3 Exploring
 cppclass Exploring {
@@ -753,7 +768,12 @@ rare one (weight 1 + 2 x curiosity). An injury costs
 health 0.25, happiness 0.15 and energy 0.15, adds stress 0.2 and fear, and is remembered, making
 the pet warier of exploring. An injured pet asks to be healed and cannot explore until it is.
 A severe injury can kill the pet, or send it into hibernation in gentle mode. The pet cannot be
-cared for while away. A pet that enjoys exploring investigates at home on its own (the
+cared for while away; meanwhile the page shows trip cards (tripcards.go, GET /api/explore/cards),
+facts and tips in turn, a new one every 15 s (held while pointed at or focused; ◀ ▶ step):
+facts are the place and the pet's souvenirs from it (found and still to find), its breed,
+personality, likes and dislikes, tricks (and the next to learn) and age; tips are the place's trip
+event and souvenir lessons, the breed's tendency lessons, the next trick's lesson, the week's theme
+and every care guide topic. A pet that enjoys exploring investigates at home on its own (the
 INVESTIGATING state); only the player starts a trip.
 Places: a trip goes to one of the environment's locations: park, beach, meadow, farm, garden
 (cats only), dog park (dogs only), forest, river, snowy hill, city, lakeside and mountain,
@@ -843,8 +863,9 @@ merged as a union; POST /api/tips/seen refuses any other), so each is shown once
 the status carries the list. Sound (sounds.js) is synthesized with the Web Audio API from 19
 recipes of oscillators and filtered noise; nothing is downloaded. The player's sound settings (on,
 volume, quiet hours) are kept in the browser's local storage, defaulting to on at 0.5. A parent
-setting, SoundOff in the household file (PIN-protected like the other parental settings, merged
-with the other settings by time), silences every sound and hides the player's sound settings.
+setting, SoundOff in parental.json (PIN-protected like the other parental settings, the same for
+every player account on the device, not synced), silences every sound and hides the player's sound
+settings.
 
 3.9b Themes, Projects and Keepsake Books
 Themes (themes.go): ISO week number mod 12 picks dental, enrichment, grooming, hydration, training,
@@ -853,8 +874,10 @@ in a round) swap when the hydration week is in winter or the paw care week in su
 season for the household's hemisphere. Each has a care guide topic (teeth, exercise, grooming,
 water, training, senior, stress, outdoors, company, feeding, safety, paws; the five not in the
 species guides are added to both), a preferred weekly goal kind (used when it is among the week's
-options) and a list of happenings: the first that fits comes as the week's first happening, once
-a week. Two happenings were added for themes: a stale water bowl, and a senior stiff on the
+options) and a list of happenings: the first that fits comes as the week's first happening, once a
+week for each player: the household records the week (ThemeHappeningWeek, the later week winning
+when devices merge), and the player's other pets then have only random happenings that week, none
+of them the week's themed ones. Two happenings were added for themes: a stale water bowl, and a senior stiff on the
 stairs (seniors only).
 Projects (projects.go, GET /api/projects): Grand Champion (Champion wins of the active pet, 3, or
 done if the household has the achievement), the collection (complete sets of 12), the house
@@ -1022,8 +1045,31 @@ cppclass DataManager {
 Save slots: each pet has its own save file, and the player can create, switch between and delete
 pets. The active pet is saved automatically (every minute by default), when the player presses
 Save, when switching or creating pets, and when the program exits. The previous five saves of
-each pet are kept as backups. On startup the most recently saved pet is restored; a damaged save
+each pet are kept as backups. On startup the most recently saved pet of the account played last is
+restored; a damaged save
 is replaced by its newest working backup.
+Player accounts (accounts.go): several players can play on one device, one at a time. Each account
+has its own folder, <data-dir>/accounts/<id>/ (the ID is 16 random hex digits), holding its saves,
+backups, cache, keepsake books, household.json, stats.json, owner.json, cloud.json and popups.json; the device's
+files (accounts.json, parental.json, devices.json and the hub's folder) stay in the data folder.
+accounts.json lists each account's ID, name, number and creation time, and the account being
+played. A name is typed by the player (1 to 24 printable characters, trimmed, unique ignoring case)
+and never leaves the device; the number (1000 to 9999, random from crypto/rand, unique on the
+device) picks the account's hub handle (section 4.2). At most 20 accounts. The first start makes
+"Player 1" and moves the files a version before accounts kept in the data folder into its folder
+with renames; this is repeated at every start for files still left there (a crash while moving),
+and a file the account already has is never replaced. The holiday and sound settings move from that
+household to parental.json once. Switching (POST /api/accounts/switch) saves the play schedule,
+statistics, household and active pet, opens the other account's files (a damaged one is set aside),
+leaves any playdate, replaces the server's account parts and per-session state (pop-ups not yet
+dismissed are saved as they change in the account's popups.json, at most the newest 50, so they are
+shown when it is played again, also after a restart; a damaged file is set aside), and restores that
+account's most recently saved pet. A server-wide read-write lock, taken for reading by every request
+(except the switch) and every update, autosave and sync step, and for writing by the switch, keeps
+anything from using an account's parts while they are replaced; achievements waiting to be shared
+carry their account's cloud connection. Adding, renaming and deleting accounts are accepted only from
+this computer; deleting needs the name typed and the parent PIN if one is set, and isn't allowed for
+the account being played. Accounts have no lock of their own.
 Saves read or written are kept in an in-memory cache (least recently used first out, up to 32 MB
 of pet data) along with the file's modification time and size; a load or pet list entry uses the
 cache only while the file is unchanged, so a damaged or replaced file is always read and checked.
@@ -1056,7 +1102,10 @@ a join code, on its own HTTPS address, hub.addr, default :8443), or which runs o
 (section 6.3). Players never choose a name: registering with the join code returns an account key
 (32 random bytes; the hub stores its SHA-256 hash) and a handle the hub picks from fixed lists, a
 color, an animal and a number from 10 to 99 (such as "Blue Otter 42"); accounts are stored under a
-random ID. Other devices sign in with the account key alone. HTTP API at /hub/v1: register; list,
+random ID. Registering may carry the game's player number (seed): the handle is then the one at
+(seed x 2654435761) mod 92,160 among all handles, or the next free one after it, so the same number
+gives the same handle on any hub where it is free; without a seed it is random. A hub from before
+seeds refuses the field, and the game registers again without it. Other devices sign in with the account key alone. HTTP API at /hub/v1: register; list,
 get, put (with the base version: a stale upload is refused with 409 and the hub's version) and delete
 pets, keyed by a hash of the pet ID; get the profile (handle and sharing) and set sharing; the
 achievements feed; and AR playdates (section 5.2). Requests with fields the hub doesn't expect are
@@ -1260,7 +1309,7 @@ HMAC-SHA256(account key, "gochi save encryption v1"), a random 12-byte nonce, an
 as additional data, stored as {"gochi_sealed": 1, "nonce", "data"}; downloads are opened the same way,
 and unsealed saves from older versions are accepted. The hub keeps only the account key's hash, so
 its files can't be decrypted on their own; nothing else about a pet is stored on the hub.
-At rest locally: saves, backups, cloud.json, owner.json, parental.json and devices.json are written with mode 0600
+At rest locally: saves, backups, accounts.json, cloud.json, owner.json, parental.json and devices.json are written with mode 0600
 in directories made 0700 (existing ones too). Saves aren't encrypted locally: the key would have to
 be stored beside them; the operating system's disk encryption is the means for that.
 Privacy controls: sharing achievements is off until chosen (section 4.2). Learning the play
@@ -1275,8 +1324,8 @@ computer, not from paired devices. COPPA compliance is a legal obligation of
 whoever operates a hub for children; the software collects no personal information and gives parents
 control of what is shared.
 No personal information and no messaging: the game asks for nothing about the player, pet IDs are
-random ("pet_" and 32 hex digits), and pet names (1 to 24 printable characters) never leave the
-computer. Nothing a player types reaches another player: other players see only hub-chosen handles,
+random ("pet_" and 32 hex digits), and pet names and player account names (1 to 24 printable
+characters) never leave the computer; a hub sees an account's random number, not its name. Nothing a player types reaches another player: other players see only hub-chosen handles,
 species, sprite states, achievements from the game's list, and text written by the hub; the hub
 refuses unknown fields and values outside its lists. Playdate numbers are coarse so they can't carry
 messages: sociability, play quality and bond are rounded to tenths, and positions are on the floor

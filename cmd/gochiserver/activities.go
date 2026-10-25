@@ -132,6 +132,11 @@ func writeActivityError(w http.ResponseWriter, name string, err error) {
 	default:
 		status, message = http.StatusInternalServerError, "Something went wrong"
 	}
+	if errors.Is(err, core.ErrSleeping) {
+		// The page shows the "asleep" pop-up
+		writeJSON(w, status, APIResponse{Success: false, Error: message, Data: map[string]bool{"asleep": true}})
+		return
+	}
 	writeJSON(w, status, APIResponse{Success: false, Error: message})
 }
 
@@ -329,6 +334,22 @@ func (s *Server) handlePlaces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{
 		"places": s.pet.Places(), "long_trip": s.pet.LongTripProblem(),
 	}})
+}
+
+// handleTripCards handles GET /api/explore/cards - facts about the pet and
+// care tips to read while it is out exploring
+func (s *Server) handleTripCards(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Error: "Method not allowed"})
+		return
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pet == nil {
+		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No pet found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: map[string]interface{}{"cards": s.pet.TripCards()}})
 }
 
 // handleRecall handles POST /api/explore/recall - calls the pet home

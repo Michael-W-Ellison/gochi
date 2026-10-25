@@ -28,7 +28,8 @@ type harness struct {
 	t       testing.TB
 	server  *Server
 	handler http.Handler
-	dir     string
+	root    string    // The data folder
+	dir     string    // The folder of the player account being played when the server started
 	now     time.Time // The time the next tick runs at
 }
 
@@ -40,34 +41,29 @@ func newHarness(t testing.TB) *harness {
 }
 
 // openHarness sets up a server on an existing data folder, as main does
-// when the game starts
-func openHarness(t testing.TB, dir string) *harness {
+// when the game starts. A data folder from before accounts (or an
+// account's folder, which is laid out the same) has its files moved into
+// a first account.
+func openHarness(t testing.TB, root string) *harness {
 	t.Helper()
-	store, err := newPetStore(dir)
+	accounts, err := openAccounts(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cloudConn, err := newCloud(dir)
+	dir := accounts.dir(accounts.current().ID)
+	parts, err := openAccountParts(dir, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, ownerPath, err := loadOwnerSchedule(dir)
+	parental, err := loadParentalControls(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats, err := loadPlayerStats(dir)
-	if err != nil {
+	if err := parental.adoptHouseSettings(parts.house.snapshot()); err != nil {
 		t.Fatal(err)
 	}
-	house, err := loadHousehold(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parental, err := loadParentalControls(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pairing, err := loadDevicePairing(dir)
+	parental.apply()
+	pairing, err := loadDevicePairing(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,15 +77,19 @@ func openHarness(t testing.TB, dir string) *harness {
 	s := &Server{
 		static:       web.Static(),
 		clock:        simulation.NewTimeManager(types.TimeScaleGame),
-		store:        store,
+		accounts:     accounts,
+		store:        parts.store,
 		lastActivity: now,
 		awayTimeout:  2 * time.Minute,
 		events:       newEventSystem(),
-		cloud:        cloudConn,
-		owner:        owner,
-		ownerPath:    ownerPath,
-		stats:        stats,
-		house:        house,
+		cloud:        parts.cloud,
+		shares:       make(chan sharedAchievement, shareQueue),
+		owner:        parts.owner,
+		ownerPath:    parts.ownerPath,
+		stats:        parts.stats,
+		house:        parts.house,
+		popups:       parts.popups,
+		popupsPath:   parts.popupsPath,
 		parental:     parental,
 		pairing:      pairing,
 		listenAddr:   "127.0.0.1:8080",
@@ -105,7 +105,7 @@ func openHarness(t testing.TB, dir string) *harness {
 	}
 	mux.Handle("/static/", s.staticHandler(s.static, true))
 	mux.HandleFunc("/", s.handleIndex)
-	return &harness{t: t, server: s, handler: s.guard(securityHeaders(mux)), dir: dir, now: now}
+	return &harness{t: t, server: s, handler: s.guard(s.accountGate(securityHeaders(mux))), root: root, dir: dir, now: now}
 }
 
 // do sends a request as the page on this computer would, and returns the

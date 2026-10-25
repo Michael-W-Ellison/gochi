@@ -291,8 +291,9 @@ func randomHex(n int) (string, error) {
 }
 
 // Register creates an account, giving it a handle, and returns its token
-// and handle
-func (h *Hub) Register(joinCode string) (token, handle string, err error) {
+// and handle. The handle is random, or, with a player's number (seed, 0
+// for none), the one that number gives (see seededHandle).
+func (h *Hub) Register(joinCode string, seed uint32) (token, handle string, err error) {
 	if h.joinCode == "" {
 		return "", "", ErrRegistrationClosed
 	}
@@ -312,7 +313,12 @@ func (h *Hub) Register(joinCode string) (token, handle string, err error) {
 	if len(h.accounts) >= MaxAccounts {
 		return "", "", ErrHubFull
 	}
-	handle, err = newHandle(func(s string) bool { _, ok := h.byHandle[s]; return ok })
+	taken := func(s string) bool { _, ok := h.byHandle[s]; return ok }
+	if seed != 0 {
+		handle, err = seededHandle(seed, taken)
+	} else {
+		handle, err = newHandle(taken)
+	}
 	if err != nil {
 		return "", "", err
 	}

@@ -18,19 +18,29 @@ import (
 // is renamed to <name>.damaged-<time> and load is tried again, which
 // starts afresh.
 func loadOrSetAside[T any](what, path string, load func() (T, error)) T {
+	value, err := setAsideOnError(what, path, load)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return value
+}
+
+// setAsideOnError is loadOrSetAside, returning an error instead of
+// stopping the game
+func setAsideOnError[T any](what, path string, load func() (T, error)) (T, error) {
 	value, err := load()
 	if err == nil {
-		return value
+		return value, nil
 	}
 	aside := fmt.Sprintf("%s.damaged-%s", path, time.Now().Format("20060102-150405"))
 	if renameErr := os.Rename(path, aside); renameErr != nil {
-		log.Fatalf("Could not read %s: %v", what, err)
+		return value, fmt.Errorf("could not read %s: %w", what, err)
 	}
 	log.Printf("Warning: could not read %s (%v); starting afresh. The old file is %s", what, err, aside)
 	if value, err = load(); err != nil {
-		log.Fatalf("Could not read %s: %v", what, err)
+		return value, fmt.Errorf("could not read %s: %w", what, err)
 	}
-	return value
+	return value, nil
 }
 
 // tempFileAge is how old a temporary file must be to be removed at

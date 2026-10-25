@@ -18,12 +18,18 @@ import (
 const happeningPresence = 2 * time.Minute
 
 // checkHappeningLocked may start a happening for the active pet while the
-// player is present. Caller must hold s.mu.
+// player is present. The week's themed happening comes once for each
+// player: the household records the week it came in, and the player's
+// other pets then have only random ones. Caller must hold s.mu.
 func (s *Server) checkHappeningLocked(now time.Time) {
 	if s.pet == nil || now.Sub(s.lastActivity) > happeningPresence {
 		return
 	}
-	s.pet.CheckHappening()
+	week := core.ThemeWeek()
+	themeDone := s.house != nil && s.house.themeHappeningWeek() == week
+	if _, themed := s.pet.CheckHappening(themeDone); themed && s.house != nil {
+		s.house.setThemeHappeningWeek(week)
+	}
 }
 
 // handleHappening handles POST /api/happening with {"choice"}: a choice in

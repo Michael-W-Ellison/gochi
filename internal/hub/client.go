@@ -129,9 +129,17 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 }
 
 // Register creates an account and returns its token and the handle the
-// hub gave it
-func (c *Client) Register(ctx context.Context, joinCode string) (token, handle string, err error) {
+// hub gave it. With a player's number (seed, 0 for none), the handle is
+// the one that number gives; a hub from before numbers, which refuses the
+// number, gives a random one.
+func (c *Client) Register(ctx context.Context, joinCode string, seed uint32) (token, handle string, err error) {
 	var reply registration
+	if seed != 0 {
+		err = c.do(ctx, http.MethodPost, "/hub/v1/register", map[string]any{"join_code": joinCode, "seed": seed}, &reply)
+		if err == nil || err.Error() != "invalid request" {
+			return reply.Token, reply.Handle, err
+		}
+	}
 	err = c.do(ctx, http.MethodPost, "/hub/v1/register", map[string]string{"join_code": joinCode}, &reply)
 	return reply.Token, reply.Handle, err
 }

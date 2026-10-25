@@ -169,7 +169,7 @@ func TestPlaydateLimits(t *testing.T) {
 	h.now = func() time.Time { return clock }
 	var ids []string
 	for i := 0; i < 7; i++ {
-		token, _, err := h.Register("secret")
+		token, _, err := h.Register("secret", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -281,7 +281,7 @@ func TestPlaydateNumbersAreCoarse(t *testing.T) {
 	h.now = func() time.Time { return clock }
 	var ids []string
 	for i := 0; i < 2; i++ {
-		token, _, err := h.Register("secret")
+		token, _, err := h.Register("secret", 0)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,4 +1,5 @@
-// Mini-games: fetch (dogs), the feather wand (cats), the puzzle feeder,
+// Mini-games: fetch (dogs), the feather wand (cats), the puzzle feeder
+// (lifting tiles, a memory board, a sniff mat or a cup shuffle, by level),
 // the scent trail and gentle grooming. Each works with a mouse, touch or
 // the keyboard. There are no scores: the game tells the server how well
 // it went (0 to 1), and the result says how the pet enjoyed it. Relaxed
@@ -24,6 +25,7 @@ function petName() {
 }
 
 function openGames() {
+    if (petAsleep()) return;
     panelMode = 'games';
     fetch('/api/games').then(r => r.json()).then(data => {
         if (data.success) renderGames(data.data);
@@ -68,7 +70,7 @@ function startGame(game) {
     switch (game.id) {
     case 'fetch': playFetch(box, finish); break;
     case 'wand': playWand(box, finish); break;
-    case 'puzzle': playPuzzle(box, game.tiles || 4, finish); break;
+    case 'puzzle': playPuzzle(box, game.puzzle, finish); break;
     case 'scent': playScent(box, finish); break;
     case 'grooming': playGrooming(box, game.regions || [], finish); break;
     }
@@ -87,10 +89,16 @@ function finishGame(game, quality) {
             const faces = {loved: '😻', enjoyed: '😊', some_fun: '🙂', bored: '😐'};
             cloudText(p, (faces[r.enjoyment] || '') + ' ' + r.text, 'panel-text');
             if (r.points_earned) cloudText(p, '+' + r.points_earned + ' ❤️', 'panel-text');
+            if (r.note) cloudText(p, '🧩 ' + r.note, 'panel-text');
             cloudText(p, '💡 ' + r.game_lesson, 'panel-text cloud-note');
         }
         const row = el('div', '');
-        cloudButton(row, 'Play again', () => startGame(game));
+        // Again with the game as it is now (the puzzle's level may have changed)
+        cloudButton(row, 'Play again', () => fetch('/api/games').then(r => r.json()).then(d => {
+            const now = d.success && d.data.find(g => g.id === game.id);
+            if (now && !now.unavailable) startGame(now);
+            else openGames();
+        }).catch(console.error));
         cloudButton(row, 'Other games', openGames);
         p.append(row);
         p.classList.remove('hidden');
@@ -203,18 +211,71 @@ function playWand(box, finish) {
     area.focus();
 }
 
-// Puzzle feeder: lift tiles to find the kibble; the pet loses patience
-// with too many empty tiles
-function playPuzzle(box, tiles, finish) {
-    const kibble = Math.ceil(tiles / 2);
+// Puzzle feeder: one of the feeders its level opens, picked each game
+// (see PuzzleSetup in internal/core/minigames.go). The pet's nose gives a
+// few hints: at low levels which spot, later only which row or side.
+const puzzleFeeders = {
+    tiles: ['Lift the tiles', 'Lift the tiles to find the kibble.'],
+    memory: ['Memory board', 'Watch where the kibble is before the board is covered, then find it.'],
+    sniff: ['Sniff mat', 'An empty spot shows how much kibble is next to it, also diagonally. Use the numbers to find the rest.'],
+    cups: ['Cup shuffle', 'Watch the cup with the kibble while the cups are swapped, then pick it.'],
+};
+
+function playPuzzle(box, setup, finish) {
+    setup = setup || {level: 1, kinds: ['tiles'], tiles: 4, kibble: 2, misses: 3, sniffs: 3, exact: true};
+    const kinds = (setup.kinds || []).filter(k => puzzleFeeders[k]);
+    const kind = kinds.length ? kinds[Math.floor(Math.random() * kinds.length)] : 'tiles';
+    box.append(el('div', 'show-title', 'Level ' + setup.level + ' · ' + puzzleFeeders[kind][0]),
+        el('div', 'cloud-note', puzzleFeeders[kind][1]));
+    if (kind === 'cups') playCups(box, setup, finish);
+    else playBoard(box, setup, kind, finish);
+}
+
+// sniffButton adds the button for the pet's nose: hint(text) is called
+// with what it shows, while sniffs are left
+function sniffButton(box, sniffs, hint) {
+    const text = el('div', 'cloud-note');
+    const row = el('div', '');
+    let left = sniffs;
+    const label = () => 'Watch ' + petName() + '\'s nose (' + left + ' left)';
+    const btn = cloudButton(row, label(), () => {
+        const said = hint();
+        if (!said) return;
+        text.textContent = '👃 ' + said;
+        left--;
+        btn.textContent = label();
+        btn.disabled = left <= 0;
+    });
+    btn.disabled = left <= 0;
+    box.append(text, row);
+    return btn;
+}
+
+// playBoard plays the feeders on a board of spots: lifting tiles, the
+// memory board and the sniff mat
+function playBoard(box, setup, kind, finish) {
+    const tiles = setup.tiles, kibble = Math.min(setup.kibble, tiles - 1);
+    const cols = tiles <= 6 ? 3 : 4;
     const hidden = new Set();
     while (hidden.size < kibble) hidden.add(Math.floor(Math.random() * tiles));
-    let found = 0, patience = 2, over = false;
+    // The sniff mat's numbers make wrong picks part of the game
+    let misses = setup.misses + (kind === 'sniff' ? 2 : 0);
+    let found = 0, over = kind === 'memory'; // The memory board waits until it is covered
     const grid = el('div', 'game-tiles');
+    grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
     const status = el('div', 'cloud-note', petName() + ' sniffs the puzzle. ' + kibble + ' pieces of kibble are hidden.');
+    const near = i => {
+        const r = Math.floor(i / cols), c = i % cols;
+        let n = 0;
+        hidden.forEach(j => {
+            const jr = Math.floor(j / cols), jc = j % cols;
+            if (j !== i && Math.abs(jr - r) <= 1 && Math.abs(jc - c) <= 1) n++;
+        });
+        return n;
+    };
     for (let i = 0; i < tiles; i++) {
         const t = el('button', 'game-tile', '🟫');
-        t.setAttribute('aria-label', 'Tile ' + (i + 1));
+        t.setAttribute('aria-label', 'Spot ' + (i + 1) + ', row ' + (Math.floor(i / cols) + 1));
         t.onclick = () => {
             if (over) return;
             t.disabled = true;
@@ -224,28 +285,125 @@ function playPuzzle(box, tiles, finish) {
                 t.textContent = '🍪';
                 status.textContent = petName() + ' gobbles up the kibble! ' + (kibble - found) + ' left.';
             } else {
-                patience--;
-                t.textContent = '·';
-                status.textContent = 'Nothing there. ' + (patience > 0 ? petName() + ' noses at the other tiles.' :
+                misses--;
+                t.textContent = kind === 'sniff' ? String(near(i) || '·') : '·';
+                status.textContent = 'Nothing there. ' + (misses >= 0 ? petName() + ' noses at the other spots.' :
                     petName() + ' is losing patience.');
             }
-            if (found === kibble || patience < 0) {
+            if (found === kibble || misses < 0) {
                 over = true;
                 setTimeout(() => { if (gameRunning(box)) finish(found / kibble); }, 900);
             }
         };
         grid.append(t);
     }
-    // The pet's nose gives a hint now and then
-    const hint = el('div', 'cloud-note');
-    const row = el('div', '');
-    cloudButton(row, 'Watch ' + petName() + '\'s nose', () => {
+    box.append(grid, status);
+    sniffButton(box, setup.sniffs, () => {
         const left = [...hidden].filter(i => !grid.children[i].disabled);
-        if (!left.length || over) return;
+        if (!left.length || over) return '';
         const i = left[Math.floor(Math.random() * left.length)];
-        hint.textContent = '👃 ' + petName() + ' sniffs hard at tile ' + (i + 1) + '.';
+        return setup.exact ? petName() + ' sniffs hard at spot ' + (i + 1) + '.' :
+            petName() + ' sniffs along row ' + (Math.floor(i / cols) + 1) + '.';
     });
-    box.append(grid, status, hint, row);
+    if (kind === 'memory') {
+        [...grid.children].forEach((t, i) => { t.disabled = true; if (hidden.has(i)) t.textContent = '🍪'; });
+        status.textContent = 'Watch where the kibble is!';
+        const seconds = setup.show_seconds * (relaxedMode() ? 2 : 1);
+        setTimeout(() => {
+            if (!gameRunning(box)) return;
+            [...grid.children].forEach(t => { t.disabled = false; t.textContent = '🟫'; });
+            status.textContent = 'Now find the ' + kibble + ' pieces of kibble.';
+            over = false;
+        }, seconds * 1000);
+    }
+}
+
+// playCups plays the cup shuffle: a round each time, the kibble shown
+// under a cup, the cups swapped, then the player picks
+function playCups(box, setup, finish) {
+    const count = setup.cups || 3, rounds = setup.rounds || 3;
+    const swapMs = (setup.swap_seconds || 0.6) * 1000 * (relaxedMode() ? 1.6 : 1);
+    const grid = el('div', 'game-tiles');
+    grid.style.gridTemplateColumns = 'repeat(' + count + ', 1fr)';
+    const status = el('div', 'cloud-note');
+    let round = 0, wins = 0, under = 0, picking = false;
+    const cups = [];
+    for (let i = 0; i < count; i++) {
+        const c = el('button', 'game-tile', '🥣');
+        c.setAttribute('aria-label', 'Cup ' + (i + 1));
+        c.disabled = true;
+        c.onclick = () => {
+            if (!picking) return;
+            picking = false;
+            cups.forEach(x => { x.disabled = true; });
+            const pos = cups.indexOf(c);
+            cups[under].textContent = '🍪';
+            if (pos === under) {
+                wins++;
+                playSound('rustle');
+                status.textContent = 'Found it! ' + petName() + ' gobbles up the kibble.';
+            } else {
+                c.textContent = '·';
+                status.textContent = 'Not that one. The kibble was under cup ' + (under + 1) + '.';
+            }
+            setTimeout(nextRound, 1200);
+        };
+        cups.push(c);
+        grid.append(c);
+    }
+    box.append(grid, status);
+    // A hint only while the cups can be picked
+    sniffButton(box, setup.sniffs, () => {
+        if (!picking) return '';
+        return setup.exact ? petName() + ' sniffs hard at cup ' + (under + 1) + '.' :
+            petName() + ' sniffs at the ' + (under < count / 2 ? 'left' : 'right') + ' side.';
+    });
+    // Swap two cups' places on the board, showing which two
+    const swap = (a, b, then) => {
+        cups[a].classList.add('swapping');
+        cups[b].classList.add('swapping');
+        setTimeout(() => {
+            if (!gameRunning(box)) return;
+            cups[a].classList.remove('swapping');
+            cups[b].classList.remove('swapping');
+            [cups[a], cups[b]] = [cups[b], cups[a]];
+            grid.replaceChildren(...cups);
+            if (under === a) under = b;
+            else if (under === b) under = a;
+            setTimeout(then, swapMs / 3);
+        }, swapMs);
+    };
+    function nextRound() {
+        if (!gameRunning(box)) return;
+        if (round === rounds) {
+            finish(wins / rounds);
+            return;
+        }
+        round++;
+        cups.forEach(c => { c.textContent = '🥣'; });
+        under = Math.floor(Math.random() * count);
+        cups[under].textContent = '🍪';
+        status.textContent = 'Round ' + round + ' of ' + rounds + ': watch the kibble!';
+        let left = setup.swaps || 4;
+        const step = () => {
+            if (!gameRunning(box)) return;
+            if (left-- <= 0) {
+                status.textContent = 'Round ' + round + ' of ' + rounds + ': which cup has the kibble?';
+                cups.forEach(c => { c.disabled = false; });
+                picking = true;
+                return;
+            }
+            const a = Math.floor(Math.random() * count);
+            const b = (a + 1 + Math.floor(Math.random() * (count - 1))) % count;
+            swap(a, b, step);
+        };
+        setTimeout(() => {
+            if (!gameRunning(box)) return;
+            cups[under].textContent = '🥣';
+            step();
+        }, 1200 * (relaxedMode() ? 1.5 : 1));
+    }
+    nextRound();
 }
 
 // Scent trail: three treats hidden around the house; the pet's tail and

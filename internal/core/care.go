@@ -61,6 +61,39 @@ func (p *DigitalPet) sleepQualityLocked() float64 {
 	return quality
 }
 
+// WaitsForWaking reports whether a kind of care waits until a sleeping pet
+// wakes: play, training, walks, meeting other pets, petting and grooming.
+// Food, water, healing and cleaning up don't.
+func WaitsForWaking(interactionType types.InteractionType) bool {
+	switch interactionType {
+	case types.InteractionPlaying, types.InteractionTraining, types.InteractionWalking,
+		types.InteractionSocialIntroduction, types.InteractionPetting, types.InteractionGrooming:
+		return true
+	}
+	return false
+}
+
+// WakeIn returns about how many game days a sleeping pet will sleep on,
+// or 0 if it is awake
+func (p *DigitalPet) WakeIn() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.wakeInLocked()
+}
+
+// wakeInLocked estimates how long the pet sleeps on: until its tiredness
+// falls to wakeFatigue and its energy rises to wakeEnergy, at the rates
+// rest restores them (ProcessRest). Caller must hold p.mu.
+func (p *DigitalPet) wakeInLocked() float64 {
+	if p.CurrentBehavior != types.BehaviorSleeping {
+		return 0
+	}
+	p.Biology.EnsurePhysiology()
+	quality := max(p.sleepQualityLocked()*p.Biology.SleepQualityFactor(), 0.05)
+	v := p.Biology.Vitals
+	return max((v.Fatigue-wakeFatigue)/(0.5*quality), (wakeEnergy-v.Energy)/(0.15*quality), 0.05)
+}
+
 // careRefusalLocked returns why care can't be given for reasons of the
 // pet's species or home, or "". Caller must hold p.mu.
 func (p *DigitalPet) careRefusalLocked(interactionType types.InteractionType) string {

@@ -81,20 +81,23 @@ type cloud struct {
 	mu    sync.Mutex // Held for syncs and changes; acquire before Server.saveMu
 	path  string
 	state cloudState
-
-	shares chan sharedAchievement // Achievements to share, from the update loop
 }
 
-// sharedAchievement is an achievement waiting to be shared: its ID and
-// the species of the pet that earned it
+// sharedAchievement is an achievement waiting to be shared: its ID, the
+// species of the pet that earned it, and the connection of the player
+// whose pet it was
 type sharedAchievement struct {
 	id      string
 	species core.Species
+	cloud   *cloud
 }
+
+// shareQueue is how many achievements can wait to be shared
+const shareQueue = 32
 
 // newCloud loads the cloud connection from dir
 func newCloud(dir string) (*cloud, error) {
-	c := &cloud{path: filepath.Join(dir, "cloud.json"), shares: make(chan sharedAchievement, 32)}
+	c := &cloud{path: filepath.Join(dir, "cloud.json")}
 	data, err := os.ReadFile(c.path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -175,7 +178,7 @@ func (s *Server) cloudConnect(ctx context.Context, address, joinCode, accountKey
 	}
 	token := strings.TrimSpace(accountKey)
 	if token == "" {
-		if token, _, err = client.Register(ctx, joinCode); err != nil {
+		if token, _, err = client.Register(ctx, joinCode, s.accountNumber()); err != nil {
 			return err
 		}
 	}
@@ -276,11 +279,11 @@ func (s *Server) cloudFeed(ctx context.Context) ([]hub.SharedAchievement, error)
 // share through the hub if the player shares. It never blocks the update
 // loop. Caller must hold s.mu.
 func (s *Server) shareAchievementLocked(a core.Achievement) {
-	if s.cloud == nil {
+	if s.cloud == nil || s.shares == nil {
 		return
 	}
 	select {
-	case s.cloud.shares <- sharedAchievement{id: a.ID, species: s.pet.GetSpecies()}:
+	case s.shares <- sharedAchievement{id: a.ID, species: s.pet.GetSpecies(), cloud: s.cloud}:
 	default: // Too many waiting; this one isn't shared
 	}
 }
@@ -292,8 +295,8 @@ func (s *Server) shareLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case shared := <-s.cloud.shares:
-			c := s.cloud
+		case shared := <-s.shares:
+			c := shared.cloud
 			c.mu.Lock()
 			if c.connectedLocked() && c.state.ShareFeats {
 				if err := c.clientLocked().ShareAchievement(ctx, shared.id, string(shared.species)); err != nil {
@@ -314,9 +317,11 @@ func (s *Server) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.accountMu.RLock()
 			if _, err := s.cloudSync(ctx); err != nil && !errors.Is(err, errNotConnected) {
 				log.Printf("Cloud sync failed: %v", err)
 			}
+			s.accountMu.RUnlock()
 		}
 	}
 }
@@ -518,10 +523,15 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 // other devices stop syncing it. Errors are logged; the pet is already
 // gone locally.
 func (s *Server) cloudForget(ctx context.Context, petID string) {
-	if s.cloud == nil {
+	s.cloud.forget(ctx, petID)
+}
+
+// forget is cloudForget for this connection, which stays the deleted
+// pet's account's if the player switches accounts meanwhile
+func (c *cloud) forget(ctx context.Context, petID string) {
+	if c == nil {
 		return
 	}
-	c := s.cloud
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	key := hub.PetKey(petID)

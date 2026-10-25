@@ -1,7 +1,8 @@
 // Browser smoke test: plays the game's page in a headless browser and
 // fails on any error in the page. It creates a cat and a dog through the
 // form, gives every kind of care, opens every panel from its button,
-// plays every game and answers a home happening.
+// plays every game and answers a home happening, then adds a second
+// player, plays as them and switches back.
 //
 // Usage: node smoke.js <game address>, with Playwright where node finds it
 // (NODE_PATH). The Go test TestBrowserSmoke starts a game and runs it:
@@ -11,6 +12,9 @@ const { chromium } = require('playwright');
 
 const base = process.argv[2] || 'http://127.0.0.1:8080';
 const problems = [];
+// Set while the page reloads after a player switch: requests still running
+// then are cut off, which the page logs, and which isn't a problem
+let reloading = false;
 
 async function main() {
     const launch = {};
@@ -20,6 +24,7 @@ async function main() {
     page.on('pageerror', e => problems.push('page error: ' + e.message));
     page.on('console', m => {
         // The game answers refused actions with 4xx, which the browser logs
+        if (reloading && /Failed to fetch/.test(m.text())) return;
         if (m.type() === 'error' && !/status of 4\d\d/.test(m.text())) problems.push('console: ' + m.text());
     });
     page.on('dialog', d => d.dismiss());
@@ -34,6 +39,8 @@ async function main() {
     await page.waitForTimeout(1000);
     for (const [name, species] of [['Biscuit', 'dog'], ['Mochi', 'cat']]) {
         if (await page.locator('#petView').isVisible()) await page.evaluate(() => openChooser());
+        await page.waitForTimeout(800); // The pet list shows pop-ups too
+        await settle(page);
         await page.fill('#petNameInput', name);
         await page.evaluate(s => {
             const radio = document.querySelector('input[name="species"][value="' + s + '"]');
@@ -45,7 +52,63 @@ async function main() {
         await playEverything(page, name);
     }
     await groomPepper(page);
+    await secondPlayer(page);
     await browser.close();
+}
+
+// secondPlayer adds Sam, who starts with no pets, gives them a pet, switches
+// back to Player 1, whose pets are still there, and deletes Sam
+async function secondPlayer(page) {
+    const playerRow = name => page.locator('#playersPanel .player-row', {hasText: name});
+    await page.click('#playersBtn');
+    await page.fill('#newPlayerName', 'Sam');
+    await page.locator('#playersPanel button', {hasText: 'Add player'}).click();
+    await page.waitForTimeout(800);
+    await settle(page);
+    reloading = true;
+    const reloadedSam = page.waitForEvent('load');
+    await playerRow('Sam').locator('button', {hasText: 'Play'}).click();
+    await reloadedSam;
+    await page.waitForTimeout(1500);
+    reloading = false;
+    if (!/^👤 Sam #\d{4}$/.test(await page.textContent('#playersBtn'))) {
+        problems.push('the Players button should name Sam: ' + await page.textContent('#playersBtn'));
+    }
+    if (!await page.locator('#createView').isVisible() || await page.locator('#savedPetList li').count() !== 0) {
+        problems.push("Sam shouldn't have Player 1's pets");
+    }
+    await page.fill('#petNameInput', 'Rex');
+    await page.click('#createBtn');
+    await page.waitForTimeout(1500);
+    await settle(page);
+
+    await page.click('#playersBtn');
+    await page.waitForTimeout(500);
+    await settle(page);
+    reloading = true;
+    const reloadedPlayer1 = page.waitForEvent('load');
+    await playerRow('Player 1').locator('button', {hasText: 'Play'}).click();
+    await reloadedPlayer1;
+    await page.waitForTimeout(1500);
+    reloading = false;
+    await page.evaluate(() => openChooser());
+    await page.waitForTimeout(800);
+    const names = await page.locator('#savedPetList li').allTextContents();
+    if (!names.some(n => n.includes('Pepper')) || names.some(n => n.includes('Rex'))) {
+        problems.push("Player 1's pets should be back, without Sam's: " + names.join(' | '));
+    }
+    await page.evaluate(() => closeChooser());
+
+    await settle(page);
+    await page.click('#playersBtn');
+    await page.waitForTimeout(500);
+    await playerRow('Sam').locator('button', {hasText: 'Delete'}).click();
+    await playerRow('Sam').locator('input').fill('Sam');
+    await playerRow('Sam').locator('button', {hasText: 'Delete for good'}).click();
+    await page.waitForTimeout(800);
+    if (await playerRow('Sam').count() !== 0) problems.push('Sam should be deleted');
+    await page.evaluate(() => closePlayers());
+    console.log('Added Sam, played as them, switched back and deleted them');
 }
 
 // groomPepper loads Pepper, a cat the browser test saved groomed before and
@@ -53,6 +116,8 @@ async function main() {
 // clean, and one grooming makes a pet clean, so it would turn the game down)
 async function groomPepper(page) {
     await page.evaluate(() => openChooser());
+    await page.waitForTimeout(800); // The pet list shows pop-ups too
+    await settle(page);
     const load = page.locator('#savedPetList li', {hasText: 'Pepper'}).locator('button', {hasText: 'Load'});
     if (await load.count() === 0) {
         problems.push('Pepper is not in the list of saved pets');
@@ -180,6 +245,38 @@ async function settle(page) {
     }
 }
 
+// opensInView clicks each visible, enabled button matching selector, with
+// the page scrolled so the button is at the bottom of the window, and
+// checks that the panel or view it opens, if any, has its top in sight
+async function opensInView(page, selector) {
+    const places = ['#activityPanel', '#playersPanel', '#shopView', '#createView'];
+    const count = await page.locator(selector).count();
+    for (let i = 0; i < count; i++) {
+        const button = page.locator(selector).nth(i);
+        await closePanels(page);
+        await page.evaluate(() => { closePlayers(); if (choosing) closeChooser(); });
+        await settle(page);
+        if (!(await button.isVisible()) || !(await button.isEnabled())) continue;
+        const label = (await button.innerText()).trim();
+        const shownBefore = await page.evaluate(ids => ids.filter(id => !document.querySelector(id).classList.contains('hidden')), places);
+        await button.evaluate(b => b.scrollIntoView({block: 'end'}));
+        await button.click({timeout: 5000}).catch(() => {});
+        await page.waitForTimeout(1500); // It loads, then the page scrolls
+        await settle(page);
+        const opened = await page.evaluate(([ids, before]) => ids.filter(id => {
+            const el = document.querySelector(id);
+            return !el.classList.contains('hidden') && (!before.includes(id) || id === '#activityPanel' || id === '#playersPanel');
+        }).map(id => {
+            const r = document.querySelector(id).getBoundingClientRect();
+            return {id, inView: r.top > -1 && r.top < innerHeight};
+        }), [places, shownBefore]);
+        opened.filter(o => !o.inView).forEach(o => problems.push(label + ' opened ' + o.id + ' out of view'));
+        if (await page.locator('#shopView').isVisible()) await page.evaluate(() => closeShop());
+    }
+    await closePanels(page);
+    await page.evaluate(() => { closePlayers(); if (choosing) closeChooser(); });
+}
+
 // clickAll clicks each visible, enabled button matching selector
 async function clickAll(page, selector, between) {
     const count = await page.locator(selector).count();
@@ -199,10 +296,38 @@ async function clickAll(page, selector, between) {
 // playGame plays a game from the page, as a player would, and checks it
 // finishes
 async function playGame(page, game) {
+    await withPopupsClosed(page, () => playOneGame(page, game));
+}
+
+// withPopupsClosed runs steps, closing any pop-up (a home happening, a tip)
+// that arrives meanwhile and covers the page, as a player would
+async function withPopupsClosed(page, steps) {
+    let running = true;
+    const closer = (async () => {
+        while (running) {
+            if (await page.locator('#popupModal').isVisible().catch(() => false)) {
+                await page.locator('#popupActions button').last().click({timeout: 1000}).catch(() => {});
+            }
+            await page.waitForTimeout(400);
+        }
+    })();
+    try {
+        await steps();
+    } finally {
+        running = false;
+        await closer;
+    }
+}
+
+async function playOneGame(page, game) {
     const playing = () => page.evaluate(() => panelMode === 'game');
+    await settle(page);
     await page.evaluate(g => startGame(g), game);
     await page.waitForTimeout(300);
     const panel = page.locator('#activityPanel');
+    // Selecting the page (a drag or a long press) mustn't draw boxes around the game's pieces
+    const selectable = await page.$eval('.game-box', b => getComputedStyle(b).userSelect !== 'none').catch(() => true);
+    if (selectable) problems.push('the ' + game.id + " game's pieces can be selected");
     if (game.id === 'fetch') {
         for (let i = 0; i < 5; i++) {
             await panel.locator('button', {hasText: 'Throw'}).click({timeout: 5000});
@@ -211,9 +336,24 @@ async function playGame(page, game) {
     } else if (game.id === 'wand') {
         await panel.locator('button', {hasText: 'Let it catch'}).click();
     } else if (game.id === 'puzzle' || game.id === 'scent') {
-        for (let i = 0; i < 40 && await playing(); i++) {
+        let sniffed = game.id !== 'puzzle';
+        for (let i = 0; i < 300 && await playing(); i++) {
             const tiles = panel.locator('.game-tile:enabled');
-            if (await tiles.count() === 0) break;
+            if (await tiles.count() === 0) { // The memory board or the cups aren't ready to pick yet
+                await page.waitForTimeout(200);
+                continue;
+            }
+            if (!sniffed) { // The pet's nose, once
+                const nose = panel.locator('button', {hasText: 'nose'});
+                if (await nose.isEnabled()) {
+                    await nose.click();
+                    sniffed = true;
+                    const hint = await panel.locator('.cloud-note', {hasText: '👃'}).textContent().catch(() => '');
+                    if (!/👃 .+ sniffs (along row \d+|at the (left|right) side)\./.test(hint)) {
+                        problems.push('the ' + game.puzzle.kinds[0] + " feeder's hint at a high level should name a row or side: " + hint);
+                    }
+                }
+            }
             const clicked = await tiles.nth(i % await tiles.count()).click({timeout: 3000}).then(() => true, () => false);
             if (!clicked && await playing()) { // Not just the game ending as the tile was clicked
                 problems.push('could not click a tile in ' + game.id);
@@ -250,6 +390,19 @@ async function closePanels(page) {
 }
 
 async function playEverything(page, name) {
+    // Each need explains itself when the mouse is over it
+    await withPopupsClosed(page, async () => {
+        for (let i = 0; i < await page.locator('#needs .need').count(); i++) {
+            let tip = '';
+            for (let tries = 0; tries < 2 && !/%, .*To fill it: .+\./.test(tip); tries++) { // Once more if a pop-up came between
+                await settle(page);
+                await page.locator('#needs .need').nth(i).hover();
+                tip = await page.locator('#tipPop').isVisible() ? await page.textContent('#tipPop') : '';
+            }
+            if (!/%, .*To fill it: .+\./.test(tip)) problems.push('need ' + i + ' has no pop-up: ' + tip);
+        }
+    });
+    await page.mouse.move(0, 0);
     // Care
     await clickAll(page, '.actions .action-btn');
     // Buttons with choices (▾) show them in a panel above the buttons: it must
@@ -274,6 +427,11 @@ async function playEverything(page, name) {
     // enrichment (from Enrich's); grooming was given above
     await chooseFirst(page, '.action-btn.play', 'play');
     await chooseFirst(page, '.activity-btn.enrich', 'enrichment');
+    // Whatever a button opens comes into view, from a page scrolled to the button
+    await opensInView(page, '#thingsToDo .thing-btn:not([data-thing="explore"])');
+    await opensInView(page, '.activities .activity-btn:not(.ar)');
+    await opensInView(page, '.save-row button:not([onclick*="AR"])');
+    await opensInView(page, '#playersBtn');
     // Every activity, and every button along the bottom, but not the camera or ones that leave the pet
     await clickAll(page, '.activities .activity-btn:not(.ar)', async () => closePanels(page));
     await clickAll(page, '.save-row button:not([onclick*="Chooser"]):not([onclick*="AR"])', async label => {
@@ -282,15 +440,43 @@ async function playEverything(page, name) {
         }
         await closePanels(page);
     });
+    // While it is out exploring, the banner shows facts and tips, and ▶ moves on
+    await page.evaluate(() => postJSON('/api/explore', {place: 'park'}));
+    await page.waitForTimeout(3000);
+    if (await page.locator('#exploreBanner').isVisible()) {
+        const first = await page.textContent('#tripCardTitle').catch(() => '');
+        await page.click('#tripCardNext').catch(() => {});
+        const second = await page.textContent('#tripCardTitle').catch(() => '');
+        if (!(await page.locator('#tripCard').isVisible()) || !first || first === second) {
+            problems.push(name + "'s trip shows no facts or tips: " + first + ' / ' + second);
+        }
+    } else {
+        problems.push(name + ' could not be sent exploring to see the trip cards');
+    }
     // Every game the pet can play now (call it home first: panels close while it is away)
     await page.evaluate(() => postJSON('/api/explore/recall', {}));
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(3000); // A pop-up the trip brought arrives with the next update
+    await settle(page);
     const games = await page.evaluate(() => fetch('/api/games').then(r => r.json()).then(d => d.data || []));
     const playable = games.filter(g => !g.unavailable);
     console.log(name + ' can play ' + playable.map(g => g.id).join(', '));
     games.filter(g => g.unavailable).forEach(g => console.log('  ' + g.id + ': ' + g.unavailable));
     if (playable.length === 0) problems.push(name + ' has no game to play');
-    for (const game of playable) await playGame(page, game);
+    for (const game of playable) {
+        if (game.id !== 'puzzle') {
+            await playGame(page, game);
+            continue;
+        }
+        // The puzzle feeder once with each feeder, set up as at a high level
+        if (!game.puzzle || game.puzzle.level !== 1 || game.puzzle.kinds.join() !== 'tiles') {
+            problems.push(name + "'s first puzzle feeder should be level 1, lifting tiles: " + JSON.stringify(game.puzzle));
+        }
+        for (const kind of ['tiles', 'memory', 'sniff', 'cups']) {
+            await playGame(page, Object.assign({}, game, {puzzle: Object.assign({}, game.puzzle, {kinds: [kind],
+                level: 8, tiles: 12, kibble: 4, misses: 1, sniffs: 1, exact: false, show_seconds: 1, cups: 5,
+                swaps: 3, swap_seconds: 0.3, rounds: 3})}));
+        }
+    }
     // A home happening, from the page
     await page.evaluate(() => showHappening({id: 'thunderstorm', icon: '⛈️', title: 'Thunderstorm', text: 'A test',
         choices: [{id: 'comfort', label: 'Comfort it'}]}));

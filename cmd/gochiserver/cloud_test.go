@@ -22,7 +22,7 @@ func cloudServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.cloud = c
+	s.cloud, s.shares = c, make(chan sharedAchievement, shareQueue)
 	return s
 }
 

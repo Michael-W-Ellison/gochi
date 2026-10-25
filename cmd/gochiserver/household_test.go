@@ -214,7 +214,7 @@ func TestHolidaySwitchesNeedThePIN(t *testing.T) {
 	if rec.Code != http.StatusOK || core.HolidayOn("halloween") || !core.HolidayOn("christmas") {
 		t.Fatalf("Turning Halloween off with the PIN: %d %s", rec.Code, rec.Body.String())
 	}
-	if off := server.house.snapshot().HolidaysOff; len(off) != 1 {
+	if _, off := server.parental.holidays(); len(off) != 1 {
 		t.Errorf("Only known holidays are kept: %v", off)
 	}
 	post(t, server.handlePrivacy, `{"all_holidays_off":true,"parent_pin":"2468"}`)
@@ -442,5 +442,22 @@ func TestCollectionOfAPetWithoutSouvenirs(t *testing.T) {
 	rec := h.do(http.MethodGet, "/api/collection", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"mine":[]`) {
 		t.Errorf("The new pet's souvenirs should be an empty list: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The week the household had the week's themed happening merges across
+// devices: the later week wins
+func TestThemeHappeningWeekMerges(t *testing.T) {
+	here, there := newTestHousehold(t, ""), newTestHousehold(t, "")
+	here.setThemeHappeningWeek("2026-W09")
+	there.setThemeHappeningWeek("2026-W11")
+	here.merge(there.snapshot())
+	if got := here.themeHappeningWeek(); got != "2026-W11" {
+		t.Errorf("The later week should win: %q", got)
+	}
+	there.setThemeHappeningWeek("2026-W10")
+	here.merge(there.snapshot())
+	if got := here.themeHappeningWeek(); got != "2026-W11" {
+		t.Errorf("An earlier week shouldn't replace it: %q", got)
 	}
 }

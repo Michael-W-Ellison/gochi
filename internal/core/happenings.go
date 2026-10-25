@@ -593,8 +593,12 @@ func (p *DigitalPet) happeningReadyLocked() bool {
 }
 
 // CheckHappening may start a happening, and returns it if it did. The
-// game server calls it while the player is present.
-func (p *DigitalPet) CheckHappening() *Happening {
+// game server calls it while the player is present. The week's themed
+// happening comes first, unless themeDone: the player has had it this
+// week with another pet. Then it and the week's other themed happenings
+// are left out, so the player doesn't meet them again with each pet.
+// themed reports whether the happening started was the themed one.
+func (p *DigitalPet) CheckHappening(themeDone bool) (h *Happening, themed bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	t := p.playNowLocked()
@@ -602,32 +606,32 @@ func (p *DigitalPet) CheckHappening() *Happening {
 		if t.Sub(p.Happening.Since) > happeningExpiry {
 			p.Happening = nil // It passed without a choice
 		}
-		return nil
+		return nil, false
 	}
 	if !p.happeningReadyLocked() || t.Sub(p.LastHappening) < happeningGap || t.Sub(p.happeningChecked) < time.Minute {
-		return nil
+		return nil, false
 	}
 	p.happeningChecked = t
 	if !chance(happeningChance) {
-		return nil
+		return nil, false
 	}
-	h, themed := p.themeHappeningLocked() // The week's theme first
+	def, themed := p.themeHappeningLocked(themeDone) // The week's theme first
 	if !themed {
 		var fits []happeningDef
 		for _, h := range happenings {
-			if p.happeningFitsLocked(h) {
+			if p.happeningFitsLocked(h) && (!themeDone || !slices.Contains(WeekTheme().happenings, h.id)) {
 				fits = append(fits, h)
 			}
 		}
 		if len(fits) == 0 {
-			return nil
+			return nil, false
 		}
-		h = fits[randIntn(len(fits))]
+		def = fits[randIntn(len(fits))]
 	}
-	p.Happening = &PendingHappening{ID: h.id, Since: t}
+	p.Happening = &PendingHappening{ID: def.id, Since: t}
 	p.LastHappening = t
-	p.markHappeningLocked(h.id)
-	return h.view(p.Name)
+	p.markHappeningLocked(def.id)
+	return def.view(p.Name), themed
 }
 
 // CurrentHappening returns the happening waiting for a choice, or nil

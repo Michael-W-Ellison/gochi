@@ -13,8 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
+
+	"github.com/Michael-W-Ellison/gochi/internal/core"
 )
 
 // Privacy and parental controls. A parent can set a PIN; once set, it is
@@ -54,9 +57,19 @@ type parentalSettings struct {
 	Failures int       `json:"failures,omitempty"`
 	Lockouts int       `json:"lockouts,omitempty"`
 	LockedTo time.Time `json:"locked_to"`
+
+	// The holidays a parent has turned off and whether they turned the
+	// game's sounds off, for every player on this device. They were kept
+	// in each household before; HouseMoved is set once they were moved
+	// here (see adoptHouseSettings).
+	HolidaysOff    []string `json:"holidays_off,omitempty"`
+	AllHolidaysOff bool     `json:"all_holidays_off,omitempty"`
+	SoundOff       bool     `json:"sound_off,omitempty"`
+	HouseMoved     bool     `json:"house_moved,omitempty"`
 }
 
-// parentalControls holds the parent PIN
+// parentalControls holds the parent PIN and the settings a parent makes
+// for every player on this device
 type parentalControls struct {
 	mu       sync.Mutex
 	path     string // "" keeps it in memory only
@@ -81,7 +94,89 @@ func loadParentalControls(dir string) (*parentalControls, error) {
 	if err := json.Unmarshal(data, &p.settings); err != nil {
 		return nil, fmt.Errorf("%s: %w", p.path, err)
 	}
+	p.settings.HolidaysOff = knownHolidays(p.settings.HolidaysOff)
 	return p, nil
+}
+
+// knownHolidays returns the holidays in ids the game knows, once each
+func knownHolidays(ids []string) []string {
+	var known []string
+	for _, id := range ids {
+		if _, ok := core.FindHoliday(id); ok && !slices.Contains(known, id) {
+			known = append(known, id)
+		}
+	}
+	return known
+}
+
+// apply tells the game which holidays are turned off
+func (p *parentalControls) apply() {
+	if p == nil {
+		core.SetHolidays(false, nil)
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	core.SetHolidays(p.settings.AllHolidaysOff, p.settings.HolidaysOff)
+}
+
+// adoptHouseSettings moves the holiday and sound settings from a
+// household, where versions before accounts kept them, the first time
+func (p *parentalControls) adoptHouseSettings(d householdData) error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.settings.HouseMoved {
+		return nil
+	}
+	settings := p.settings
+	settings.HolidaysOff, settings.AllHolidaysOff = knownHolidays(d.HolidaysOff), d.AllHolidaysOff
+	settings.SoundOff, settings.HouseMoved = d.SoundOff, true
+	return p.saveLocked(settings)
+}
+
+// holidays returns whether every holiday is off, and which are
+func (p *parentalControls) holidays() (bool, []string) {
+	if p == nil {
+		return false, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.settings.AllHolidaysOff, slices.Clone(p.settings.HolidaysOff)
+}
+
+// setHolidays sets which holidays are turned off
+func (p *parentalControls) setHolidays(allOff bool, off []string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	settings := p.settings
+	settings.AllHolidaysOff, settings.HolidaysOff = allOff, knownHolidays(off)
+	if err := p.saveLocked(settings); err != nil {
+		return err
+	}
+	core.SetHolidays(settings.AllHolidaysOff, settings.HolidaysOff)
+	return nil
+}
+
+// soundOff reports whether a parent has turned the game's sounds off
+func (p *parentalControls) soundOff() bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.settings.SoundOff
+}
+
+// setSoundOff sets whether the game's sounds are off
+func (p *parentalControls) setSoundOff(off bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	settings := p.settings
+	settings.SoundOff = off
+	return p.saveLocked(settings)
 }
 
 // hashPIN hashes a PIN with a salt
@@ -176,7 +271,8 @@ func (p *parentalControls) SetPIN(current, newPIN string) error {
 	if err := p.checkLocked(current); err != nil {
 		return err
 	}
-	settings := parentalSettings{}
+	settings := parentalSettings{HolidaysOff: p.settings.HolidaysOff, AllHolidaysOff: p.settings.AllHolidaysOff,
+		SoundOff: p.settings.SoundOff, HouseMoved: p.settings.HouseMoved} // Only the PIN changes
 	if newPIN != "" {
 		if !pinPattern.MatchString(newPIN) {
 			return errBadPIN
@@ -230,11 +326,8 @@ type privacyStatus struct {
 }
 
 func (s *Server) privacyStatus() privacyStatus {
-	status := privacyStatus{ParentLock: s.parental.Locked(), Holidays: holidaysStatus()}
-	if s.house != nil {
-		d := s.house.snapshot()
-		status.AllHolidaysOff, status.SoundOff = d.AllHolidaysOff, d.SoundOff
-	}
+	status := privacyStatus{ParentLock: s.parental.Locked(), Holidays: holidaysStatus(), SoundOff: s.parental.soundOff()}
+	status.AllHolidaysOff, _ = s.parental.holidays()
 	if s.owner != nil {
 		status.LearnSchedule, status.PlaySchedule = s.owner.Learning(), s.owner.Summary()
 	}
@@ -279,22 +372,21 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 	} else if !s.parentAllows(w, req.ParentPIN) {
 		return
 	}
-	if (req.HolidaysOff != nil || req.AllHolidays != nil) && s.house != nil {
-		d := s.house.snapshot()
-		allOff, off := d.AllHolidaysOff, d.HolidaysOff
+	if (req.HolidaysOff != nil || req.AllHolidays != nil) && s.parental != nil {
+		allOff, off := s.parental.holidays()
 		if req.AllHolidays != nil {
 			allOff = *req.AllHolidays
 		}
 		if req.HolidaysOff != nil {
 			off = req.HolidaysOff
 		}
-		if err := s.house.setHolidays(allOff, off); err != nil {
+		if err := s.parental.setHolidays(allOff, off); err != nil {
 			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the setting"})
 			return
 		}
 	}
-	if req.SoundOff != nil && s.house != nil {
-		if err := s.house.setSoundOff(*req.SoundOff); err != nil {
+	if req.SoundOff != nil && s.parental != nil {
+		if err := s.parental.setSoundOff(*req.SoundOff); err != nil {
 			writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not save the setting"})
 			return
 		}
