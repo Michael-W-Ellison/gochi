@@ -218,7 +218,8 @@ func main() {
 	autosaveInterval := flag.Duration("autosave", defaults.Simulation.Autosave, "how often to save the pet automatically (0 disables)")
 	awayTimeout := flag.Duration("away-pause", defaults.Simulation.AwayPause, "pause time when the player has been away this long (0 disables)")
 	addr := flag.String("addr", defaults.Server.Addr, "address to listen on")
-	apiToken := flag.String("api-token", defaults.Server.APIToken, "enable the REST API at /api/v1 for requests with this bearer token")
+	apiToken := flag.String("api-token", defaults.Server.APIToken, "enable the REST API at /api/v1 for requests with this bearer "+
+		"token (at least 24 characters; "+apiTokenEnv+" keeps it out of the process list)")
 	scaleName := flag.String("time-scale", defaults.Simulation.TimeScale, "game speed: game (1 game day per real minute), 24x, 4x or realtime")
 	hubEnabled := flag.Bool("hub", defaults.Hub.Enabled, "also run as a cloud hub other Gochi servers can connect to")
 	hubJoinCode := flag.String("hub-join-code", defaults.Hub.JoinCode, "the code players need to register with this hub")
@@ -246,6 +247,9 @@ func main() {
 			log.Fatalf("Could not read settings: %v", err)
 		}
 		log.Printf("Settings from %s", *configPath)
+	}
+	if token := os.Getenv(apiTokenEnv); token != "" {
+		config.Server.APIToken = token // -api-token, if given, still wins
 	}
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -446,7 +450,7 @@ func main() {
 	mux.HandleFunc("/", server.handleIndex)
 
 	// Start server
-	httpServer := &http.Server{Addr: config.Server.Addr, Handler: server.guard(server.accountGate(securityHeaders(mux))),
+	httpServer := &http.Server{Addr: config.Server.Addr, Handler: securityHeaders(server.guard(server.accountGate(mux))),
 		TLSConfig:         tlsConfig(),
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second,
 		IdleTimeout: 2 * time.Minute}
@@ -467,6 +471,11 @@ func main() {
 	log.Printf("Open your browser to %s://localhost:%s to play! Press Ctrl+C to save and exit.", scheme, port)
 	if server.onNetwork {
 		log.Printf("Other devices on the network can play after pairing (🔒 Privacy on this computer shows the code)")
+		if !server.usesTLS {
+			log.Printf("Warning: without HTTPS, pairing codes, the paired devices' cookies and your pets' names cross " +
+				"the network unencrypted, so someone else on the same Wi-Fi could overhear them and pair; " +
+				"use -tls-cert and -tls-key on networks you don't trust")
+		}
 	}
 
 	select {
@@ -2684,6 +2693,26 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             }).catch(console.error);
         }
 
+        // Connecting: a hub with its own certificate (not from a certificate
+        // authority) is connected to only once the player confirms its
+        // fingerprint matches the one the hub printed when it started
+        function connectHub(body) {
+            postJSON('/api/cloud/connect', body).then(data => {
+                const fingerprint = !data.success && data.data && data.data.confirm_fingerprint;
+                if (fingerprint) {
+                    showModal('🔐', 'Check the hub', 'This hub uses its own certificate. Its fingerprint is:\n\n' +
+                        fingerprint + '\n\nConnect only if this matches the fingerprint the hub showed when it ' +
+                        'started (ask whoever runs it). If it doesn\'t, someone may be standing in for the hub.',
+                        [['It matches: connect', () => connectHub(Object.assign({}, body, {fingerprint: fingerprint}))],
+                            ['Cancel', () => {}]]);
+                    return;
+                }
+                showPointsToast(data.success ? (data.data && data.data.text) || 'Done.' : (data.error || 'Something went wrong'));
+                openCloud();
+                fetchStatus();
+            }).catch(console.error);
+        }
+
         function renderCloud(cloud) {
             const p = panel();
             p.replaceChildren(panelHeader('Cloud'));
@@ -2701,8 +2730,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 const key = cloudField(p, 'Or account key (already have an account)', 'cloudKey', '', 'from your other device', 'password');
                 const row = document.createElement('div');
                 row.className = 'save-row';
-                cloudButton(row, 'Connect', () => cloudPost('/api/cloud/connect',
-                    {hub_url: url.value, join_code: code.value, account_key: key.value}));
+                cloudButton(row, 'Connect', () => connectHub({hub_url: url.value, join_code: code.value,
+                    account_key: key.value}));
                 p.append(row);
                 p.classList.remove('hidden');
                 return;
@@ -3074,7 +3103,10 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                     return;
                 }
                 pairing.textContent = 'On the phone or tablet, open ' + (d.addresses.join(' or ') || 'this computer\'s address') +
-                    ' and enter the code ' + d.code + ' (it works for 10 minutes). Paired devices: ' + d.devices + '.';
+                    ' and enter the code ' + d.code + ' (it works for 10 minutes). Paired devices: ' + d.devices + '.' +
+                    (d.plain ? ' ⚠️ The game is not using HTTPS, so someone else on this Wi-Fi could overhear the code ' +
+                    'and the paired devices\' sign-in; pair only on a network you trust, or start the game with a ' +
+                    'certificate (-tls-cert and -tls-key).' : '');
                 if (d.devices > 0) {
                     const row = document.createElement('div');
                     row.className = 'save-row';
@@ -4059,7 +4091,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid save slot"})
 		return
 	}
-	if !s.parentAllows(w, req.ParentPIN) {
+	if !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	if s.store == nil {
@@ -4383,7 +4415,7 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: core.PetNameRule})
 		return
 	}
-	if !s.parentAllows(w, req.ParentPIN) {
+	if !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)

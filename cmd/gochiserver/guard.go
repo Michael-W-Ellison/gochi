@@ -371,8 +371,9 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 
 // pairingStatus is what GET /api/pairing returns
 type pairingStatus struct {
-	OnNetwork bool      `json:"on_network"` // The server listens on the network, not just this computer
-	Addresses []string  `json:"addresses"`  // Where other devices open the game
+	OnNetwork bool      `json:"on_network"`      // The server listens on the network, not just this computer
+	Plain     bool      `json:"plain,omitempty"` // On the network without HTTPS: codes and device cookies can be overheard
+	Addresses []string  `json:"addresses"`       // Where other devices open the game
 	Code      string    `json:"code,omitempty"`
 	Expires   time.Time `json:"expires,omitempty"`
 	Devices   int       `json:"devices"` // Paired devices
@@ -391,7 +392,7 @@ func (s *Server) handlePairing(w http.ResponseWriter, r *http.Request) {
 			Forget    bool   `json:"forget"`
 			ParentPIN string `json:"parent_pin"`
 		}
-		if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+		if !decodePost(w, r, &req) || !s.parentAllows(w, r, req.ParentPIN) {
 			return
 		}
 		if req.Forget {
@@ -400,11 +401,12 @@ func (s *Server) handlePairing(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: pairingStatus{OnNetwork: s.onNetwork,
+		writeJSON(w, http.StatusOK, APIResponse{Success: true, Data: pairingStatus{OnNetwork: s.onNetwork, Plain: s.onNetwork && !s.usesTLS,
 			Addresses: s.networkAddresses(), Devices: s.pairing.Count()}})
 		return
 	}
-	status := pairingStatus{OnNetwork: s.onNetwork, Addresses: s.networkAddresses(), Devices: s.pairing.Count()}
+	status := pairingStatus{OnNetwork: s.onNetwork, Plain: s.onNetwork && !s.usesTLS, Addresses: s.networkAddresses(),
+		Devices: s.pairing.Count()}
 	if s.onNetwork {
 		code, expires, err := s.pairing.NewCode()
 		if err != nil {

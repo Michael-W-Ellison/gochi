@@ -236,7 +236,7 @@ func (s *Server) handleFamilyTransfer(w http.ResponseWriter, r *http.Request) {
 		Amount    int    `json:"amount"`
 		ParentPIN string `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+	if !decodePost(w, r, &req) || !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	s.withChild(w, req.ChildSlot, func(parent, child *core.DigitalPet) (string, error) {
@@ -256,7 +256,7 @@ func (s *Server) handleFamilyPassOn(w http.ResponseWriter, r *http.Request) {
 		Points    int    `json:"points"`
 		ParentPIN string `json:"parent_pin"`
 	}
-	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+	if !decodePost(w, r, &req) || !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	s.withChild(w, req.ChildSlot, func(parent, child *core.DigitalPet) (string, error) {

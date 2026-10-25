@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,7 +31,13 @@ func cloudServer(t *testing.T) *Server {
 // testHubURL starts a hub with join code "code"
 func testHubURL(t *testing.T) string {
 	t.Helper()
-	h, err := hub.New(t.TempDir(), "code")
+	return hubURLIn(t, t.TempDir())
+}
+
+// hubURLIn starts a test hub keeping its files in dir
+func hubURLIn(t *testing.T, dir string) string {
+	t.Helper()
+	h, err := hub.New(dir, "code")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +54,7 @@ func TestCloudSyncBetweenDevices(t *testing.T) {
 	if err := laptop.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := laptop.cloudConnect(ctx, hubURL, "code", ""); err != nil {
+	if err := laptop.cloudConnect(ctx, hubURL, "code", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	report, err := laptop.cloudSync(ctx)
@@ -61,10 +69,10 @@ func TestCloudSyncBetweenDevices(t *testing.T) {
 
 	// The phone signs in with the account key and gets Biscuit
 	key := accountKey(laptop)
-	if err := phone.cloudConnect(ctx, hubURL, "", "not-a-key"); err == nil {
+	if err := phone.cloudConnect(ctx, hubURL, "", "not-a-key", ""); err == nil {
 		t.Error("An unknown account key should be refused")
 	}
-	if err := phone.cloudConnect(ctx, hubURL, "", key); err != nil {
+	if err := phone.cloudConnect(ctx, hubURL, "", key, ""); err != nil {
 		t.Fatal(err)
 	}
 	if phone.cloudStatus().Handle != laptop.cloudStatus().Handle || !hub.ValidHandle(phone.cloudStatus().Handle) {
@@ -133,13 +141,13 @@ func TestCloudDeletion(t *testing.T) {
 	if err := laptop.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := laptop.cloudConnect(ctx, hubURL, "code", ""); err != nil {
+	if err := laptop.cloudConnect(ctx, hubURL, "code", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := laptop.cloudSync(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := phone.cloudConnect(ctx, hubURL, "", accountKey(laptop)); err != nil {
+	if err := phone.cloudConnect(ctx, hubURL, "", accountKey(laptop), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := phone.cloudSync(ctx); err != nil {
@@ -276,7 +284,7 @@ func accountKey(s *Server) string {
 func TestAccountKeyOnlyOnThisComputer(t *testing.T) {
 	s := cloudServer(t)
 	s.parental, _ = loadParentalControls("")
-	if err := s.cloudConnect(context.Background(), testHubURL(t), "code", ""); err != nil {
+	if err := s.cloudConnect(context.Background(), testHubURL(t), "code", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	local := httptest.NewRequest(http.MethodPost, "/api/cloud/key", strings.NewReader(`{}`))
@@ -292,5 +300,90 @@ func TestAccountKeyOnlyOnThisComputer(t *testing.T) {
 	s.handleCloudKey(rec, phone)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("Another device shouldn't get the key: %d", rec.Code)
+	}
+}
+
+// A hub with its own certificate is sent nothing (no join code, no
+// account key) until the player confirms its fingerprint; then it is
+// pinned
+func TestHubFingerprintConfirmedFirst(t *testing.T) {
+	h := newHarness(t)
+	theHub, err := hub.New(t.TempDir(), "code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		theHub.Handler().ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	want := hub.Fingerprint(server.Certificate().Raw)
+
+	for _, fingerprint := range []string{"", "00:11"} {
+		body := `{"hub_url":"` + server.URL + `","join_code":"code","fingerprint":"` + fingerprint + `"}`
+		rec := h.post("/api/cloud/connect", body)
+		var reply struct {
+			Data map[string]string `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusConflict || reply.Data["confirm_fingerprint"] != want {
+			t.Fatalf("Fingerprint %q: want 409 asking to confirm %s, got %d %s", fingerprint, want, rec.Code, rec.Body.String())
+		}
+	}
+	if n := requests.Load(); n != 0 {
+		t.Fatalf("The hub was sent %d requests before its fingerprint was confirmed", n)
+	}
+	if h.server.cloudStatus().Connected {
+		t.Fatal("Connected without confirming the fingerprint")
+	}
+
+	body := `{"hub_url":"` + server.URL + `","join_code":"code","fingerprint":"` + want + `"}`
+	if rec := h.post("/api/cloud/connect", body); rec.Code != http.StatusOK {
+		t.Fatalf("Connecting with the confirmed fingerprint: %d %s", rec.Code, rec.Body.String())
+	}
+	if status := h.server.cloudStatus(); !status.Connected || status.Fingerprint != want {
+		t.Errorf("Want connected with the hub's certificate pinned, got %+v", status)
+	}
+}
+
+// A save listed under another pet's key on the hub is left there, so one
+// pet's save can't be put in place of another's
+func TestCloudSaveMustBeThePetItIsListedAs(t *testing.T) {
+	ctx := context.Background()
+	hubURL := testHubURL(t)
+	laptop, phone := cloudServer(t), cloudServer(t)
+	if err := laptop.createPet("Biscuit", core.SpeciesCat, "", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := laptop.cloudConnect(ctx, hubURL, "code", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := laptop.store.Export(laptop.slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	laptop.cloud.mu.Lock()
+	client := laptop.cloud.clientLocked()
+	laptop.cloud.mu.Unlock()
+	other := hub.PetKey("pet_someone_else")
+	if _, err := client.UploadPetData(ctx, hub.PetInfo{Key: other, SavedAt: saved.LastPlayed}, saved.JSON, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := phone.cloudConnect(ctx, hubURL, "", accountKey(laptop), ""); err != nil {
+		t.Fatal(err)
+	}
+	report, err := phone.cloudSync(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Errors) != 1 || !strings.Contains(report.Errors[0], errNotThisPet.Error()) {
+		t.Errorf("Want the misplaced save refused, got %s", report.summary())
+	}
+	if list, _ := phone.store.List(); len(list) != 0 {
+		t.Errorf("Nothing should be imported, got %d pets", len(list))
 	}
 }

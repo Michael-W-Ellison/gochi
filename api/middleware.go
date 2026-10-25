@@ -97,71 +97,9 @@ func (rw *responseWrapper) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// ============================================================================
-// CORS Middleware
-// ============================================================================
-
-// CORSConfig holds CORS configuration
-type CORSConfig struct {
-	AllowedOrigins   []string
-	AllowedMethods   []string
-	AllowedHeaders   []string
-	ExposedHeaders   []string
-	AllowCredentials bool
-	MaxAge           int
-}
-
-// DefaultCORSConfig returns a default CORS configuration
-func DefaultCORSConfig() CORSConfig {
-	return CORSConfig{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
-		AllowedHeaders:   []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID"},
-		ExposedHeaders:   []string{"X-Request-ID"},
-		AllowCredentials: false,
-		MaxAge:           86400, // 24 hours
-	}
-}
-
-// CORSMiddleware creates a CORS middleware with the given configuration
-func CORSMiddleware(config CORSConfig) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-
-			// Check if origin is allowed
-			allowed := false
-			for _, allowedOrigin := range config.AllowedOrigins {
-				if allowedOrigin == "*" || allowedOrigin == origin {
-					allowed = true
-					break
-				}
-			}
-
-			if allowed {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				if config.AllowCredentials {
-					w.Header().Set("Access-Control-Allow-Credentials", "true")
-				}
-			}
-
-			// Handle preflight requests
-			if r.Method == "OPTIONS" {
-				w.Header().Set("Access-Control-Allow-Methods", strings.Join(config.AllowedMethods, ", "))
-				w.Header().Set("Access-Control-Allow-Headers", strings.Join(config.AllowedHeaders, ", "))
-				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(config.MaxAge))
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-
-			if len(config.ExposedHeaders) > 0 {
-				w.Header().Set("Access-Control-Expose-Headers", strings.Join(config.ExposedHeaders, ", "))
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
+// No CORS: the REST API is for programs, not web pages, so browsers keep
+// other sites' pages from calling it (a bearer token makes every request
+// need a preflight, which gets no CORS answer)
 
 // ============================================================================
 // Rate Limiting Middleware
@@ -309,7 +247,6 @@ func DefaultMiddlewareChain(validator TokenValidator) Middleware {
 		RecoveryMiddleware,
 		RequestIDMiddleware,
 		LoggingMiddleware,
-		CORSMiddleware(DefaultCORSConfig()),
 		JSONContentTypeMiddleware,
 	)
 }
@@ -320,7 +257,6 @@ func AuthenticatedMiddlewareChain(validator TokenValidator) Middleware {
 		RecoveryMiddleware,
 		RequestIDMiddleware,
 		LoggingMiddleware,
-		CORSMiddleware(DefaultCORSConfig()),
 		JSONContentTypeMiddleware,
 		RequireJSONMiddleware,
 		AuthMiddleware(validator),

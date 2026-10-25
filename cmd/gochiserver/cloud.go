@@ -152,6 +152,29 @@ func (c *cloud) clientLocked() *hub.Client {
 	return hub.NewClient(c.state.HubURL, c.state.Token, c.state.Pin)
 }
 
+// errNotThisPet is returned for a downloaded save of another pet than the
+// one its hub key is for
+var errNotThisPet = errors.New("a save on the hub isn't the pet it is listed as, so it was left there")
+
+// confirmFingerprint is returned to connect to a hub with its own
+// certificate before the player has confirmed its fingerprint
+type confirmFingerprint struct{ fingerprint string }
+
+func (e confirmFingerprint) Error() string {
+	return "this hub uses its own certificate; check its fingerprint before connecting"
+}
+
+// probeHub returns a hub's address and the fingerprint of its certificate
+// if it isn't from a certificate authority ("" if it is)
+func probeHub(ctx context.Context, address string) (string, string, error) {
+	baseURL, err := hub.NormalizeURL(address)
+	if err != nil {
+		return "", "", err
+	}
+	pin, err := hub.ProbeCertificate(ctx, baseURL)
+	return baseURL, pin, err
+}
+
 // errNotConnected is returned when a cloud feature is used without a hub
 var errNotConnected = errors.New("not connected to a cloud hub")
 
@@ -159,18 +182,20 @@ var errNotConnected = errors.New("not connected to a cloud hub")
 // device), it signs in to that account; otherwise it registers a new
 // account with the hub's join code, and the hub gives it a handle. A hub
 // whose certificate isn't from a certificate authority has its
-// certificate remembered (pinned) now and required from then on.
-func (s *Server) cloudConnect(ctx context.Context, address, joinCode, accountKey string) error {
+// certificate remembered (pinned) now and required from then on, but only
+// once the player has confirmed its fingerprint (confirmed), so nobody can
+// stand in for the hub when the game first connects: until then nothing
+// is sent to it and errConfirmFingerprint says what to confirm.
+func (s *Server) cloudConnect(ctx context.Context, address, joinCode, accountKey, confirmed string) error {
 	if s.cloud == nil {
 		return errNotConnected
 	}
-	baseURL, err := hub.NormalizeURL(address)
+	baseURL, pin, err := probeHub(ctx, address)
 	if err != nil {
 		return err
 	}
-	pin, err := hub.ProbeCertificate(ctx, baseURL)
-	if err != nil {
-		return err
+	if pin != "" && pin != confirmed {
+		return confirmFingerprint{pin}
 	}
 	client := hub.NewClient(baseURL, "", pin)
 	if _, err := client.Status(ctx); err != nil {
@@ -189,6 +214,9 @@ func (s *Server) cloudConnect(ctx context.Context, address, joinCode, accountKey
 	}
 	if err != nil {
 		return err
+	}
+	if !hub.ValidHandle(profile.Handle) {
+		return errors.New("the hub gave a handle the game doesn't know")
 	}
 
 	c := s.cloud
@@ -424,10 +452,20 @@ func (s *Server) cloudSync(ctx context.Context) (syncReport, error) {
 				} `json:"pet_data"`
 			}
 			_ = json.Unmarshal(contents, &save) // An unreadable save keeps the name it is listed under
+			// Only the pet the key is for (a save can't be put in another
+			// pet's place), and only as many pets as the game keeps
+			if hub.PetKey(save.PetData.ID) != key {
+				fail(errNotThisPet)
+				return false
+			}
 			if save.PetData.Name != "" {
 				name = save.PetData.Name
 			}
 			if slot == "" {
+				if s.store.Full() {
+					fail(errTooManyPets)
+					return false
+				}
 				slot = s.store.NewSlotFor(save.PetData.ID)
 			}
 			hash, err := s.store.Import(slot, contents)
@@ -575,6 +613,13 @@ func writeCloudError(w http.ResponseWriter, err error) {
 	writeJSON(w, status, APIResponse{Success: false, Error: err.Error()})
 }
 
+// writeConfirmFingerprint asks the page to have the player confirm a
+// hub's certificate fingerprint
+func writeConfirmFingerprint(w http.ResponseWriter, fingerprint string) {
+	writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: confirmFingerprint{}.Error(),
+		Data: map[string]string{"confirm_fingerprint": fingerprint}})
+}
+
 // handleCloudConnect handles POST /api/cloud/connect with {"hub_url",
 // "join_code"} or {"hub_url", "account_key"}: registers with a hub (or
 // signs in), then syncs
@@ -584,13 +629,29 @@ func (s *Server) handleCloudConnect(w http.ResponseWriter, r *http.Request) {
 		JoinCode   string `json:"join_code"`
 		AccountKey string `json:"account_key"`
 		ParentPIN  string `json:"parent_pin"`
+		// The fingerprint of a hub with its own certificate, confirmed by
+		// the player
+		Fingerprint string `json:"fingerprint"`
 	}
-	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
 	defer cancel()
-	if err := s.cloudConnect(ctx, req.HubURL, req.JoinCode, req.AccountKey); err != nil {
+	// A fingerprint to confirm is asked first, before the PIN, as nothing
+	// is sent to the hub yet
+	if _, pin, err := probeHub(ctx, req.HubURL); err == nil && pin != "" && pin != req.Fingerprint {
+		writeConfirmFingerprint(w, pin)
+		return
+	}
+	if !s.parentAllows(w, r, req.ParentPIN) {
+		return
+	}
+	var confirm confirmFingerprint
+	if err := s.cloudConnect(ctx, req.HubURL, req.JoinCode, req.AccountKey, req.Fingerprint); errors.As(err, &confirm) {
+		writeConfirmFingerprint(w, confirm.fingerprint) // The certificate changed since it was confirmed
+		return
+	} else if err != nil {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: err.Error()})
 		return
 	}
@@ -619,7 +680,7 @@ func (s *Server) handleCloudDisconnect(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, APIResponse{Success: false, Error: "Invalid request"})
 		return
 	}
-	if !s.parentAllows(w, req.ParentPIN) {
+	if !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	if err := s.cloudDisconnect(); err != nil {
@@ -653,7 +714,7 @@ func (s *Server) handleCloudProfile(w http.ResponseWriter, r *http.Request) {
 		ShareAchievements bool   `json:"share_achievements"`
 		ParentPIN         string `json:"parent_pin"`
 	}
-	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+	if !onlyThisComputer(w, r) || !decodePost(w, r, &req) || !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), cloudTimeout)
@@ -677,7 +738,7 @@ func (s *Server) handleCloudKey(w http.ResponseWriter, r *http.Request) {
 			Error: "The account key is shown only on the computer running the game"})
 		return
 	}
-	if !decodePost(w, r, &req) || !s.parentAllows(w, req.ParentPIN) {
+	if !decodePost(w, r, &req) || !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	c := s.cloud

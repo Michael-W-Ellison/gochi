@@ -152,7 +152,7 @@ func (s *Server) handleHomeLook(w http.ResponseWriter, r *http.Request) {
 
 // handleSettings handles GET /api/settings and POST /api/settings with
 // {"hemisphere": "northern" or "southern"}: the half of the world the
-// seasons follow
+// seasons follow, changed only on this computer, like other settings
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if s.house == nil {
 		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No household"})
@@ -162,7 +162,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Hemisphere environment.Hemisphere `json:"hemisphere"`
 		}
-		if !decodePost(w, r, &req) {
+		if !onlyThisComputer(w, r) || !decodePost(w, r, &req) {
 			return
 		}
 		if err := s.house.setHemisphere(req.Hemisphere); err != nil {

@@ -104,6 +104,7 @@ func (h *Handler) HandleCreatePet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name) // As the game's own pet form does
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "MISSING_NAME", "Pet name is required")
 		return

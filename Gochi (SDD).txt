@@ -1103,8 +1103,11 @@ a join code, on its own HTTPS address, hub.addr, default :8443), or which runs o
 (32 random bytes; the hub stores its SHA-256 hash) and a handle the hub picks from fixed lists, a
 color, an animal and a number from 10 to 99 (such as "Blue Otter 42"); accounts are stored under a
 random ID. Registering may carry the game's player number (seed): the handle is then the one at
-(seed x 2654435761) mod 92,160 among all handles, or the next free one after it, so the same number
-gives the same handle on any hub where it is free; without a seed it is random. A hub from before
+HMAC-SHA256(hub key, seed) mod 92,160 among all handles, or the next free one after it, where the hub
+key is 32 random bytes the hub makes on first start (handle.key, mode 0600); the same number gives the
+same handle on the same hub where it is free, and unrelated handles on different hubs, so handles
+can't be matched across hubs. Without a seed it is random. Join codes are compared by their SHA-256
+hashes. A hub from before
 seeds refuses the field, and the game registers again without it. Other devices sign in with the account key alone. HTTP API at /hub/v1: register; list,
 get, put (with the base version: a stale upload is refused with 409 and the hub's version) and delete
 pets, keyed by a hash of the pet ID; get the profile (handle and sharing) and set sharing; the
@@ -1118,7 +1121,13 @@ ID (from the game's list) and the pet's species (a registered species); the hub 
 achievement's name, icon and description, and posts it with the player's handle to a feed of the last
 200. Each player may make 120 requests a minute; requests without a valid account key (such as
 registering) are limited to 120 a minute per IP address, so players sharing a network (as at a
-playdate) don't share a limit. Accounts from hubs before handles are given an ID and a handle when
+playdate) don't share a limit; every request is also limited to 1,200 a minute per IPv4 address or
+IPv6 /64. Guessing is limited: 5 wrong join codes per address an hour, 100 from everyone an hour, and
+20 wrong playdate codes per account and per address an hour (then even the right code is refused with
+429); 5 new accounts per address a day; 10 shared achievements per account an hour; plays between the
+same two pets at least 10 s apart; and a playdate member's card keeps the pet ID it joined with. The
+previous copy of each pet counts toward the account's 64 MB, and all saves together are limited to
+16 GB (507 when full). Errors other than the hub's own are logged and answered with a generic 500. Accounts from hubs before handles are given an ID and a handle when
 loaded, their username and area are dropped, and feed entries holding text players typed are
 discarded.
 4.3 REST API
@@ -1298,16 +1307,24 @@ Implementation:
 In transit: the hub always uses HTTPS (TLS 1.2 or later), with the configured certificate or else
 a self-signed ECDSA P-256 certificate it makes on first start and keeps (hub-cert.pem, hub-key.pem),
 printing its SHA-256 fingerprint. When the game connects, it probes the hub's certificate: one this
-computer trusts is checked normally from then on; otherwise its fingerprint is pinned in cloud.json and
-every later connection must present it. Hub addresses default to https://, and plain http:// is
+computer trusts is checked normally from then on; otherwise the connect request is answered with 409
+and the fingerprint, nothing is sent to the hub, and the page asks the player to compare it with the
+one the hub printed; connecting again with that fingerprint pins it in cloud.json, and every later
+connection must present it. The hub client follows no redirects, passes on only the hub's own error
+messages, and rebuilds feed entries, playdate cards and events from the game's lists (checkFeed,
+checkCard, checkEvent), dropping handles the hub couldn't give; a downloaded save must be the pet its
+hub key is for, and a profile's handle must be valid. Hub addresses default to https://, and plain http:// is
 refused except for a hub on this computer. The game serves HTTPS too when given a certificate and key
 (server.tls_cert and server.tls_key, or -tls-cert and -tls-key; both checked at startup). Every
 response carries X-Content-Type-Options: nosniff, X-Frame-Options: SAMEORIGIN and Referrer-Policy:
-same-origin.
+same-origin, and a Content-Security-Policy (default-src 'self'; connect-src 'self'; object-src
+'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'; inline script and style
+allowed, as the page is one file). On the network without HTTPS the game warns at startup and in the
+Privacy panel.
 At rest on the hub: the hub client seals each save before upload with AES-256-GCM under a key
 HMAC-SHA256(account key, "gochi save encryption v1"), a random 12-byte nonce, and the pet's hub key
 as additional data, stored as {"gochi_sealed": 1, "nonce", "data"}; downloads are opened the same way,
-and unsealed saves from older versions are accepted. The hub keeps only the account key's hash, so
+and unsealed saves are refused. The hub keeps only the account key's hash, so
 its files can't be decrypted on their own; nothing else about a pet is stored on the hub.
 At rest locally: saves, backups, accounts.json, cloud.json, owner.json, parental.json and devices.json are written with mode 0600
 in directories made 0700 (existing ones too). Saves aren't encrypted locally: the key would have to
@@ -1317,9 +1334,10 @@ schedule (section 5.3) can be turned off and erased (/api/privacy).
 Child safety: an optional parent PIN (4 to 8 digits), stored as a 16-byte salt and 100,000 rounds of
 SHA-256 in parental.json, is then needed to connect to or disconnect from a hub, see the account key,
 change sharing, start or join a playdate, rename or delete a pet, unpair devices, and change privacy
-settings; 5 wrong PINs refuse every PIN for 5 minutes, each later wait doubling (up to a day) until a
-right PIN, with the count kept in parental.json across restarts. Connecting to or disconnecting from a
-hub, changing sharing, the account key, the PIN and privacy settings are accepted only from this
+settings, or delete a keepsake book; 5 wrong PINs refuse every PIN for 5 minutes, each later wait
+doubling (up to a day) until a right PIN, with the count kept in parental.json across restarts, and
+counted separately for this computer and for paired devices. Connecting to or disconnecting from a
+hub, changing sharing, the account key, the hemisphere, the PIN and privacy settings are accepted only from this
 computer, not from paired devices. COPPA compliance is a legal obligation of
 whoever operates a hub for children; the software collects no personal information and gives parents
 control of what is shared.
@@ -1343,7 +1361,10 @@ requests from other devices need a device token: /api/pairing (from this compute
 8-character code valid for 10 minutes; POST /pair with the code sets an HttpOnly, SameSite=Strict
 cookie, whose SHA-256 hash is kept in devices.json; each code pairs one device; 5 wrong codes from
 one address make that address wait 5 minutes, without affecting other devices. The account key is given only to this computer (POST /api/cloud/key), never in the
-cloud status. The REST API (/api/v1) keeps its bearer token and is subject only to the Host check.
+cloud status. The REST API (/api/v1) keeps its bearer token (at least 24 characters, also from
+GOCHI_API_TOKEN; its rate limit can't be 0 while it is on), sends no CORS headers, and is subject only
+to the Host check. Save slot and book names that Windows reserves for devices (CON, NUL, COM1 and so
+on) are refused. A pet remembers at most 200 other pets' names.
 Static folders aren't listed.
 Robustness and limits: request bodies are limited to 64 KB (1 KB for /pair) and the servers have
 read, write and idle timeouts; a hub reads at most 16 uploads at once, 2 per account. Loading a pet

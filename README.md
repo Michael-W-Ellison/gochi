@@ -111,7 +111,7 @@ Run the server directly to pass options, for example `./bin/gochi -autosave 30s`
 | `-data-dir` | `~/.gochi` | Directory for the game's files: each player's own folder (`accounts/`) and the settings shared by every player (see [Players](#players)) |
 | `-autosave` | `1m` | How often the active pet is saved automatically; `0` turns autosave off |
 | `-away-pause` | `2m` | Pause time once the player has been away this long; `0` turns the away pause off |
-| `-api-token` | (none) | Turn on the REST API at `/api/v1` for requests carrying this token (see [REST API](#rest-api)) |
+| `-api-token` | (none) | Turn on the REST API at `/api/v1` for requests carrying this token, at least 24 characters; `GOCHI_API_TOKEN` also sets it (see [REST API](#rest-api)) |
 | `-time-scale` | `game` | Game speed: `game` (one game day per real minute), `24x` (one game day per real hour), `4x` (one game day per six real hours) or `realtime` |
 | `-hub` | off | Also run as a cloud hub (see [Cloud](#cloud-backup-sync-and-sharing)) |
 | `-hub-join-code` | (none) | The code players need to register with the hub |
@@ -152,9 +152,10 @@ can play as any player. There can be up to 20 players.
 
 Names stay on this computer: they are never sent to a cloud hub or shown to anyone else. When a
 player connects to a [cloud hub](#cloud-backup-sync-and-sharing), their number, not their name,
-picks the handle the hub gives them, so the same number gets the same handle on any hub where that
-handle is free (and the next free one where it isn't). A hub from before player numbers gives a
-random handle instead.
+picks the handle the hub gives them, so connecting again to the same hub gets the same handle where
+it is free (and the next free one where it isn't). Each hub mixes the number with a secret key of its
+own, so the same number gets a different handle on each hub, and handles can't be matched across
+hubs. A hub from before player numbers gives a random handle instead.
 
 The game keeps each player's files in their own folder, `<data-dir>/accounts/<id>/` (called
 `<player-dir>` below), and the list of players in `<data-dir>/accounts.json`. The first time a
@@ -237,8 +238,14 @@ otherwise with its own certificate, made on first start and kept in `<data-dir>/
 the certificate's fingerprint when it starts. Its data is kept in `<data-dir>/hub/`: accounts (with
 account keys stored only as hashes), each player's encrypted pets, and the shared achievements. With
 no join code, nobody new can register. The hub allows each player 120 requests a minute (requests
-without an account, such as registering, 120 a minute from each address), 50 pets and 64 MB of saves
-per account (4 MB per pet), and 10,000 accounts.
+without an account, such as registering, 120 a minute from each address), and 1,200 requests a minute
+from any one address whatever the accounts; 50 pets and 64 MB of saves per account (4 MB per pet,
+with the previous copy of each pet counted too), 16 GB of saves in all, and 10,000 accounts. Join
+codes and playdate codes can't be guessed: after 5 wrong join codes an address waits an hour (and
+after 100 from everyone, registration waits), and after 20 wrong playdate codes an account or
+address waits an hour. One address can make 5 new accounts a day, and a player can share 10
+achievements an hour. Errors the hub doesn't expect are logged on the hub and reported to players
+only as "the hub had a problem".
 
 To run a hub as its own service, without the game, use `gochihub` (`make build` puts it in `bin/`):
 `gochihub -join-code SOMECODE -dir /var/lib/gochi-hub -addr :8443`. It serves only `/hub/v1`, always
@@ -248,9 +255,13 @@ over HTTPS (with `-tls-cert` and `-tls-key`, or its own certificate), and keeps 
 **Connecting**: press **☁️ Cloud**, enter the hub's address (`https://` is assumed; plain `http://` is
 refused unless the hub is on this computer) and the join code, and press **Connect**. The hub gives
 you a handle, and your pets are uploaded straight away. If the hub uses its own certificate rather
-than one from a certificate authority, the game remembers the certificate when it connects and
-refuses any other afterwards, so nobody can stand in for the hub later; the Cloud panel shows the
-certificate's fingerprint, which a parent can compare with the one the hub printed. To connect
+than one from a certificate authority, the game first shows the certificate's fingerprint and sends
+the hub nothing (no join code or account key) until you confirm it matches the one the hub printed
+when it started (ask whoever runs it). It then remembers the certificate and refuses any other
+afterwards, so nobody can stand in for the hub later; the Cloud panel keeps showing the fingerprint.
+The game never follows a redirect from a hub, shows only the hub's own messages, and rebuilds what
+it shows from a hub (handles, achievements, playdate pets and events) from its own lists, so a hub
+can't show words of its own; a save on the hub that isn't the pet it is listed as is left there. To connect
 another device to the same account, press **Show account key** on the computer running the game (other
 devices are never shown it) and enter that key on the other device instead of the join code. The
 connection is kept in `<player-dir>/cloud.json`, readable only by you; each player connects on
@@ -294,16 +305,17 @@ Press **🔒 Privacy**:
 - **Parent PIN**: a parent can set a PIN of 4 to 8 digits. Once it is set, the PIN is needed to
   connect to or disconnect from a cloud hub, see the account key, change what is shared, start or join
   a playdate, rename or delete a pet, unpair devices, and change these settings (the page asks for
-  it). After 5 wrong PINs, no PIN is accepted for 5 minutes, and each wait after that is twice as
-  long as the last (up to a day) until the right PIN is given; restarting the game doesn't end a
-  wait. The PIN is stored as a salted hash in `<data-dir>/parental.json`; it stops a child changing
+  it), and deleting a pet's keepsake book. After 5 wrong PINs, no PIN is accepted for 5 minutes, and
+  each wait after that is twice as long as the last (up to a day) until the right PIN is given;
+  restarting the game doesn't end a wait. Wrong PINs from paired devices are counted apart from this
+  computer's, so a device guessing can't lock the parent out on this computer. The PIN is stored as a salted hash in `<data-dir>/parental.json`; it stops a child changing
   settings in the game, not someone who can edit the computer's files. The PIN is the computer's:
   it is the same for every player.
 - **Holidays** and **Sound**: the holidays a parent turns off and turning the game's sounds off
   apply to every player on this computer. They are kept in `<data-dir>/parental.json` and aren't
   synced through a cloud hub.
 - **Only on this computer**: connecting to or disconnecting from a cloud hub, changing what is
-  shared, seeing the account key, the parent PIN and these privacy settings can be changed only on
+  shared, seeing the account key, the hemisphere, the parent PIN and these privacy settings can be changed only on
   the computer running the game, not from a paired phone or tablet.
 - **Play on a phone or tablet**: by default the game answers only the computer it runs on. To play on
   a phone or tablet on the same Wi-Fi (for example for AR), start the game with `-addr :8080`. Each
@@ -311,7 +323,9 @@ Press **🔒 Privacy**:
   valid for 10 minutes); the device shows a pairing page until the code is entered. Each code pairs
   one device. A device that sends 5 wrong codes must wait 5 minutes before trying again; other
   devices can still pair. Paired devices are remembered (as hashes in `<data-dir>/devices.json`);
-  **Unpair all devices** forgets them.
+  **Unpair all devices** forgets them. Without `-tls-cert` and `-tls-key`, the game warns at startup
+  and in Privacy that traffic on the network isn't encrypted, so anyone on the same Wi-Fi could read
+  it; use a certificate on a network you don't trust.
 
 Your saves, backups and settings in the data directory can be read only by your user account (on
 macOS and Linux; older saves are made private as they are saved again).
@@ -333,7 +347,8 @@ macOS and Linux; older saves are made private as they are saved again).
 - **Other web sites can't use the game**: the game answers only requests from its own page (JSON
   from the same origin, to `localhost` or an IP address), so a web page the player visits can't read
   or change anything, even by pointing its own name at the computer (DNS rebinding). Responses carry
-  no CORS headers.
+  no CORS headers (the REST API's included), and a Content-Security-Policy lets the page load and
+  send to nothing but the game itself.
 - **Other devices need pairing**: the game answers only this computer unless started on the network,
   and then only paired devices.
 - **Parents can lock settings** with a PIN (see above).
@@ -1183,9 +1198,11 @@ definition is complete, and a test checks every registered species.
 ## REST API
 
 Other programs can use the REST API from the `api` package when the server is started with
-`-api-token`, for example `./bin/gochi -api-token my-secret`. Requests to `/api/v1/...` must send
-the header `Authorization: Bearer my-secret`; `/health` and `/ready` need no token. Without
-`-api-token` these routes are off.
+`-api-token` (or the `GOCHI_API_TOKEN` environment variable, which keeps the token out of the list
+of running programs), for example `GOCHI_API_TOKEN=$(openssl rand -hex 16) ./bin/gochi`. The token
+must be at least 24 characters, and the REST API's rate limit can't be turned off while it is on.
+Requests to `/api/v1/...` must send the header `Authorization: Bearer <token>`; `/health` and
+`/ready` need no token. Without a token these routes are off.
 
 | Route | Description |
 |---|---|

@@ -25,11 +25,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Michael-W-Ellison/gochi/api"
 	"github.com/Michael-W-Ellison/gochi/internal/core"
 )
 
@@ -37,9 +39,12 @@ import (
 const (
 	MaxPetsPerAccount = 50
 	MaxSaveBytes      = 4 << 20  // A pet's (encrypted) save
-	MaxAccountBytes   = 64 << 20 // All of an account's saves
+	MaxAccountBytes   = 64 << 20 // All of an account's saves, with the previous version of each
+	MaxHubBytes       = 16 << 30 // Every account's saves together, so the hub's disk can't be filled
 	MaxAccounts       = 10000
 	maxFeed           = 200 // Achievements kept in the feed
+	maxShares         = 10  // Achievements one player can share in shareWindow
+	shareWindow       = time.Hour
 )
 
 // Errors
@@ -54,6 +59,13 @@ var (
 	ErrTooManyPets        = errors.New("too many pets for one account")
 	ErrAccountFull        = errors.New("this account's saves take up all the space the hub allows")
 	ErrUnknownAchievement = errors.New("unknown achievement")
+	ErrHubStorageFull     = errors.New("this hub has no room for more saves")
+	ErrBadSave            = fmt.Errorf("the save must be valid JSON of at most %d bytes", MaxSaveBytes)
+	ErrUnknownSpecies     = errors.New("unknown species")
+	ErrNotSharing         = errors.New("turn on sharing achievements to share them")
+	ErrTooManyShares      = errors.New("you have shared a lot of achievements lately; try again later")
+	ErrBadRequest         = errors.New("invalid request")
+	ErrNoBaseVersion      = errors.New("base_version is required")
 )
 
 var (
@@ -76,6 +88,8 @@ type PetInfo struct {
 	SavedAt time.Time `json:"saved_at"` // When the pet was last played (time last passed for it)
 	Deleted bool      `json:"deleted"`  // Deleted by the player; its save is gone
 	Size    int       `json:"size"`     // Bytes of its save, set by the hub
+
+	prevSize int // Bytes of the previous version kept as a backup (on the hub only)
 }
 
 // storedPet is a pet's file on the hub
@@ -122,6 +136,11 @@ type Hub struct {
 	joinCode string
 	now      func() time.Time
 
+	// The hub's own secret, which turns players' numbers into handles,
+	// so a number gives a different handle on each hub and nobody can
+	// pick the number that gives someone else's handle (handles.go)
+	handleKey []byte
+
 	mu       sync.Mutex
 	accounts map[string]*account // By ID
 	byToken  map[string]string   // Token hash -> ID
@@ -131,8 +150,19 @@ type Hub struct {
 	playdates map[string]*playdate // By code; kept in memory only
 
 	// Each account's pets' information, so listing pets and checking
-	// versions don't read saves
-	pets map[string]map[string]PetInfo // By account ID, then key
+	// versions don't read saves, and the bytes of every save and backup
+	pets       map[string]map[string]PetInfo // By account ID, then key
+	totalBytes int64
+
+	// Achievements each account shared lately, to limit them
+	shared map[string][]time.Time
+
+	// Limits on guessing codes and on making accounts (limits.go)
+	wrongJoinCodes  *eventLimiter // By address
+	allJoinCodes    *eventLimiter // Wrong join codes from everyone, under ""
+	wrongPlaydates  *eventLimiter // By account and by address
+	newAccounts     *eventLimiter // By address
+	addressRequests *api.SlidingWindowLimiter
 
 	// Uploads being read, so many at once can't use up the hub's memory:
 	// a place for each upload across the hub, and the number per account
@@ -190,9 +220,17 @@ func New(dir, joinCode string) (*Hub, error) {
 	}
 	h := &Hub{dir: dir, joinCode: joinCode, now: time.Now,
 		accounts: make(map[string]*account), byToken: make(map[string]string), byHandle: make(map[string]string),
-		playdates: make(map[string]*playdate), pets: make(map[string]map[string]PetInfo),
-		uploads: make(chan struct{}, maxUploads), uploading: make(map[string]int)}
+		playdates: make(map[string]*playdate), pets: make(map[string]map[string]PetInfo), shared: make(map[string][]time.Time),
+		wrongJoinCodes: newEventLimiter(maxWrongJoinCodes, guessWindow), wrongPlaydates: newEventLimiter(maxWrongPlaydates, guessWindow),
+		allJoinCodes:    newEventLimiter(maxWrongJoinCodesHub, guessWindow),
+		newAccounts:     newEventLimiter(maxNewAccounts, newAccountWindow),
+		addressRequests: api.NewSlidingWindowLimiter(requestsPerAddress, time.Minute),
+		uploads:         make(chan struct{}, maxUploads), uploading: make(map[string]int)}
 
+	var err error
+	if h.handleKey, err = loadOrMakeKey(filepath.Join(dir, "handle.key")); err != nil {
+		return nil, err
+	}
 	var accounts []*account
 	if err := readJSON(filepath.Join(dir, "accounts.json"), &accounts); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -297,7 +335,10 @@ func (h *Hub) Register(joinCode string, seed uint32) (token, handle string, err 
 	if h.joinCode == "" {
 		return "", "", ErrRegistrationClosed
 	}
-	if subtle.ConstantTimeCompare([]byte(joinCode), []byte(h.joinCode)) != 1 {
+	// Compared as hashes, which have one length, so the code's length
+	// can't be timed
+	given, want := sha256.Sum256([]byte(joinCode)), sha256.Sum256([]byte(h.joinCode))
+	if subtle.ConstantTimeCompare(given[:], want[:]) != 1 {
 		return "", "", ErrWrongJoinCode
 	}
 	if token, err = randomHex(32); err != nil {
@@ -315,7 +356,7 @@ func (h *Hub) Register(joinCode string, seed uint32) (token, handle string, err 
 	}
 	taken := func(s string) bool { _, ok := h.byHandle[s]; return ok }
 	if seed != 0 {
-		handle, err = seededHandle(seed, taken)
+		handle, err = seededHandle(h.handleKey, seed, taken)
 	} else {
 		handle, err = newHandle(taken)
 	}
@@ -392,7 +433,16 @@ func (h *Hub) loadPetIndexLocked(id string) error {
 		if stat, err := e.Info(); err == nil && info.Size == 0 && !info.Deleted {
 			info.Size = int(stat.Size())
 		}
-		index[key] = PetInfo{Key: key, Version: info.Version, SavedAt: info.SavedAt, Deleted: info.Deleted, Size: info.Size}
+		prev := 0 // The backup's save size, as recorded in it (its file size if not)
+		var prevInfo PetInfo
+		if err := readJSON(filepath.Join(h.petDir(id), key+".prev"), &prevInfo); err == nil && prevInfo.Size > 0 {
+			prev = prevInfo.Size
+		} else if stat, err := os.Stat(filepath.Join(h.petDir(id), key+".prev")); err == nil {
+			prev = int(stat.Size())
+		}
+		index[key] = PetInfo{Key: key, Version: info.Version, SavedAt: info.SavedAt, Deleted: info.Deleted, Size: info.Size,
+			prevSize: prev}
+		h.totalBytes += int64(info.Size + prev)
 	}
 	h.pets[id] = index
 	return nil
@@ -416,13 +466,13 @@ func (h *Hub) GetPet(id, key string) (PetInfo, json.RawMessage, error) {
 	return info, pet.Save, nil
 }
 
-// accountBytesLocked returns the bytes of an account's saves, leaving out
-// one pet. Caller must hold h.mu.
+// accountBytesLocked returns the bytes of an account's saves and their
+// backups, leaving out one pet. Caller must hold h.mu.
 func (h *Hub) accountBytesLocked(id, except string) int {
 	total := 0
 	for key, info := range h.pets[id] {
 		if key != except {
-			total += info.Size
+			total += info.Size + info.prevSize
 		}
 	}
 	return total
@@ -438,7 +488,7 @@ func (h *Hub) PutPet(id string, info PetInfo, save json.RawMessage, baseVersion 
 		return 0, ErrBadKey
 	}
 	if len(save) == 0 || len(save) > MaxSaveBytes || !json.Valid(save) {
-		return 0, fmt.Errorf("the save must be valid JSON of at most %d bytes", MaxSaveBytes)
+		return 0, ErrBadSave
 	}
 
 	h.mu.Lock()
@@ -450,23 +500,37 @@ func (h *Hub) PutPet(id string, info PetInfo, save json.RawMessage, baseVersion 
 	if !exists && len(h.pets[id]) >= MaxPetsPerAccount {
 		return 0, ErrTooManyPets
 	}
-	if h.accountBytesLocked(id, info.Key)+len(save) > MaxAccountBytes {
+	// The current version becomes the backup, if the account has room
+	// for it too; otherwise the pet is saved without one
+	others := h.accountBytesLocked(id, info.Key)
+	if others+len(save) > MaxAccountBytes {
 		return 0, ErrAccountFull
+	}
+	prev := 0
+	if current.Version > 0 && !current.Deleted && others+len(save)+current.Size <= MaxAccountBytes {
+		prev = current.Size
+	}
+	grows := int64(len(save)+prev) - int64(current.Size+current.prevSize)
+	if grows > 0 && h.totalBytes+grows > MaxHubBytes {
+		return 0, ErrHubStorageFull
 	}
 	if current.Version != baseVersion {
 		return current.Version, ErrVersionConflict
 	}
 
 	path := filepath.Join(h.petDir(id), info.Key+".json")
-	if current.Version > 0 && !current.Deleted {
+	if prev > 0 {
 		if err := copyFile(path, filepath.Join(h.petDir(id), info.Key+".prev")); err != nil {
 			return 0, err
 		}
+	} else if current.prevSize > 0 {
+		_ = os.Remove(filepath.Join(h.petDir(id), info.Key+".prev")) // No room for a backup; the old one goes too
 	}
-	stored := PetInfo{Key: info.Key, Version: current.Version + 1, SavedAt: info.SavedAt, Size: len(save)}
+	stored := PetInfo{Key: info.Key, Version: current.Version + 1, SavedAt: info.SavedAt, Size: len(save), prevSize: prev}
 	if err := writeJSON(path, storedPet{PetInfo: stored, Save: save}); err != nil {
 		return 0, err
 	}
+	h.totalBytes += grows
 	if h.pets[id] == nil {
 		h.pets[id] = make(map[string]PetInfo)
 	}
@@ -489,12 +553,14 @@ func (h *Hub) DeletePet(id, key string, baseVersion int) (int, error) {
 	if info.Version != baseVersion {
 		return info.Version, ErrVersionConflict
 	}
+	freed := int64(info.Size + info.prevSize)
 	info.Version++
-	info.Deleted, info.Size = true, 0
+	info.Deleted, info.Size, info.prevSize = true, 0, 0
 	_ = os.Remove(filepath.Join(h.petDir(id), key+".prev")) // Usually there is none
 	if err := writeJSON(filepath.Join(h.petDir(id), key+".json"), storedPet{PetInfo: info}); err != nil {
 		return 0, err
 	}
+	h.totalBytes -= freed
 	h.pets[id][key] = info
 	return info.Version, nil
 }
@@ -536,7 +602,7 @@ func (h *Hub) ShareAchievement(id, achievementID, species string) error {
 		return ErrUnknownAchievement
 	}
 	if !core.Species(species).Known() {
-		return errors.New("unknown species")
+		return ErrUnknownSpecies
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -545,8 +611,16 @@ func (h *Hub) ShareAchievement(id, achievementID, species string) error {
 		return err
 	}
 	if !me.Share {
-		return errors.New("turn on sharing achievements to share them")
+		return ErrNotSharing
 	}
+	// A few an hour, so one player can't fill the feed
+	now := h.now()
+	recent := slices.DeleteFunc(h.shared[id], func(t time.Time) bool { return now.Sub(t) >= shareWindow })
+	if len(recent) >= maxShares {
+		h.shared[id] = recent
+		return ErrTooManyShares
+	}
+	h.shared[id] = append(recent, now)
 	h.feed = append(h.feed, SharedAchievement{Handle: me.Handle, Species: species, ID: known.ID, Name: known.Name,
 		Icon: known.Icon, Description: known.Description, SharedAt: h.now()})
 	if over := len(h.feed) - maxFeed; over > 0 {

@@ -74,6 +74,30 @@ func TestParentPIN(t *testing.T) {
 	}
 }
 
+// Wrong PINs from paired devices are counted apart from this computer's,
+// so a phone guessing can't lock the parent out of this computer
+func TestPINTriesCountedPerPlace(t *testing.T) {
+	p, err := loadParentalControls(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetPIN("", "2468"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxPINTries; i++ {
+		_ = p.CheckFrom("0000", false) // Wrong on purpose
+	}
+	if err := p.CheckFrom("2468", false); err != errPINLockedOut {
+		t.Errorf("A paired device waits after %d wrong PINs: %v", maxPINTries, err)
+	}
+	if err := p.CheckFrom("2468", true); err != nil {
+		t.Errorf("This computer is still let in: %v", err)
+	}
+	if err := p.Check("2468"); err != nil {
+		t.Errorf("Check is this computer's: %v", err)
+	}
+}
+
 func TestParentPINGuardsSocialFeatures(t *testing.T) {
 	s := cloudServer(t)
 	s.parental, _ = loadParentalControls("")

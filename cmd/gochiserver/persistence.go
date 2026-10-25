@@ -362,7 +362,7 @@ func ValidSlot(slot string) bool {
 }
 
 // sanitizeSlot keeps letters, digits, '_' and '-' so a slot is always a
-// plain file name
+// plain file name, and changes a name Windows keeps for a device (CON)
 func sanitizeSlot(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -375,6 +375,9 @@ func sanitizeSlot(s string) string {
 	}
 	if b.Len() == 0 {
 		return "pet"
+	}
+	if reservedFileName(b.String()) {
+		b.WriteString("_") // A plain file on Windows too
 	}
 	return b.String()
 }

@@ -49,7 +49,15 @@ var (
 	ErrNotInPlaydate   = errors.New("you aren't in that playdate")
 	ErrTooManyPlaydate = errors.New("the hub has too many playdates right now; try again later")
 	ErrBadCard         = errors.New("invalid pet card")
+	ErrBadPlay         = errors.New("invalid play")
+	ErrNotAtPlaydate   = errors.New("that player isn't at the playdate")
+	ErrPlayTooSoon     = errors.New("your pets just played; wait a little before playing again")
+	ErrCardChanged     = errors.New("a playdate is for the pet that joined it; leave and join again with another pet")
 )
+
+// playGap is how long a member waits before their pet plays with the same
+// other pet again, so plays can't be sent over and over
+const playGap = 10 * time.Second
 
 // Offset is a position relative to the playdate's center, in meters
 type Offset struct {
@@ -135,6 +143,8 @@ type PlaydateMember struct {
 	Position Offset    `json:"position"`
 	Updated  time.Time `json:"updated"`
 	changed  time.Time // When its card or position last changed
+
+	played map[string]time.Time // When its pet last played with each other member's pet, by handle
 }
 
 // PlayReport is a play between two pets, as numbers only
@@ -345,6 +355,9 @@ func (h *Hub) UpdatePlaydate(id, code string, req *CardRequest, position Offset,
 		if err != nil {
 			return PlaydateState{}, err
 		}
+		if c.ID != m.Card.ID { // Only the pet that joined, so its card can't be swapped for new ones
+			return PlaydateState{}, ErrCardChanged
+		}
 		card = &c
 	}
 	if now := h.now(); now.Sub(m.changed) >= changeInterval {
@@ -362,7 +375,7 @@ func (h *Hub) UpdatePlaydate(id, code string, req *CardRequest, position Offset,
 // it went.
 func (h *Hub) ReportPlay(id, code string, report PlayReport) (PlaydateEvent, error) {
 	if math.IsNaN(report.Quality) || math.IsNaN(report.Bond) {
-		return PlaydateEvent{}, errors.New("invalid play")
+		return PlaydateEvent{}, ErrBadPlay
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -377,8 +390,16 @@ func (h *Hub) ReportPlay(id, code string, report PlayReport) (PlaydateEvent, err
 		}
 	}
 	if to == nil {
-		return PlaydateEvent{}, errors.New("that player isn't at the playdate")
+		return PlaydateEvent{}, ErrNotAtPlaydate
 	}
+	now := h.now()
+	if last, ok := m.played[to.Handle]; ok && now.Sub(last) < playGap {
+		return PlaydateEvent{}, ErrPlayTooSoon
+	}
+	if m.played == nil {
+		m.played = make(map[string]time.Time)
+	}
+	m.played[to.Handle] = now
 	quality := roundLevel(report.Quality, 0)
 	pd.seq++
 	e := PlaydateEvent{Seq: pd.seq, Kind: "play", From: m.Handle, To: to.Handle, FromCard: m.Card, ToPet: to.Card.ID,

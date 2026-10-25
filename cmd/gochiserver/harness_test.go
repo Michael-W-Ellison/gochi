@@ -105,7 +105,7 @@ func openHarness(t testing.TB, root string) *harness {
 	}
 	mux.Handle("/static/", s.staticHandler(s.static, true))
 	mux.HandleFunc("/", s.handleIndex)
-	return &harness{t: t, server: s, handler: s.guard(s.accountGate(securityHeaders(mux))), root: root, dir: dir, now: now}
+	return &harness{t: t, server: s, handler: securityHeaders(s.guard(s.accountGate(mux))), root: root, dir: dir, now: now}
 }
 
 // do sends a request as the page on this computer would, and returns the

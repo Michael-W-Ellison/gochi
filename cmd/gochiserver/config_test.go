@@ -71,6 +71,8 @@ func TestLoadConfigRejectsBadSettings(t *testing.T) {
 		"simulation:\n  autosave: -1m\n":        "can't be negative",
 		"simulation:\n  autosave: often\n":      "often",
 		"server:\n  api_rate_limit: -5\n":       "api_rate_limit can't be negative",
+		"server:\n  api_token: short\n":         "api_token must be at least",
+		"server:\n  api_token: " + strings.Repeat("k", minAPITokenLength) + "\n  api_rate_limit: 0\n": "api_rate_limit",
 	} {
 		if _, err := loadConfig(writeConfig(t, text)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: expected an error mentioning %q, got %v", text, want, err)
@@ -139,5 +141,12 @@ func TestSecurityHeaders(t *testing.T) {
 	securityHeaders(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rec.Header().Get("X-Content-Type-Options") != "nosniff" || rec.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
 		t.Errorf("Headers: %v", rec.Header())
+	}
+	// The page may load and send to nothing but this game
+	csp := rec.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'self'", "connect-src 'self'", "object-src 'none'", "frame-ancestors 'self'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("Content-Security-Policy %q is missing %q", csp, want)
+		}
 	}
 }

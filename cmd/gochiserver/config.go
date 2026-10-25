@@ -92,6 +92,15 @@ func loadConfig(path string) (Config, error) {
 	return c, nil
 }
 
+// minAPITokenLength is the shortest REST API token accepted, so it can't
+// be guessed
+const minAPITokenLength = 24
+
+// apiTokenEnv is the environment variable that can hold the REST API
+// token instead of the settings file or -api-token, which other programs
+// on the computer can see in the process list
+const apiTokenEnv = "GOCHI_API_TOKEN"
+
 // validate checks settings that have a fixed set of values or a range
 func (c Config) validate() error {
 	if _, ok := timeScales[c.Simulation.TimeScale]; !ok {
@@ -102,6 +111,12 @@ func (c Config) validate() error {
 	}
 	if c.Server.APIRateLimit < 0 {
 		return errors.New("api_rate_limit can't be negative")
+	}
+	if c.Server.APIToken != "" && len(c.Server.APIToken) < minAPITokenLength {
+		return fmt.Errorf("api_token must be at least %d characters; use a long random one", minAPITokenLength)
+	}
+	if c.Server.APIToken != "" && c.Server.APIRateLimit == 0 {
+		return errors.New("api_rate_limit can't be 0 while the REST API is on: it limits guessing the token")
 	}
 	if (c.Server.TLSCert == "") != (c.Server.TLSKey == "") {
 		return errors.New("HTTPS needs both tls_cert and tls_key")
@@ -124,15 +139,24 @@ func tlsConfig() *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12}
 }
 
+// contentSecurityPolicy lets the page load and talk only to this server:
+// nothing it shows can send anything elsewhere or load code from
+// elsewhere, even if a bug let a name be run as markup. The page's own
+// script and styles are inline.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"
+
 // securityHeaders adds headers that make browsers stricter with the
 // server's pages: no guessing content types, no framing by other sites,
-// and no referrer sent to other sites
+// no referrer sent to other sites, and the content policy
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
 		next.ServeHTTP(w, r)
 	})
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -58,7 +60,7 @@ func (h *Hub) Handler() http.Handler {
 	mux.HandleFunc("POST /hub/v1/playdates/{code}/play", h.authed(h.handlePlay))
 	mux.HandleFunc("POST /hub/v1/playdates/{code}/leave", h.authed(h.handleLeavePlaydate))
 	limit := api.RateLimitMiddleware(api.NewSlidingWindowLimiter(requestsPerMinute, time.Minute))
-	return h.identify(limit(mux))
+	return h.limitAddresses(h.identify(limit(mux)))
 }
 
 // identify marks requests with a valid account key with the account, so
@@ -91,10 +93,30 @@ type errorReply struct {
 	Version int    `json:"version,omitempty"` // The hub's version, on a conflict
 }
 
+// clientErrors are the errors whose text the hub tells players; anything
+// else (a file that can't be written, say) is logged on the hub and
+// reported only as an internal error, so the hub's paths and account IDs
+// don't reach players
+var clientErrors = []error{ErrRegistrationClosed, ErrWrongJoinCode, ErrHubFull, ErrUnauthorized, ErrBadKey, ErrNotFound,
+	ErrVersionConflict, ErrTooManyPets, ErrAccountFull, ErrUnknownAchievement, ErrHubStorageFull, ErrBadSave,
+	ErrUnknownSpecies, ErrNotSharing, ErrTooManyShares, ErrBadRequest, ErrNoBaseVersion, ErrBusy, ErrNoPlaydate,
+	ErrPlaydateFull, ErrNotInPlaydate, ErrTooManyPlaydate, ErrBadCard, ErrBadPlay, ErrNotAtPlaydate, ErrPlayTooSoon,
+	ErrCardChanged, ErrTooManyGuesses, ErrTooManyAccounts}
+
 // fail writes an error response, with the status that suits the error
 func fail(w http.ResponseWriter, err error) {
+	if !slices.ContainsFunc(clientErrors, func(known error) bool { return errors.Is(err, known) }) {
+		log.Printf("Hub error: %v", err)
+		reply(w, http.StatusInternalServerError, errorReply{Error: "the hub had a problem; try again later"})
+		return
+	}
 	status := http.StatusBadRequest
 	switch {
+	case errors.Is(err, ErrTooManyGuesses), errors.Is(err, ErrTooManyAccounts), errors.Is(err, ErrTooManyShares),
+		errors.Is(err, ErrPlayTooSoon):
+		status = http.StatusTooManyRequests
+	case errors.Is(err, ErrHubStorageFull):
+		status = http.StatusInsufficientStorage
 	case errors.Is(err, ErrUnauthorized), errors.Is(err, ErrWrongJoinCode):
 		status = http.StatusUnauthorized
 	case errors.Is(err, ErrRegistrationClosed):
@@ -129,7 +151,7 @@ func decode(w http.ResponseWriter, r *http.Request, limit int64, v interface{}) 
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(v); err != nil {
-		fail(w, errors.New("invalid request"))
+		fail(w, ErrBadRequest)
 		return false
 	}
 	return true
@@ -159,11 +181,28 @@ func (h *Hub) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, requestBytes, &req) {
 		return
 	}
+	// Wrong join codes are limited per address and across the hub, so the
+	// code can't be guessed; new accounts per address, so one person
+	// can't fill the hub
+	address := addressKey(r)
+	if !h.wrongJoinCodes.Allowed(address) || !h.allJoinCodes.Allowed("") {
+		fail(w, ErrTooManyGuesses)
+		return
+	}
+	if !h.newAccounts.Allowed(address) {
+		fail(w, ErrTooManyAccounts)
+		return
+	}
 	token, handle, err := h.Register(req.JoinCode, req.Seed)
+	if errors.Is(err, ErrWrongJoinCode) {
+		h.wrongJoinCodes.Add(address)
+		h.allJoinCodes.Add("")
+	}
 	if err != nil {
 		fail(w, err)
 		return
 	}
+	h.newAccounts.Add(address)
 	reply(w, http.StatusCreated, registration{Token: token, Handle: handle})
 }
 
@@ -225,7 +264,7 @@ func (h *Hub) handlePutPet(w http.ResponseWriter, r *http.Request, id string) {
 func (h *Hub) handleDeletePet(w http.ResponseWriter, r *http.Request, id string) {
 	base, err := strconv.Atoi(r.URL.Query().Get("base_version"))
 	if err != nil {
-		fail(w, errors.New("base_version is required"))
+		fail(w, ErrNoBaseVersion)
 		return
 	}
 	version, err := h.DeletePet(id, r.PathValue("key"), base)
@@ -322,7 +361,18 @@ func (h *Hub) handleJoinPlaydate(w http.ResponseWriter, r *http.Request, id stri
 		fail(w, ErrBadCard)
 		return
 	}
+	// Wrong codes are limited per account and per address, so playdates
+	// can't be found by guessing, even with many accounts
+	address := addressKey(r)
+	if !h.wrongPlaydates.Allowed("account:"+id) || !h.wrongPlaydates.Allowed(address) {
+		fail(w, ErrTooManyGuesses)
+		return
+	}
 	state, err := h.JoinPlaydate(id, r.PathValue("code"), *req.Card)
+	if errors.Is(err, ErrNoPlaydate) {
+		h.wrongPlaydates.Add("account:" + id)
+		h.wrongPlaydates.Add(address)
+	}
 	if err != nil {
 		fail(w, err)
 		return

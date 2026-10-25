@@ -47,16 +47,24 @@ var (
 	errBadPIN       = errors.New("a PIN is 4 to 8 digits")
 )
 
+// pinTries counts wrong PINs from one source: wrong PINs since the last
+// right one, waits since then, and when the current wait ends
+type pinTries struct {
+	Failures int       `json:"failures,omitempty"`
+	Lockouts int       `json:"lockouts,omitempty"`
+	LockedTo time.Time `json:"locked_to"`
+}
+
 // parentalSettings is parental.json
 type parentalSettings struct {
 	Salt []byte `json:"salt,omitempty"`
 	Hash []byte `json:"hash,omitempty"`
 
-	// Wrong PINs since the last right one, waits since then, and when the
-	// current wait ends; kept so restarting the game doesn't reset them
-	Failures int       `json:"failures,omitempty"`
-	Lockouts int       `json:"lockouts,omitempty"`
-	LockedTo time.Time `json:"locked_to"`
+	// Wrong PINs from this computer, and from paired devices together,
+	// counted apart so a phone can't lock the parent out of the computer;
+	// kept so restarting the game doesn't reset them
+	pinTries
+	Remote pinTries `json:"remote,omitempty"`
 
 	// The holidays a parent has turned off and whether they turned the
 	// game's sounds off, for every player on this device. They were kept
@@ -198,44 +206,54 @@ func (p *parentalControls) Locked() bool {
 	return len(p.settings.Hash) > 0
 }
 
-// Check returns nil if no PIN is set or pin is right. Wrong PINs are
-// counted; after maxPINTries, every PIN is refused for pinLockout.
+// Check returns nil if no PIN is set or pin is right, for a PIN given on
+// this computer (see CheckFrom)
 func (p *parentalControls) Check(pin string) error {
+	return p.CheckFrom(pin, true)
+}
+
+// CheckFrom returns nil if no PIN is set or pin is right. Wrong PINs are
+// counted, on this computer (local) and on paired devices apart; after
+// maxPINTries from one of them, every PIN from it is refused for a wait.
+func (p *parentalControls) CheckFrom(pin string, local bool) error {
 	if p == nil {
 		return nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.checkLocked(pin)
+	return p.checkLocked(pin, local)
 }
 
-func (p *parentalControls) checkLocked(pin string) error {
+func (p *parentalControls) checkLocked(pin string, local bool) error {
 	if len(p.settings.Hash) == 0 {
 		return nil
 	}
+	settings := p.settings
+	tries := &settings.Remote
+	if local {
+		tries = &settings.pinTries
+	}
 	now := p.now()
-	if now.Before(p.settings.LockedTo) {
+	if now.Before(tries.LockedTo) {
 		return errPINLockedOut
 	}
 	if pin == "" {
 		return errParentPIN
 	}
 	if subtle.ConstantTimeCompare(hashPIN(pin, p.settings.Salt), p.settings.Hash) == 1 {
-		if p.settings.Failures != 0 || p.settings.Lockouts != 0 {
-			settings := p.settings
-			settings.Failures, settings.Lockouts, settings.LockedTo = 0, 0, time.Time{}
+		if tries.Failures != 0 || tries.Lockouts != 0 {
+			*tries = pinTries{}
 			if err := p.saveLocked(settings); err != nil { // A right PIN is right either way
 				log.Printf("Could not save the parental controls: %v", err)
 			}
 		}
 		return nil
 	}
-	settings := p.settings
-	settings.Failures++
-	if settings.Failures >= maxPINTries {
-		wait := min(pinLockout<<min(settings.Lockouts, 10), maxPINLockout)
-		settings.Failures, settings.LockedTo = 0, now.Add(wait)
-		settings.Lockouts++
+	tries.Failures++
+	if tries.Failures >= maxPINTries {
+		wait := min(pinLockout<<min(tries.Lockouts, 10), maxPINLockout)
+		tries.Failures, tries.LockedTo = 0, now.Add(wait)
+		tries.Lockouts++
 	}
 	if err := p.saveLocked(settings); err != nil {
 		p.settings = settings // Count it even if it can't be saved
@@ -268,11 +286,11 @@ func (p *parentalControls) saveLocked(settings parentalSettings) error {
 func (p *parentalControls) SetPIN(current, newPIN string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := p.checkLocked(current); err != nil {
+	if err := p.checkLocked(current, true); err != nil {
 		return err
 	}
 	settings := parentalSettings{HolidaysOff: p.settings.HolidaysOff, AllHolidaysOff: p.settings.AllHolidaysOff,
-		SoundOff: p.settings.SoundOff, HouseMoved: p.settings.HouseMoved} // Only the PIN changes
+		SoundOff: p.settings.SoundOff, HouseMoved: p.settings.HouseMoved} // Only the PIN changes, and the wrong PINs reset
 	if newPIN != "" {
 		if !pinPattern.MatchString(newPIN) {
 			return errBadPIN
@@ -287,9 +305,10 @@ func (p *parentalControls) SetPIN(current, newPIN string) error {
 }
 
 // parentAllows checks the parent PIN for a protected request, writing an
-// error and returning false if it isn't given or is wrong
-func (s *Server) parentAllows(w http.ResponseWriter, pin string) bool {
-	err := s.parental.Check(pin)
+// error and returning false if it isn't given or is wrong. Wrong PINs from
+// paired devices count apart from this computer's.
+func (s *Server) parentAllows(w http.ResponseWriter, r *http.Request, pin string) bool {
+	err := s.parental.CheckFrom(pin, fromThisComputer(r))
 	if err == nil {
 		return true
 	}
@@ -369,7 +388,7 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 			writeParentError(w, err)
 			return
 		}
-	} else if !s.parentAllows(w, req.ParentPIN) {
+	} else if !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	if (req.HolidaysOff != nil || req.AllHolidays != nil) && s.parental != nil {

@@ -765,3 +765,20 @@ func TestPetStoreCachesSaves(t *testing.T) {
 		t.Errorf("A deleted pet should be gone: %v", err)
 	}
 }
+
+// Names Windows keeps for devices are never save slots or files
+func TestReservedNamesAreNotSlots(t *testing.T) {
+	for _, name := range []string{"CON", "con", "Nul", "aux", "PRN", "COM1", "lpt9", "CONIN$", "con.json"} {
+		if ValidSlot(name) {
+			t.Errorf("%q should not be a save slot", name)
+		}
+		if !reservedFileName(name) {
+			t.Errorf("%q is a reserved name", name)
+		}
+	}
+	for _, name := range []string{"console", "Biscuit", "com10", "pet_1"} {
+		if reservedFileName(name) {
+			t.Errorf("%q isn't a reserved name", name)
+		}
+	}
+}

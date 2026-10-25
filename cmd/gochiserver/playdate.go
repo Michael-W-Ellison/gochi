@@ -218,7 +218,7 @@ func (s *Server) handlePlaydate(w http.ResponseWriter, r *http.Request) {
 	if !decodePost(w, r, &req) {
 		return
 	}
-	if req.Action != "leave" && !s.parentAllows(w, req.ParentPIN) {
+	if req.Action != "leave" && !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	client, err := s.hubClient()

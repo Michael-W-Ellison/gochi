@@ -242,6 +242,8 @@ func TestSettingsOnlyOnThisComputer(t *testing.T) {
 	mux.HandleFunc("/api/cloud/connect", s.handleCloudConnect)
 	mux.HandleFunc("/api/cloud/disconnect", s.handleCloudDisconnect)
 	mux.HandleFunc("/api/cloud/profile", s.handleCloudProfile)
+	mux.HandleFunc("/api/settings", s.handleSettings)
+	s.house = newTestHousehold(t, "")
 	h := s.guard(mux)
 	if _, _, err := s.pairing.NewCode(); err != nil {
 		t.Fatal(err)
@@ -257,6 +259,7 @@ func TestSettingsOnlyOnThisComputer(t *testing.T) {
 		"/api/cloud/connect":    `{"hub_url":"http://127.0.0.1:9","join_code":"x"}`,
 		"/api/cloud/disconnect": `{}`,
 		"/api/cloud/profile":    `{"share_achievements":true}`,
+		"/api/settings":         `{"hemisphere":"southern"}`,
 	} {
 		if rec := request(h, http.MethodPost, path, remote, body, phone); rec.Code != http.StatusForbidden {
 			t.Errorf("%s from a paired device: %d %s", path, rec.Code, rec.Body.String())

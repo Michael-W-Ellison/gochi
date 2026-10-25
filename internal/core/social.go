@@ -269,11 +269,28 @@ func (p *DigitalPet) meetLocked(quality float64) {
 	v.Clamp()
 }
 
+// maxKnownPets is how many other pets' names a pet remembers, so meeting
+// pets over and over (or another player's game sending new ones at a
+// playdate) can't make its save grow without end
+const maxKnownPets = 200
+
 // rememberPetLocked remembers another pet's name, to show its
-// relationships. Caller must hold p.mu.
+// relationships. When it knows as many as it can, it forgets one it no
+// longer has a relationship with. Caller must hold p.mu.
 func (p *DigitalPet) rememberPetLocked(id types.PetID, name string) {
 	if p.KnownPets == nil {
 		p.KnownPets = make(map[types.PetID]string)
+	}
+	if _, known := p.KnownPets[id]; !known && len(p.KnownPets) >= maxKnownPets {
+		for other := range p.KnownPets {
+			if p.Relationships == nil || p.Relationships.Relationships[other] == nil {
+				delete(p.KnownPets, other)
+				break
+			}
+		}
+		if len(p.KnownPets) >= maxKnownPets {
+			return // Every one it knows is a friend, rival or family
+		}
 	}
 	p.KnownPets[id] = name
 }

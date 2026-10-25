@@ -50,14 +50,26 @@ func TestBooksThroughServer(t *testing.T) {
 	if book, _ := readBook(server.store.books, id); !book.Candle {
 		t.Error("The candle should be lit")
 	}
-	if rec := post(t, server.handleDeleteBook, `{"id":"`+id+`"}`); rec.Code != http.StatusOK {
+	// Deleting a book is for a parent, as deleting a pet is
+	if err := server.parental.SetPIN("", "2468"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := post(t, server.handleDeleteBook, `{"id":"`+id+`"}`); rec.Code != http.StatusForbidden {
+		t.Errorf("Deleting the book without the parent PIN: %d", rec.Code)
+	}
+	if _, err := readBook(server.store.books, id); err != nil {
+		t.Fatalf("The book should stay without the PIN: %v", err)
+	}
+	if rec := post(t, server.handleDeleteBook, `{"id":"`+id+`","parent_pin":"2468"}`); rec.Code != http.StatusOK {
 		t.Errorf("Deleting the book: %d", rec.Code)
 	}
 	if _, err := readBook(server.store.books, id); err == nil {
 		t.Error("The book should be gone")
 	}
-	if rec := post(t, server.handleDeleteBook, `{"id":"../household"}`); rec.Code != http.StatusNotFound {
-		t.Errorf("A book ID that isn't a pet's: %d", rec.Code)
+	for _, bad := range []string{"../household", "CON", "nul", "com1"} {
+		if rec := post(t, server.handleDeleteBook, `{"id":"`+bad+`","parent_pin":"2468"}`); rec.Code != http.StatusNotFound {
+			t.Errorf("A book ID that isn't a pet's (%s): %d", bad, rec.Code)
+		}
 	}
 }
 

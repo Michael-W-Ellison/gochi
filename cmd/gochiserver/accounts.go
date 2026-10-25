@@ -692,7 +692,7 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 			Error: "Type the player's name to confirm deleting them"})
 		return
 	}
-	if !s.parentAllows(w, req.ParentPIN) {
+	if !s.parentAllows(w, r, req.ParentPIN) {
 		return
 	}
 	if err := s.accounts.remove(req.ID); err != nil {

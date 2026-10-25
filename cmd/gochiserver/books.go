@@ -50,7 +50,7 @@ type bookStore struct {
 }
 
 func (b *bookStore) path(id string) (string, bool) {
-	if b == nil || !bookIDPattern.MatchString(id) {
+	if b == nil || !bookIDPattern.MatchString(id) || reservedFileName(id) {
 		return "", false
 	}
 	return filepath.Join(b.dir, id+".json"), true
@@ -286,11 +286,13 @@ func (s *Server) handleBookCandle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, APIResponse{Success: true})
 }
 
-// handleDeleteBook handles POST /api/books/delete with {"id"}: deletes the
-// book of a pet that is no longer saved
+// handleDeleteBook handles POST /api/books/delete with {"id",
+// "parent_pin"}: deletes the book of a pet that is no longer saved, with
+// the parent PIN if one is set, as deleting the pet needs it
 func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		ParentPIN string `json:"parent_pin"`
 	}
 	if !decodePost(w, r, &req) {
 		return
@@ -299,13 +301,19 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, APIResponse{Success: false, Error: "No such book"})
 		return
 	}
-	if list, err := s.store.List(); err == nil {
-		for _, p := range list {
-			if p.ID == req.ID {
-				writeJSON(w, http.StatusConflict, APIResponse{Success: false,
-					Error: p.Name + " is still saved; its book can be deleted with it"})
-				return
-			}
+	if !s.parentAllows(w, r, req.ParentPIN) {
+		return
+	}
+	list, err := s.store.List()
+	if err != nil { // Whether its pet is still saved can't be told
+		writeJSON(w, http.StatusInternalServerError, APIResponse{Success: false, Error: "Could not read the saved pets"})
+		return
+	}
+	for _, p := range list {
+		if p.ID == req.ID {
+			writeJSON(w, http.StatusConflict, APIResponse{Success: false,
+				Error: p.Name + " is still saved; its book can be deleted with it"})
+			return
 		}
 	}
 	if err := s.store.books.remove(req.ID); err != nil {

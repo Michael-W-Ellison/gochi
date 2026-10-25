@@ -31,8 +31,8 @@ func TestSealedSaves(t *testing.T) {
 	if _, err := OpenSave("account-key", "other-pet", sealed); !errors.Is(err, ErrCannotOpen) {
 		t.Errorf("A save moved to another pet: %v", err)
 	}
-	// Saves uploaded before encryption still download
-	if opened, err := OpenSave("account-key", "pet-key", save); err != nil || !bytes.Equal(opened, save) {
+	// A save that isn't encrypted is refused: anyone could have made it
+	if opened, err := OpenSave("account-key", "pet-key", save); !errors.Is(err, ErrNotSealed) || opened != nil {
 		t.Errorf("A plain save: %s %v", opened, err)
 	}
 }

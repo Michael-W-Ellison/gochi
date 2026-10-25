@@ -14,6 +14,19 @@ import (
 // something else) are set aside, renamed, so the game can start without
 // them and nothing is lost; temporary files left by a crash are removed.
 
+// reservedFileName reports whether name (without its extension) is one
+// Windows keeps for a device, such as CON or COM1: a file of that name
+// opens the device instead, which can hang the game waiting for input
+func reservedFileName(name string) bool {
+	base := strings.ToUpper(strings.SplitN(name, ".", 2)[0])
+	switch base {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
+		return true
+	}
+	return len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) &&
+		base[3] >= '0' && base[3] <= '9'
+}
+
 // loadOrSetAside loads a settings file with load. If it can't be read, it
 // is renamed to <name>.damaged-<time> and load is tried again, which
 // starts afresh.

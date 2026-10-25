@@ -43,7 +43,7 @@ func TestPlaydateBetweenPlayers(t *testing.T) {
 	sociableDog(t, alice, "Biscuit")
 	sociableDog(t, bob, "Rex")
 	for _, s := range []*Server{alice, bob} {
-		if err := s.cloudConnect(ctx, hubURL, "code", ""); err != nil {
+		if err := s.cloudConnect(ctx, hubURL, "code", "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -128,7 +128,7 @@ func TestPlaydateNeedsHubAndPet(t *testing.T) {
 	if rec := post(t, s.handlePlaydateUpdate, `{}`); rec.Code != http.StatusConflict {
 		t.Errorf("Updating without a playdate: %d %s", rec.Code, rec.Body)
 	}
-	if err := s.cloudConnect(context.Background(), testHubURL(t), "code", ""); err != nil {
+	if err := s.cloudConnect(context.Background(), testHubURL(t), "code", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if rec := post(t, s.handlePlaydate, `{"action":"start"}`); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "need a pet") {
@@ -140,7 +140,7 @@ func TestPlaydateEndsWhenPetChanges(t *testing.T) {
 	ctx := context.Background()
 	s := cloudServer(t)
 	sociableDog(t, s, "Biscuit")
-	if err := s.cloudConnect(ctx, testHubURL(t), "code", ""); err != nil {
+	if err := s.cloudConnect(ctx, testHubURL(t), "code", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	post(t, s.handlePlaydate, `{"action":"start"}`)

@@ -106,14 +106,16 @@ func TestRateLimitMiddleware(t *testing.T) {
 	}
 }
 
-func TestCORSPreflightMaxAge(t *testing.T) {
-	handler := CORSMiddleware(DefaultCORSConfig())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+// Other sites' pages get no CORS answer, so browsers don't let them call
+// the API
+func TestNoCORS(t *testing.T) {
+	handler := DefaultMiddlewareChain(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/pets", nil)
 	req.Header.Set("Origin", "http://example.com")
+	req.Header.Set("Access-Control-Request-Headers", "authorization")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent || rec.Header().Get("Access-Control-Max-Age") != "86400" {
-		t.Errorf("Preflight: %d, Access-Control-Max-Age %q", rec.Code, rec.Header().Get("Access-Control-Max-Age"))
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin should be absent: %q", got)
 	}
 }

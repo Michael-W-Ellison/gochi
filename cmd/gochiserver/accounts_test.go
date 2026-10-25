@@ -263,13 +263,24 @@ func TestFilesFromBeforeAccounts(t *testing.T) {
 	}
 }
 
-// A player's number picks their handle on a cloud hub: connecting to two
-// hubs gives the same handle, and the player's name is never sent
+// A player's number picks their handle on a cloud hub: two hubs with the
+// same key (a hub moved to a new folder) give the same handle, and the
+// player's name is never sent
 func TestHandleFromThePlayersNumber(t *testing.T) {
 	h := newHarness(t)
+	first, second := t.TempDir(), t.TempDir()
+	hubURLs := []string{hubURLIn(t, first)}
+	key, err := os.ReadFile(filepath.Join(first, "handle.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, "handle.key"), key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hubURLs = append(hubURLs, hubURLIn(t, second))
 	var handles []string
-	for i := 0; i < 2; i++ {
-		body := `{"hub_url":"` + testHubURL(t) + `","join_code":"code"}`
+	for _, hubURL := range hubURLs {
+		body := `{"hub_url":"` + hubURL + `","join_code":"code"}`
 		if rec := h.post("/api/cloud/connect", body); rec.Code != http.StatusOK {
 			t.Fatalf("Connecting: %d %s", rec.Code, rec.Body.String())
 		}
@@ -279,7 +290,7 @@ func TestHandleFromThePlayersNumber(t *testing.T) {
 		}
 	}
 	if handles[0] == "" || handles[0] != handles[1] {
-		t.Errorf("The same number should give the same handle on both hubs: %v", handles)
+		t.Errorf("The same number should give the same handle on hubs with the same key: %v", handles)
 	}
 	if strings.Contains(handles[0], "Player") {
 		t.Errorf("The handle shouldn't hold the player's name: %q", handles[0])

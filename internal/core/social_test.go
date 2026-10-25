@@ -2,9 +2,11 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/Michael-W-Ellison/gochi/internal/social"
 	"github.com/Michael-W-Ellison/gochi/pkg/types"
 )
 
@@ -169,5 +171,34 @@ func TestDogsDontPurr(t *testing.T) {
 	r := dog.Interact(types.InteractionPetting, 1.0)
 	if r.Reaction != ReactionDelighted || strings.Contains(r.ReactionText, "purr") || !strings.Contains(r.ReactionText, "tail") {
 		t.Errorf("A delighted dog should wag its tail, not purr: %+v", r)
+	}
+}
+
+// A pet remembers at most maxKnownPets names, forgetting ones it has no
+// relationship with first, so its save can't grow without end
+func TestKnownPetsAreLimited(t *testing.T) {
+	pet := NewDigitalPet("Mochi", "owner")
+	pet.mu.Lock()
+	defer pet.mu.Unlock()
+	friend := types.PetID("pet_friend")
+	pet.Relationships.AddRelationship(friend, types.RelationshipFriend)
+	pet.rememberPetLocked(friend, "Pip")
+	for i := 0; i < maxKnownPets+50; i++ {
+		pet.rememberPetLocked(types.PetID(fmt.Sprintf("pet_%d", i)), "Stranger")
+	}
+	if len(pet.KnownPets) != maxKnownPets {
+		t.Errorf("Want %d known pets, got %d", maxKnownPets, len(pet.KnownPets))
+	}
+	if pet.KnownPets[friend] != "Pip" {
+		t.Error("A friend should be kept")
+	}
+
+	// Once every known pet is a relationship, new ones aren't remembered
+	for id := range pet.KnownPets {
+		pet.Relationships.Relationships[id] = social.NewRelationship(id, types.RelationshipFriend)
+	}
+	pet.rememberPetLocked("pet_new", "New")
+	if _, ok := pet.KnownPets["pet_new"]; ok || len(pet.KnownPets) != maxKnownPets {
+		t.Error("With only relationships known, a new pet isn't remembered")
 	}
 }

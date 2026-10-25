@@ -55,7 +55,10 @@ func NormalizeURL(address string) (string, error) {
 // hub's certificate to require (see ProbeCertificate), or "" to check the
 // certificate as usual.
 func NewClient(baseURL, token, pin string) *Client {
-	return &Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: clientTimeout, Transport: transport(pin)}}
+	return &Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: clientTimeout, Transport: transport(pin),
+		// A hub never redirects; following one could send the account key
+		// or a save to another address
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 // do sends a request and decodes a JSON reply into out (if not nil)
@@ -103,8 +106,13 @@ func (c *Client) do(ctx context.Context, method, path string, body, out interfac
 			return ErrNoPlaydate
 		case resp.StatusCode == http.StatusNotFound && e.Error == ErrNotInPlaydate.Error():
 			return ErrNotInPlaydate
-		case e.Error != "":
-			return errors.New(e.Error)
+		}
+		// Only the hub's own messages are passed on, so a hub can't show
+		// the player words of its own
+		for _, known := range clientErrors {
+			if e.Error == known.Error() {
+				return known
+			}
 		}
 		return fmt.Errorf("the hub answered %s", resp.Status)
 	}
@@ -222,7 +230,7 @@ func (c *Client) ShareAchievement(ctx context.Context, achievementID, species st
 func (c *Client) Feed(ctx context.Context) ([]SharedAchievement, error) {
 	var feed []SharedAchievement
 	err := c.do(ctx, http.MethodGet, "/hub/v1/achievements", nil, &feed)
-	return feed, err
+	return checkFeed(feed), err
 }
 
 // playdatePath returns the path of a playdate request
@@ -234,6 +242,7 @@ func playdatePath(code, action string) string {
 func (c *Client) StartPlaydate(ctx context.Context, card CardRequest) (PlaydateState, error) {
 	var state PlaydateState
 	err := c.do(ctx, http.MethodPost, "/hub/v1/playdates", playdateRequest{Card: &card}, &state)
+	checkState(&state)
 	return state, err
 }
 
@@ -241,6 +250,7 @@ func (c *Client) StartPlaydate(ctx context.Context, card CardRequest) (PlaydateS
 func (c *Client) JoinPlaydate(ctx context.Context, code string, card CardRequest) (PlaydateState, error) {
 	var state PlaydateState
 	err := c.do(ctx, http.MethodPost, playdatePath(code, "join"), playdateRequest{Card: &card}, &state)
+	checkState(&state)
 	return state, err
 }
 
@@ -250,6 +260,7 @@ func (c *Client) UpdatePlaydate(ctx context.Context, code string, card *CardRequ
 	var state PlaydateState
 	err := c.do(ctx, http.MethodPost, playdatePath(code, "update"),
 		playdateRequest{Card: card, Position: position, After: after}, &state)
+	checkState(&state)
 	return state, err
 }
 
@@ -258,6 +269,9 @@ func (c *Client) UpdatePlaydate(ctx context.Context, code string, card *CardRequ
 func (c *Client) ReportPlay(ctx context.Context, code string, report PlayReport) (PlaydateEvent, error) {
 	var event PlaydateEvent
 	err := c.do(ctx, http.MethodPost, playdatePath(code, "play"), report, &event)
+	if err == nil && !checkEvent(&event, nil) {
+		return PlaydateEvent{}, ErrBadPlay
+	}
 	return event, err
 }
 

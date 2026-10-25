@@ -14,13 +14,16 @@ import (
 	"time"
 )
 
-// testHub returns a hub with join code "secret" and a client for it
+// testHub returns a hub with join code "secret" and a client for it. Its
+// players all register from this computer, so it takes more new accounts
+// from one address than a hub does.
 func testHub(t *testing.T) (*Hub, *httptest.Server) {
 	t.Helper()
 	h, err := New(t.TempDir(), "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.newAccounts = newEventLimiter(1000, newAccountWindow)
 	server := httptest.NewServer(h.Handler())
 	t.Cleanup(server.Close)
 	return h, server
@@ -109,24 +112,53 @@ func TestRegistrationGivesHandles(t *testing.T) {
 
 // A player's number picks their handle: the same number gives the same
 // handle on another hub, and the next free one where it is taken
+// A player's number picks their handle on a hub, mixed with the hub's own
+// secret: the next free one where it is taken, the same after the hub
+// restarts, and (almost always) a different one on another hub, so
+// nobody can choose the number for someone else's handle
 func TestHandleFromANumber(t *testing.T) {
-	_, server := testHub(t)
-	_, other := testHub(t)
-	first := NewClient(server.URL, "", "")
-	_, handle, err := first.Register(ctx, "secret", 4821)
+	dir := t.TempDir()
+	h, err := New(dir, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, handle, err := h.Register("secret", 4821)
 	if err != nil || !ValidHandle(handle) {
 		t.Fatalf("Register: %q %v", handle, err)
 	}
-	_, again, err := NewClient(other.URL, "", "").Register(ctx, "secret", 4821)
-	if err != nil || again != handle {
-		t.Errorf("The same number on another hub should give %q: %q %v", handle, again, err)
-	}
-	_, taken, err := first.Register(ctx, "secret", 4821)
+	_, taken, err := h.Register("secret", 4821)
 	if err != nil || taken == handle || !ValidHandle(taken) {
 		t.Errorf("A taken handle should step to a free one: %q %v", taken, err)
 	}
-	if _, near, _ := first.Register(ctx, "secret", 4822); near == handle || near == taken {
+	if _, near, _ := h.Register("secret", 4822); near == handle || near == taken {
 		t.Errorf("The next number should give another handle: %q", near)
+	}
+	if key, err := os.ReadFile(filepath.Join(dir, "handle.key")); err != nil || len(key) != 32 {
+		t.Fatalf("The hub's secret should be kept: %d bytes, %v", len(key), err)
+	}
+	restarted, err := New(dir, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	free := func(string) bool { return false }
+	same, _ := seededHandle(restarted.handleKey, 4821, free)
+	if same != handle {
+		t.Errorf("After a restart the number should still give %q: %q", handle, same)
+	}
+	differ := 0
+	for seed := uint32(1); seed <= 20; seed++ {
+		other, err := New(t.TempDir(), "secret")
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, _ := seededHandle(h.handleKey, seed, free)
+		b, _ := seededHandle(other.handleKey, seed, free)
+		if a != b {
+			differ++
+		}
+	}
+	if differ < 18 {
+		t.Errorf("The same number should give different handles on different hubs: only %d of 20 differ", differ)
 	}
 
 	// Every handle can be given, once
@@ -138,7 +170,7 @@ func TestHandleFromANumber(t *testing.T) {
 		}
 		seen[h] = true
 	}
-	if _, err := seededHandle(1, func(string) bool { return true }); err == nil {
+	if _, err := seededHandle(h.handleKey, 1, func(string) bool { return true }); err == nil {
 		t.Error("A hub with every handle taken should say so")
 	}
 }
@@ -335,9 +367,54 @@ func TestAccountQuota(t *testing.T) {
 	if _, err := h.PutPet(id, PetInfo{Key: PetKey("one more")}, save, 0); !errors.Is(err, ErrAccountFull) {
 		t.Errorf("Saves beyond the account's space should be refused: %v", err)
 	}
-	// Replacing a pet with a save of the same size is fine
+	// Replacing a pet with a save of the same size is fine, without a
+	// backup when there is no room for one
 	if _, err := h.PutPet(id, PetInfo{Key: PetKey("a")}, save, 1); err != nil {
 		t.Errorf("Replacing a pet: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.petDir(id), PetKey("a")+".prev")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("A full account keeps no backup: %v", err)
+	}
+	if got := h.accountBytesLocked(id, ""); got > MaxAccountBytes {
+		t.Errorf("The account uses %d bytes, more than %d", got, MaxAccountBytes)
+	}
+}
+
+// Backups count towards the account's space, so it can't hold twice its
+// share on the hub's disk
+func TestBackupsCountTowardsTheQuota(t *testing.T) {
+	h, err := New(t.TempDir(), "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, _ := h.Register("secret", 0)
+	id, _ := h.Authenticate(token)
+	save := json.RawMessage(`"` + strings.Repeat("x", MaxSaveBytes-10) + `"`)
+	half := MaxAccountBytes / len(save) / 2
+	for i := 0; i < half; i++ {
+		key := PetKey(string(rune('a' + i)))
+		for version := 0; version < 2; version++ { // Saved again: the first save is kept as a backup
+			if _, err := h.PutPet(id, PetInfo{Key: key}, save, version); err != nil {
+				t.Fatalf("Pet %d: %v", i, err)
+			}
+		}
+	}
+	if got := h.accountBytesLocked(id, ""); got != 2*half*len(save) {
+		t.Errorf("Saves and backups: %d bytes, want %d", got, 2*half*len(save))
+	}
+	if _, err := h.PutPet(id, PetInfo{Key: PetKey("one more")}, save, 0); !errors.Is(err, ErrAccountFull) {
+		t.Errorf("With the backups, the account is full: %v", err)
+	}
+	if h.totalBytes != int64(2*half*len(save)) {
+		t.Errorf("The hub's total: %d", h.totalBytes)
+	}
+	// The totals are rebuilt when the hub starts
+	again, err := New(h.dir, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.totalBytes != h.totalBytes || again.accountBytesLocked(id, "") != h.accountBytesLocked(id, "") {
+		t.Errorf("After a restart: %d and %d bytes", again.totalBytes, again.accountBytesLocked(id, ""))
 	}
 }
 

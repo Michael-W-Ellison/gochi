@@ -57,12 +57,18 @@ func SealSave(accountKey, petKey string, save []byte) (json.RawMessage, error) {
 	return json.Marshal(sealedSave{Sealed: sealVersion, Nonce: nonce, Data: aead.Seal(nil, nonce, save, []byte(petKey))})
 }
 
-// OpenSave decrypts a downloaded save. Saves uploaded before encryption
-// are returned as they are.
+// ErrNotSealed is returned for a save that isn't encrypted: every version
+// of the game that syncs encrypts its saves, so a plain one was put there
+// by someone else (or by a version too old to sync), and isn't taken
+var ErrNotSealed = errors.New("a save on the hub isn't encrypted with your account key, so it was left there")
+
+// OpenSave decrypts a downloaded save. A save that isn't encrypted is
+// refused (ErrNotSealed): it could have been made up by whoever runs the
+// hub.
 func OpenSave(accountKey, petKey string, stored json.RawMessage) ([]byte, error) {
 	var sealed sealedSave
 	if err := json.Unmarshal(stored, &sealed); err != nil || sealed.Sealed == 0 {
-		return stored, nil // Not sealed
+		return nil, ErrNotSealed
 	}
 	if sealed.Sealed != sealVersion {
 		return nil, errors.New("this save was encrypted by a newer version of Gochi")
