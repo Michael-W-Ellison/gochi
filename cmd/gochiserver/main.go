@@ -941,6 +941,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         .game-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
         .game-tile { font-size: 1.5em; padding: 10px 0; border-radius: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
         .game-tile.wide { font-size: 0.95em; }
+        .game-tile.swapping { background: #fff3bf; border-color: #fab005; transform: translateY(-4px); transition: transform 0.15s; }
         .show-title { font-weight: 600; }
         .show-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
         .show-row select { padding: 4px; border-radius: 6px; border: 1px solid #ccc; max-width: 100%; }

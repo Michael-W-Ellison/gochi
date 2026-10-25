@@ -734,10 +734,19 @@ before play. The pet's enjoyment is described from the quality: loved (0.8 or mo
 (0.5), had some fun (0.2), lost interest. The page computes quality as: fetch, good throws of 5
 (the marker between 55% and 80%); feather wand, 0.3 x min(fast moves / 6, 1) + 0.3 x min(slow
 moves / 6, 1) + 0.4 if the cat catches it (30 seconds, no limit in relaxed mode); puzzle feeder,
-kibble found / kibble, with 3 + round(3 x intelligence) tiles, kibble under half (rounded up),
-and 3 empty tiles allowed; scent trail, min(1, 6 / guesses) for 3 treats in 6 rooms; gentle
+kibble found / kibble (cup shuffle: rounds won / 3); scent trail, min(1, 6 / guesses) for 3 treats in 6 rooms; gentle
 grooming, regions brushed with the fur (and gently where the pet's liking of the petting region
 is below 0) / regions.
+Puzzle feeder levels: each pet has a puzzle level (PuzzleLevel, 1 to 10, saved with the pet), raised
+by one by a game of quality 0.8 or more and lowered by one by a game below 0.34; the result says so.
+At level L (step s = L - 1): tiles min(3 + round(3 x intelligence) + s, 12); kibble max(2,
+ceil(tiles / 2) - floor(s / 3)); empty picks allowed max(1, 3 - floor(s / 3)); nose hints max(1,
+3 - floor(s / 2)) a game, naming the spot (or cup) up to level 3 and only the row (or left or right
+side) after. Feeders open with levels 1 to 4: lifting tiles; a memory board (the kibble shown for
+max(1, 3 - 0.25 s) seconds, then covered); a sniff mat (an empty spot shows how much kibble is in
+the 8 spots around it; 2 more empty picks allowed); a cup shuffle (min(3 + floor(s / 3), 5) cups, 3
+rounds of 3 + L swaps of max(0.3, 0.8 - 0.05 s) seconds each). The page picks one of the open
+feeders each game; relaxed mode doubles the memory board's time and slows the swaps.
 
 3.8.3 Exploring
 cppclass Exploring {

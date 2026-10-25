@@ -732,7 +732,7 @@ Several kinds of care come in variants, each with its own effect and lesson:
   |---|---|---|---|
   | 🎾 Fetch | Dogs | Press **Throw!** when the moving marker is in the green; five throws | Play |
   | 🪶 Feather wand | Cats | Move the wand like prey, mixing quick dashes and slow creeping (arrow keys, Shift for a dash), then let your cat catch it; 30 seconds | Play |
-  | 🧩 Puzzle feeder | Both | Lift tiles to find the kibble before your pet loses patience; 3 to 6 tiles, more for cleverer pets; your pet's nose can give a hint | Enrichment |
+  | 🧩 Puzzle feeder | Both | Find the hidden kibble before your pet loses patience. Each pet has a puzzle level from 1 to 10: a puzzle solved well raises it and one given up on lowers it. Higher levels have more spots (3 to 12, more for cleverer pets), less kibble, fewer empty picks allowed and fewer, vaguer hints from your pet's nose (the spot up to level 3, then only the row or side). Each game is one of the feeders the level has opened: lifting tiles (level 1), a memory board where the kibble is shown and then covered (2), a sniff mat where an empty spot says how much kibble is next to it (3), and a cup shuffle (4) | Enrichment |
   | 👃 Scent trail | Both | Find three treats hidden around the house; your pet's tail and ears say warmer or colder | Enrichment |
   | 🪮 Gentle grooming | Both | Brush each part of the coat the way its fur lies, gently where your pet is sensitive (it watches your hand warily there) | Grooming |
 

@@ -336,9 +336,24 @@ async function playOneGame(page, game) {
     } else if (game.id === 'wand') {
         await panel.locator('button', {hasText: 'Let it catch'}).click();
     } else if (game.id === 'puzzle' || game.id === 'scent') {
-        for (let i = 0; i < 40 && await playing(); i++) {
+        let sniffed = game.id !== 'puzzle';
+        for (let i = 0; i < 300 && await playing(); i++) {
             const tiles = panel.locator('.game-tile:enabled');
-            if (await tiles.count() === 0) break;
+            if (await tiles.count() === 0) { // The memory board or the cups aren't ready to pick yet
+                await page.waitForTimeout(200);
+                continue;
+            }
+            if (!sniffed) { // The pet's nose, once
+                const nose = panel.locator('button', {hasText: 'nose'});
+                if (await nose.isEnabled()) {
+                    await nose.click();
+                    sniffed = true;
+                    const hint = await panel.locator('.cloud-note', {hasText: '👃'}).textContent().catch(() => '');
+                    if (!/👃 .+ sniffs (along row \d+|at the (left|right) side)\./.test(hint)) {
+                        problems.push('the ' + game.puzzle.kinds[0] + " feeder's hint at a high level should name a row or side: " + hint);
+                    }
+                }
+            }
             const clicked = await tiles.nth(i % await tiles.count()).click({timeout: 3000}).then(() => true, () => false);
             if (!clicked && await playing()) { // Not just the game ending as the tile was clicked
                 problems.push('could not click a tile in ' + game.id);
@@ -447,7 +462,21 @@ async function playEverything(page, name) {
     console.log(name + ' can play ' + playable.map(g => g.id).join(', '));
     games.filter(g => g.unavailable).forEach(g => console.log('  ' + g.id + ': ' + g.unavailable));
     if (playable.length === 0) problems.push(name + ' has no game to play');
-    for (const game of playable) await playGame(page, game);
+    for (const game of playable) {
+        if (game.id !== 'puzzle') {
+            await playGame(page, game);
+            continue;
+        }
+        // The puzzle feeder once with each feeder, set up as at a high level
+        if (!game.puzzle || game.puzzle.level !== 1 || game.puzzle.kinds.join() !== 'tiles') {
+            problems.push(name + "'s first puzzle feeder should be level 1, lifting tiles: " + JSON.stringify(game.puzzle));
+        }
+        for (const kind of ['tiles', 'memory', 'sniff', 'cups']) {
+            await playGame(page, Object.assign({}, game, {puzzle: Object.assign({}, game.puzzle, {kinds: [kind],
+                level: 8, tiles: 12, kibble: 4, misses: 1, sniffs: 1, exact: false, show_seconds: 1, cups: 5,
+                swaps: 3, swap_seconds: 0.3, rounds: 3})}));
+        }
+    }
     // A home happening, from the page
     await page.evaluate(() => showHappening({id: 'thunderstorm', icon: '⛈️', title: 'Thunderstorm', text: 'A test',
         choices: [{id: 'comfort', label: 'Comfort it'}]}));

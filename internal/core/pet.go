@@ -163,12 +163,13 @@ type DigitalPet struct {
 	Souvenirs         []string             `json:"souvenirs"`
 	LastAdventure     *Adventure           `json:"last_adventure"`
 	LastGameReward    time.Time            `json:"last_game_reward"`
-	Injured           bool                 `json:"injured"`       // Hurt while exploring; healed by medical care
-	History           []HistoryEntry       `json:"history"`       // What happened to the pet, oldest first (records.go)
-	Goals             *GoalBoard           `json:"goals"`         // Today's adaptive goals (goals.go)
-	Achievements      map[string]time.Time `json:"achievements"`  // Achievements earned, by ID, with when
-	LastBredAge       float64              `json:"last_bred_age"` // Age at the last breeding (0 if never)
-	BabiesWith        map[types.PetID]int  `json:"babies_with"`   // Babies had with each mate
+	PuzzleLevel       int                  `json:"puzzle_level,omitempty"` // The puzzle feeder's level, 1 to maxPuzzleLevel (0 for 1; minigames.go)
+	Injured           bool                 `json:"injured"`                // Hurt while exploring; healed by medical care
+	History           []HistoryEntry       `json:"history"`                // What happened to the pet, oldest first (records.go)
+	Goals             *GoalBoard           `json:"goals"`                  // Today's adaptive goals (goals.go)
+	Achievements      map[string]time.Time `json:"achievements"`           // Achievements earned, by ID, with when
+	LastBredAge       float64              `json:"last_bred_age"`          // Age at the last breeding (0 if never)
+	BabiesWith        map[types.PetID]int  `json:"babies_with"`            // Babies had with each mate
 
 	// Health care: how dirty the living area is (0.0 clean to 1.0
 	// filthy), the illness the pet has (nil if well), recent health
