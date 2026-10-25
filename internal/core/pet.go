@@ -445,6 +445,9 @@ func (p *DigitalPet) interactLocked(interactionType types.InteractionType, inten
 	if refusal := p.careRefusalLocked(interactionType); refusal != "" {
 		return InteractionResult{Refusal: refusal, Suggestion: p.suggestionLocked()}
 	}
+	if p.CurrentBehavior == types.BehaviorSleeping && WaitsForWaking(interactionType) {
+		return InteractionResult{Refusal: p.Name + " is asleep.", Asleep: true, WakeIn: p.wakeInLocked()}
+	}
 	behaviorBefore, contextBefore := p.CurrentBehavior, p.learningContextLocked()
 
 	// The interaction rules can turn care down (a full pet is not hungry,

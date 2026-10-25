@@ -125,6 +125,12 @@ func (s *Server) writeCareResult(w http.ResponseWriter, result core.InteractionR
 		if message == "" {
 			message = s.pet.Name + " can't do that right now."
 		}
+		if result.Asleep {
+			// The page shows the "asleep" pop-up, with about when it wakes
+			writeJSON(w, http.StatusConflict, APIResponse{Success: false, Error: message,
+				Data: map[string]interface{}{"asleep": true, "wake_seconds": gameDaysToSeconds(result.WakeIn)}})
+			return
+		}
 		if result.Suggestion != "" {
 			message += " " + result.Suggestion
 		}

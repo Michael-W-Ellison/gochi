@@ -6,6 +6,7 @@ const placeNames = ['1st', '2nd', '3rd'];
 const rosetteIcons = ['🥇', '🥈', '🥉'];
 
 function openShows() {
+    if (petAsleep()) return;
     panelMode = 'shows';
     fetch('/api/shows').then(r => r.json()).then(data => {
         if (data.success) renderShows(data.data);

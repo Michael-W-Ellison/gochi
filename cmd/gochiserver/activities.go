@@ -132,6 +132,11 @@ func writeActivityError(w http.ResponseWriter, name string, err error) {
 	default:
 		status, message = http.StatusInternalServerError, "Something went wrong"
 	}
+	if errors.Is(err, core.ErrSleeping) {
+		// The page shows the "asleep" pop-up
+		writeJSON(w, status, APIResponse{Success: false, Error: message, Data: map[string]bool{"asleep": true}})
+		return
+	}
 	writeJSON(w, status, APIResponse{Success: false, Error: message})
 }
 

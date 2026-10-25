@@ -177,10 +177,11 @@ type PetStatus struct {
 	Life             core.LifeStatus        `json:"life"`
 	Achievements     []core.Achievement     `json:"achievements"`
 	AchievementTotal int                    `json:"achievement_total"`
-	LifeSeconds      int                    `json:"life_seconds"` // Real seconds of play left at the default pace
-	Attention        string                 `json:"attention"`    // How much it enjoys attention by nature
-	Tolerates        []string               `json:"tolerates"`    // Care it neither likes nor dislikes
-	Relations        []core.PetRelation     `json:"relations"`    // Pets it knows and how they get along
+	LifeSeconds      int                    `json:"life_seconds"`           // Real seconds of play left at the default pace
+	WakeSeconds      int                    `json:"wake_seconds,omitempty"` // About how long it sleeps on, in real seconds at the default pace
+	Attention        string                 `json:"attention"`              // How much it enjoys attention by nature
+	Tolerates        []string               `json:"tolerates"`              // Care it neither likes nor dislikes
+	Relations        []core.PetRelation     `json:"relations"`              // Pets it knows and how they get along
 	Likes            []string               `json:"likes"`
 	Dislikes         []string               `json:"dislikes"`
 	Slot             string                 `json:"slot"`
@@ -2289,7 +2290,32 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
             }).catch(() => {});
         }
 
+        // A sleeping pet: play, training, walks, meeting other pets,
+        // petting and grooming wait until it wakes (food, water, healing and
+        // cleaning up don't), and a pop-up says so instead
+        const waitsForWaking = ['play', 'pet', 'groom', 'walk', 'train'];
+
+        // petAsleep shows the "asleep" pop-up and returns true if the pet
+        // is asleep, as of the last status
+        function petAsleep() {
+            if (!lastStatus || !lastStatus.is_alive || lastStatus.behavior !== 'Sleeping') return false;
+            showAsleep(lastStatus.wake_seconds);
+            return true;
+        }
+
+        function showAsleep(wakeSeconds) {
+            if (popupShowing) return;
+            const name = lastStatus ? lastStatus.name : 'Your pet';
+            popupShowing = 'asleep';
+            showModal('💤', name + ' is asleep',
+                name + ' is sleeping to get its energy back' + (wakeSeconds > 0 ? ' and should wake in ' +
+                formatWait(wakeSeconds) : '') + '. Play, training, walks, petting and grooming wait until it ' +
+                'wakes; you can still feed it, give it water, heal it or clean up.',
+                [['OK', () => { popupShowing = null; }]]);
+        }
+
         function interact(action) {
+            if (waitsForWaking.includes(action) && petAsleep()) return;
             const btn = event.target;
             btn.style.transform = 'scale(0.95)';
             setTimeout(() => btn.style.transform = '', 100);
@@ -2309,6 +2335,8 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 if (data.success) {
                     showResult(data.data);
                     setTimeout(fetchStatus, 500);
+                } else if (data.data && data.data.asleep) {
+                    showAsleep(data.data.wake_seconds); // It fell asleep since the last status
                 } else if (data.error) {
                     showPointsToast(data.error);
                 }
@@ -2357,6 +2385,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             }).then(r => r.json()).then(data => {
+                if (!data.success && data.data && data.data.asleep) showAsleep(data.data.wake_seconds);
                 if (data.success || !data.data || !data.data.parent_pin_needed || 'parent_pin' in body) return data;
                 const pin = prompt(data.error + ' Ask a parent to enter it.');
                 if (pin === null) return data;
@@ -2444,6 +2473,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // openChoices shows the choices for Feed, Pet, Play or Enrich (the
         // page scrolls to them: see bringIntoView)
         function openChoices(kind) {
+            if ((kind === 'pet' || kind === 'play') && petAsleep()) return;
             panelMode = 'choice';
             loadCareOptions().then(options => {
                 if (options) renderChoices(kind, options);
@@ -2502,6 +2532,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
 
         // Introductions to the player's other pets
         function openMeet() {
+            if (petAsleep()) return;
             panelMode = 'meet';
             fetch('/api/introduce/partners')
                 .then(r => r.json())
@@ -3056,6 +3087,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function openTricks() {
+            if (petAsleep()) return;
             panelMode = 'tricks';
             loadCareOptions().then(renderTricks).catch(renderTricks);
         }
@@ -3133,6 +3165,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         }
 
         function startHideSeek() {
+            if (petAsleep()) return;
             postJSON('/api/hideseek/start')
                 .then(data => {
                     if (!data.success) {
@@ -3213,6 +3246,7 @@ func (s *Server) serveDefaultPage(w http.ResponseWriter) {
         // choose, the pet goes straight there; otherwise the player picks
         // a place, and can choose a long trip or a friend to take along
         function explore() {
+            if (petAsleep()) return;
             Promise.all([fetch('/api/explore/places').then(r => r.json()), fetch('/api/saves').then(r => r.json())])
                 .then(([data, saves]) => {
                     if (!data.success) {
@@ -4270,6 +4304,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	petStatus.Achievements = s.pet.EarnedAchievements()
 	petStatus.AchievementTotal = core.AchievementCount()
 	petStatus.LifeSeconds = gameDaysToSeconds(petStatus.Life.Remaining)
+	petStatus.WakeSeconds = gameDaysToSeconds(s.pet.WakeIn())
 	petStatus.Attention = s.pet.AttentionStyle()
 	petStatus.Relations = s.pet.Relations()
 	petStatus.Tolerates = s.pet.Tolerates()

@@ -452,8 +452,13 @@ class InteractionProcessor {
 
 Validation: before care is applied, it is checked against the pet's state. A full pet is not
 hungry, a clean pet does not need grooming, a very tired pet will not play, a stressed or tired
-pet will not train, and a sleeping pet accepts only food, water and medical care. Refused care
-changes nothing, earns no points and returns the reason (for example "Biscuit is not hungry.").
+pet will not train, and a sleeping pet accepts only food, water and medical care (and cleaning up):
+play, training, walks, meeting, petting and grooming wait until it wakes (WaitsForWaking). Refused care
+changes nothing, earns no points and returns the reason (for example "Biscuit is not hungry."). A
+refusal because the pet is asleep is marked asleep, with an estimate of when it wakes (WakeIn: the
+time for rest to bring tiredness down to 0.2 and energy up to 0.5, also in the status as
+wake_seconds); the page shows it as a pop-up, and shows it without asking the server when the last
+status says the pet sleeps.
 The description of each interaction is shown as the tip of its care button.
 
 The player's care actions are Feed, Drink, Pet, Play, Groom, Heal (medical care) and Treat

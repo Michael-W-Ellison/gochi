@@ -382,7 +382,10 @@ turns something down nothing happens and no points are earned. Hover over a care
 what it does.
 
 When your pet gets very tired it falls asleep. A sleeping pet only accepts food, water and medical
-care; it sleeps until it is rested, recovering energy and losing tiredness, and wakes on its own.
+care (and you can clean up); play, training, walks, games, shows, exploring, meeting other pets,
+petting and grooming wait until it wakes. Trying one of them opens a pop-up saying it is asleep and
+about when it will wake. It sleeps until it is rested, recovering energy and losing tiredness, and
+wakes on its own.
 Good weather for sleeping and a **Cozy Bed** make its sleep more restful. Pets have a daily rhythm:
 they get sleepy at night (cats sleep from about 11 pm to 5 am, dogs from 10 pm to 6 am, by the
 game's clock), tire faster in the dark, and fall asleep more easily then. A pet that stays awake too

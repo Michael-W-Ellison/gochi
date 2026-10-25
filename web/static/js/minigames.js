@@ -24,6 +24,7 @@ function petName() {
 }
 
 function openGames() {
+    if (petAsleep()) return;
     panelMode = 'games';
     fetch('/api/games').then(r => r.json()).then(data => {
         if (data.success) renderGames(data.data);
