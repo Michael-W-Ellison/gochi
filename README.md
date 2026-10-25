@@ -861,7 +861,9 @@ the stairs for seniors.
   Hydration and Paw care weeks swap places when that puts Hydration in summer and Paw care in winter
   (for your hemisphere). The week's goal follows the theme when it can (teeth brushing in Dental
   week, trips in Explorer week, new tricks in Training week, play in Enrichment week, finished days
-  in Nutrition week), and one home happening that week is about it. Five topics were added to the
+  in Nutrition week), and one home happening that week is about it. That happening comes once a week for each
+  player: it is the first happening of the week for the first of your pets to have one, and your
+  other pets that week have other, random happenings. Five topics were added to the
   care guide for the themes: Training, Outdoors safely, Company and friends, A safe home and Paw care.
 - **🎯 Projects**: long-term goals for the household, with progress bars: raise a Grand Champion,
   complete the collection, furnish the house, raise five generations, and raise every breed of a

@@ -107,6 +107,10 @@ type householdData struct {
 
 	// The tour and first-time tips that have been shown (help.go)
 	TipsSeen []string `json:"tips_seen"`
+
+	// The week (core.ThemeWeek) one of the pets had the week's themed
+	// happening in, so the player's other pets don't have it again
+	ThemeHappeningWeek string `json:"theme_happening_week,omitempty"`
 }
 
 // household is the player's household
@@ -370,6 +374,25 @@ func (h *household) setHemisphere(hemi environment.Hemisphere) error {
 	return h.saveLocked()
 }
 
+// themeHappeningWeek returns the week the household last had the week's
+// themed happening in
+func (h *household) themeHappeningWeek() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.data.ThemeHappeningWeek
+}
+
+// setThemeHappeningWeek records that a pet had the week's themed happening
+func (h *household) setThemeHappeningWeek(week string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.data.ThemeHappeningWeek == week {
+		return
+	}
+	h.data.ThemeHappeningWeek = week
+	h.saveOrLogLocked()
+}
+
 // seeTip records that a tip has been shown
 func (h *household) seeTip(id string) error {
 	h.mu.Lock()
@@ -468,6 +491,9 @@ func (h *household) merge(other householdData) bool {
 		if !slices.Contains(h.data.Collected, id) {
 			h.data.Collected, changed = append(h.data.Collected, id), true
 		}
+	}
+	if other.ThemeHappeningWeek > h.data.ThemeHappeningWeek { // "2026-W43" sorts by date
+		h.data.ThemeHappeningWeek, changed = other.ThemeHappeningWeek, true
 	}
 	for _, id := range other.TipsSeen {
 		if !slices.Contains(h.data.TipsSeen, id) {

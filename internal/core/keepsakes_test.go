@@ -148,7 +148,7 @@ func TestThemeShapesTheWeek(t *testing.T) {
 	useRandom(t, 0)
 	pet = NewDigitalPet("Rex", "owner")
 	setCalmHealthyState(pet)
-	if h := pet.CheckHappening(); h == nil || h.ID != "thunderstorm" {
+	if h := checkHappening(pet); h == nil || h.ID != "thunderstorm" {
 		t.Errorf("Calm week's happening: %+v", h)
 	}
 }

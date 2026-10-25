@@ -466,3 +466,49 @@ func TestPopupsWithoutAPet(t *testing.T) {
 		t.Errorf("The status without a pet should carry the pop-up: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// The week's themed happening comes once for each player: the player's
+// first pet this week meets it, their next pet a random one, and another
+// player's pet meets it again
+func TestThemedHappeningOncePerPlayer(t *testing.T) {
+	clock := time.Date(2026, 3, 10, 9, 0, 0, 0, time.UTC)
+	core.UseClock(func() time.Time { return clock })
+	t.Cleanup(func() { core.UseClock(nil) })
+	for core.WeekTheme().ID != "explorer" {
+		clock = clock.AddDate(0, 0, 7)
+	}
+	h := newHarness(t)
+	happening := func(name string, species core.Species) string {
+		t.Helper()
+		h.createPet(name, species)
+		for i := 0; i < 2000; i++ {
+			clock = clock.Add(time.Minute)
+			h.server.mu.Lock()
+			h.server.lastActivity = clock
+			h.server.checkHappeningLocked(clock)
+			hap := h.server.pet.CurrentHappening()
+			if hap != nil {
+				h.server.pet.DismissHappening()
+			}
+			h.server.mu.Unlock()
+			if hap != nil {
+				return hap.ID
+			}
+		}
+		t.Fatalf("%s met no happening", name)
+		return ""
+	}
+	if got := happening("Mochi", core.SpeciesCat); got != "bee" {
+		t.Errorf("The player's first pet this week should meet the bee: %s", got)
+	}
+	if week := h.server.house.themeHappeningWeek(); week != core.ThemeWeek() {
+		t.Errorf("The household should record the week: %q", week)
+	}
+	if got := happening("Rex", core.SpeciesDog); got == "bee" || got == "gift" {
+		t.Errorf("The player's next pet shouldn't meet a themed happening again: %s", got)
+	}
+	h.switchTo(h.createAccount("Sam"))
+	if got := happening("Biscuit", core.SpeciesDog); got != "bee" {
+		t.Errorf("Another player's first pet should meet the bee: %s", got)
+	}
+}

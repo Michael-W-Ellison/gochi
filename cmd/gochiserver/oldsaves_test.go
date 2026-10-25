@@ -165,7 +165,9 @@ func TestOlderHouseholdFiles(t *testing.T) {
 	fields := householdFields()
 	for n := 1; n <= len(fields); n++ {
 		removed := fields[len(fields)-n:]
-		t.Run(fmt.Sprintf("without %s", strings.Join(removed, ",")), func(t *testing.T) {
+		// Named by the oldest field removed: a list of them all is too
+		// long for the test's folder name
+		t.Run(fmt.Sprintf("without %d, from %s", n, removed[0]), func(t *testing.T) {
 			old := copyDir(t, dir)
 			path := filepath.Join(old, householdFileName)
 			var file map[string]json.RawMessage

@@ -860,8 +860,10 @@ in a round) swap when the hydration week is in winter or the paw care week in su
 season for the household's hemisphere. Each has a care guide topic (teeth, exercise, grooming,
 water, training, senior, stress, outdoors, company, feeding, safety, paws; the five not in the
 species guides are added to both), a preferred weekly goal kind (used when it is among the week's
-options) and a list of happenings: the first that fits comes as the week's first happening, once
-a week. Two happenings were added for themes: a stale water bowl, and a senior stiff on the
+options) and a list of happenings: the first that fits comes as the week's first happening, once a
+week for each player: the household records the week (ThemeHappeningWeek, the later week winning
+when devices merge), and the player's other pets then have only random happenings that week, none
+of them the week's themed ones. Two happenings were added for themes: a stale water bowl, and a senior stiff on the
 stairs (seniors only).
 Projects (projects.go, GET /api/projects): Grand Champion (Champion wins of the active pet, 3, or
 done if the household has the achievement), the collection (complete sets of 12), the house

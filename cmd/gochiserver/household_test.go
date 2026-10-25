@@ -444,3 +444,20 @@ func TestCollectionOfAPetWithoutSouvenirs(t *testing.T) {
 		t.Errorf("The new pet's souvenirs should be an empty list: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// The week the household had the week's themed happening merges across
+// devices: the later week wins
+func TestThemeHappeningWeekMerges(t *testing.T) {
+	here, there := newTestHousehold(t, ""), newTestHousehold(t, "")
+	here.setThemeHappeningWeek("2026-W09")
+	there.setThemeHappeningWeek("2026-W11")
+	here.merge(there.snapshot())
+	if got := here.themeHappeningWeek(); got != "2026-W11" {
+		t.Errorf("The later week should win: %q", got)
+	}
+	there.setThemeHappeningWeek("2026-W10")
+	here.merge(there.snapshot())
+	if got := here.themeHappeningWeek(); got != "2026-W11" {
+		t.Errorf("An earlier week shouldn't replace it: %q", got)
+	}
+}

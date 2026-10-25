@@ -121,11 +121,18 @@ func WeekTheme() Theme {
 	return themeFor(now())
 }
 
-// themeHappeningLocked returns the week's themed happening if the pet
-// hasn't had it this week and one fits. Caller must hold p.mu.
-func (p *DigitalPet) themeHappeningLocked() (happeningDef, bool) {
+// ThemeWeek identifies the current week, as households record the week
+// they had its themed happening in
+func ThemeWeek() string {
+	return weekID(now())
+}
+
+// themeHappeningLocked returns the week's themed happening if neither the
+// pet nor (themeDone) another pet of its player has had it this week and
+// one fits. Caller must hold p.mu.
+func (p *DigitalPet) themeHappeningLocked(themeDone bool) (happeningDef, bool) {
 	week := weekID(now())
-	if p.Marks["theme_happening"] == week {
+	if themeDone || p.Marks["theme_happening"] == week {
 		return happeningDef{}, false
 	}
 	for _, id := range WeekTheme().happenings {

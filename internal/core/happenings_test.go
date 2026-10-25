@@ -63,7 +63,7 @@ func TestHappeningsComeNowAndThen(t *testing.T) {
 	useRandom(t, 0) // Always lucky
 	pet := NewDigitalPet("Mochi", "owner")
 	setCalmHealthyState(pet)
-	first := pet.CheckHappening()
+	first := checkHappening(pet)
 	if first == nil || len(first.Choices) < 2 {
 		t.Fatalf("A happening: %+v", first)
 	}
@@ -72,18 +72,18 @@ func TestHappeningsComeNowAndThen(t *testing.T) {
 	}
 	pet.DismissHappening()
 	*clock = clock.Add(10 * time.Minute)
-	if pet.CheckHappening() != nil {
+	if checkHappening(pet) != nil {
 		t.Error("Another happening within 20 minutes")
 	}
 	*clock = clock.Add(11 * time.Minute)
-	second := pet.CheckHappening()
+	second := checkHappening(pet)
 	if second == nil || second.ID == first.ID {
 		t.Fatalf("The next happening: %+v", second)
 	}
 
 	// Unanswered, it goes away after 10 minutes
 	*clock = clock.Add(11 * time.Minute)
-	pet.CheckHappening()
+	checkHappening(pet)
 	if pet.CurrentHappening() != nil {
 		t.Error("An unanswered happening passes")
 	}
@@ -92,7 +92,7 @@ func TestHappeningsComeNowAndThen(t *testing.T) {
 	pet = NewDigitalPet("Rex", "owner")
 	setCalmHealthyState(pet)
 	pet.Injured = true
-	if pet.CheckHappening() != nil {
+	if checkHappening(pet) != nil {
 		t.Error("A happening for an injured pet")
 	}
 }
@@ -178,5 +178,48 @@ func TestHappeningChoices(t *testing.T) {
 	}
 	if !earned {
 		t.Error("Happy Helper after 25 good calls")
+	}
+}
+
+// checkHappening checks for a happening as for a player who hasn't had the
+// week's themed one yet
+func checkHappening(pet *DigitalPet) *Happening {
+	h, _ := pet.CheckHappening(false)
+	return h
+}
+
+// The week's themed happening comes first, once for each player: once
+// another of the player's pets has had it (themeDone), a pet has only
+// random happenings, and never one of the week's themed ones
+func TestThemedHappeningOncePerPlayer(t *testing.T) {
+	day := time.Date(2026, 3, 10, 9, 0, 0, 0, time.UTC)
+	for themeFor(day).ID != "explorer" {
+		day = day.AddDate(0, 0, 7)
+	}
+	useClock(t, day)
+	useRandom(t, 0)
+	first := NewDigitalPet("Mochi", "owner")
+	setCalmHealthyState(first)
+	if h, themed := first.CheckHappening(false); h == nil || h.ID != "bee" || !themed {
+		t.Fatalf("The player's first pet this week should meet the bee: %+v %v", h, themed)
+	}
+	if ThemeWeek() != weekID(day) {
+		t.Errorf("ThemeWeek: %s", ThemeWeek())
+	}
+
+	theme := themeFor(day).happenings
+	seen := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		useRandom(t, 0, i)
+		pet := NewDigitalPet("Rex", "owner")
+		setCalmHealthyState(pet)
+		h, themed := pet.CheckHappening(true)
+		if h == nil || themed || slices.Contains(theme, h.ID) {
+			t.Fatalf("Another pet of the player shouldn't meet a themed happening again: %+v %v", h, themed)
+		}
+		seen[h.ID] = true
+	}
+	if len(seen) < 10 {
+		t.Errorf("The player's other pets should meet random happenings: only %v", seen)
 	}
 }
